@@ -1,0 +1,124 @@
+{
+  "strategy": {
+    "container": "div[data-name='legend-source-item']",
+    "title": "div[data-name='legend-source-title']",
+    "settingsButton": "button[data-name='legend-settings-action']",
+    "moreButton": "[data-name='legend-more-action']",
+    "menuItemSettings": "[role='menu'] [role='menuitem'][aria-label^='Settings']"
+  },
+  "settingsDialog": {
+    "container": "[data-name='indicator-properties-dialog']",
+    "title": "[data-name='indicator-properties-dialog'] .title",
+    "tabInputs": "[data-name='indicator-properties-dialog'] button#inputs",
+    "tabInputsActive": "[data-name='indicator-properties-dialog'] button#inputs.selected, [data-name='indicator-properties-dialog'] button#inputs[class*='selected']",
+    "tabProperties": "[data-name='indicator-properties-dialog'] button#properties",
+    "scrollContainer": "[data-name='indicator-properties-dialog'] div[class^='scrollable-']",
+    "inputRow": "[data-name='indicator-properties-dialog'] div[class*='cell-']",
+    "inputLabel": "[data-name='indicator-properties-dialog'] .label, [data-name='indicator-properties-dialog'] [class*='label-']",
+    "numberInput": "[data-name='indicator-properties-dialog'] input[type='number'], [data-name='indicator-properties-dialog'] input[type='text'], [data-name='indicator-properties-dialog'] input[inputmode='numeric']",
+    "checkboxInput": "[data-name='indicator-properties-dialog'] input[type='checkbox']",
+    "selectInput": "[data-name='indicator-properties-dialog'] [data-name='dropdown-menu'], [data-name='indicator-properties-dialog'] select",
+    "okButton": "[data-name='indicator-properties-dialog'] button[name='submit']",
+    "cancelButton": "[data-name='indicator-properties-dialog'] button[name='cancel'], [data-name='indicator-properties-dialog'] [data-name='close'][data-role='button']"
+  },
+  "strategyTester": {
+    "container": "[data-name='backtesting']",
+    "containerActive": "[data-name='backtesting'][data-active='true']",
+    "strategyGroup": "#bottom-area [class^='strategyGroup']",
+    "strategyTitle": "#bottom-area [class^='strategyGroup'] [data-strategy-title]",
+    "strategySettingsButton": "#bottom-area div[class^='backtesting'] [class^='strategyGroup'] > div:nth-child(2) > button:nth-child(1)",
+    "tabs": {
+      "performance": "[id='Performance Summary'], [id='Performance']",
+      "performanceActive": "[id='Performance Summary'][class*='selected'], [id='Performance'][class*='selected']",
+      "trades": "[id='Trade Analysis'], [id='Trades Analysis']",
+      "tradesActive": "[id='Trade Analysis'][class*='selected'], [id='Trades Analysis'][class*='selected']",
+      "ratios": "[id='Ratios']",
+      "ratiosActive": "[id='Ratios'][class*='selected']"
+    },
+    "deepBacktest": {
+      "switchGroup": ".backtesting.deep-history [class^='switchGroup'], #bottom-area div[class^='backtesting'] [class^='deepHistoryContainer']",
+      "toggle": ".backtesting.deep-history [class^='switchGroup'] [class^='switcher'] input, #bottom-area div[class^='backtesting'] [class^='switcher'] input",
+      "toggleChecked": ".backtesting.deep-history [class^='switchGroup'] [class^='switcher'] input[aria-checked='true']",
+      "toggleUnchecked": ".backtesting.deep-history [class^='switchGroup'] [class^='switcher'] input:not([aria-checked='true'])",
+      "dateRange": {
+        "container": ".backtesting.deep-history [class^='historyParams'], #bottom-area div[class^='backtesting'] [class^='historyParams']",
+        "startDate": ".backtesting.deep-history [class^='historyParams'] [class^='container'] div:nth-child(1) [class^='pickerInput'] input, #bottom-area div[class^='backtesting'] [class^='historyParams'] [class^='container'] > div:nth-child(1) div[class^='pickerInput'] input",
+        "endDate": ".backtesting.deep-history [class^='historyParams'] [class^='container'] div:nth-child(2) [class^='pickerInput'] input, #bottom-area div[class^='backtesting'] [class^='historyParams'] [class^='container'] > div:nth-child(2) div[class^='pickerInput'] input",
+        "generateButton": ".backtesting.deep-history [class^='historyParams'] button[class^='generateReportBtn']:not([aria-disabled='true']), #bottom-area div[class^='backtesting'] [class^='historyParams'] button[class^='generateReportBtn']:not([disabled])"
+      }
+    },
+    "report": {
+      "observeArea": "[class='backtesting deep-history'] div[class^='wrapper'], #bottom-area div[class^='backtesting'] div[class^='widgetContainer']",
+      "inProcess": "[class='backtesting deep-history'] div[role='progressbar'], #bottom-area div[class^='backtesting'] div[class^='reportContainer'] div[role='progressbar']",
+      "ready": "[class='backtesting deep-history'] div[class*='containerCell'], [class='backtesting deep-history'] div[class^='ka root'], #bottom-area div[class^='backtesting'] div[class^='reportContainer'] [class*='root']",
+      "error": "[class='backtesting deep-history'] div[class^='wrapper'] [class*='emptyStateIcon'], #bottom-area div[class^='backtesting'] div[class^='container'] [class*='emptyStateIcon']",
+      "header": "[class='backtesting deep-history'] > div:nth-child(1) > div[class^='wrapper'] div[class^='ka root'] table thead > tr > th, #bottom-area div[class^='backtesting'] div[class^='widgetContainer'] div[class^='reportContainer'] table thead > tr > th",
+      "row": "[class='backtesting deep-history'] > div:nth-child(1) > div[class^='wrapper'] div[class^='ka root'] table tbody > tr, #bottom-area div[class^='backtesting'] div[class^='widgetContainer'] div[class^='reportContainer'] table tbody > tr, #bottom-area div[class^='backtesting'] div[class^='deepHistoryContentWrapper'] div[class^='reportContainer'] table tbody > tr"
+    },
+    "deepReport": {
+      "observeArea": "[class='backtesting deep-history'] > div:nth-child(1), #bottom-area div[class^='backtesting'] div[class^='backtesting-content-wrapper']",
+      "inProcess": "[class='backtesting deep-history'] div[role='progressbar'], #bottom-area div[class^='backtesting'] div[class^='backtesting-content-wrapper'] div[role='progressbar']",
+      "ready": "[class='backtesting deep-history'] div[class*='containerCell'], [class='backtesting deep-history'] div[class^='ka root'], #bottom-area div[class^='backtesting'] div[class^='backtesting-content-wrapper'] div[class^='reportContainer'] [class*='root']",
+      "header": "[class='backtesting deep-history'] > div:nth-child(1) div[class^='ka root'] table thead > tr > th, #bottom-area div[class^='backtesting'] div[class^='backtesting-content-wrapper'] div[class^='reportContainer'] table thead > tr > th",
+      "row": "[class='backtesting deep-history'] > div:nth-child(1) div[class^='ka root'] table tbody > tr, #bottom-area div[class^='backtesting'] div[class^='backtesting-content-wrapper'] div[class^='reportContainer'] table tbody > tr, #bottom-area div[class^='backtesting'] div[class^='deepHistoryContentWrapper'] div[class^='reportContainer'] table tbody > tr"
+    }
+  },
+  "chart": {
+    "loadingIndicator": ".chart-loading-screen",
+    "container": ".chart-container",
+    "ticker": "#header-toolbar-symbol-search > div[class*='text-']",
+    "timeFrame": "#header-toolbar-intervals div[data-role^='button']",
+    "timeFrameActive": "#header-toolbar-intervals div[data-role^='button'][class*='isActive']"
+  },
+  "dialogs": {
+    "root": "#overlap-manager-root",
+    "goproPopupCloseButton": "[data-dialog-name='gopro'][class^='dialog'] button[class*='close']"
+  },
+  "metrics": {
+    "netProfit": {
+      "tab": "performance",
+      "label": "Net Profit",
+      "parser": "currency"
+    },
+    "totalTrades": {
+      "tab": "trades",
+      "label": "Total Trades",
+      "parser": "number"
+    },
+    "percentProfitable": {
+      "tab": "trades",
+      "label": "Percent Profitable",
+      "parser": "percentage"
+    },
+    "maxDrawdown": {
+      "tab": "performance",
+      "label": "Max equity drawdown",
+      "parser": "percentage"
+    },
+    "avgTrade": {
+      "tab": "performance",
+      "label": "Avg P&L",
+      "parser": "currency"
+    },
+    "avgBarsInTrade": {
+      "tab": "trades",
+      "label": "Avg # bars in trades",
+      "parser": "number"
+    },
+    "sharpeRatio": {
+      "tab": "ratios",
+      "label": "Sharpe Ratio",
+      "parser": "number"
+    },
+    "sortinoRatio": {
+      "tab": "ratios",
+      "label": "Sortino Ratio",
+      "parser": "number"
+    },
+    "profitFactor": {
+      "tab": "ratios",
+      "label": "Profit Factor",
+      "parser": "number"
+    }
+  }
+} 
