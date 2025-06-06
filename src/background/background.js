@@ -1,5 +1,3 @@
-import BayesianOptimizer from '../services/bayesianOptimizer';
-
 // Background service worker for TradingView Strategy Optimizer
 
 // Optimization state
@@ -90,9 +88,8 @@ function generateCombinations(params) {
 async function runOptimization(settings) {
   const { metric, iterations, deepBacktest, startDate, endDate, antiDetection, parameters, filters, strategyIndex = 0 } = settings;
   abortOptimization = false;
-  optimizer = null;
   try {
-    sendLog('info', 'Starting optimization...');
+    sendLog('info', 'Starting optimization via Python microservice...');
     await chrome.storage.local.set({ antiDetection });
     if (deepBacktest) {
       sendLog('debug', 'Enabling deep backtest...');
@@ -104,57 +101,34 @@ async function runOptimization(settings) {
     }
     const enabledParams = parameters.filter(p => p.enabled);
     if (enabledParams.length === 0) throw new Error('No parameters selected for optimization');
-    // Prepare for exhaustive search if iterations cover all combinations
-    const maxCombinations = calculateMaxCombinations(enabledParams);
-    optimizer = new BayesianOptimizer(enabledParams);
-    if (iterations >= maxCombinations) {
-      sendLog('info', `Iterations (${iterations}) >= total combinations (${maxCombinations}), using exhaustive search`);
-      const combos = generateCombinations(enabledParams);
-      for (let i = 0; i < combos.length; i++) {
-        if (abortOptimization) {
-          sendLog('info', 'Optimization stopped by user');
-          break;
-        }
-        sendLog('info', `Running iteration ${i+1}/${combos.length} (exhaustive)`);
-        const sample = combos[i];
-        const settingsToApply = enabledParams.map(param => ({ name: param.name, type: param.type, value: sample[param.name] }));
-        await sendToContent('applySettings', { strategyIndex, settings: settingsToApply });
-        if (deepBacktest) {
-          sendLog('debug', 'Generating deep backtest report...');
-          await sendToContent('setDateRange', { startDate, endDate });
-        } else {
-          sendLog('debug', 'Waiting for backtest to complete...');
-          await sendToContent('waitForBacktestComplete');
-        }
-        sendLog('debug', 'Reading metrics...');
-        const metricsToRead = [metric, ...filters.map(f => f.metric)];
-        const uniqueMetrics = [...new Set(metricsToRead)];
-        const metricsResp = await sendToContent('readAllMetrics', { metricNames: uniqueMetrics });
-        if (!metricsResp.success) throw new Error('Failed to read metrics');
-        const metricValue = metricsResp.metrics[metric];
-        const isValid = filters.every(f => {
-          const v = metricsResp.metrics[f.metric];
-          return (f.min == null || v >= f.min) && (f.max == null || v <= f.max);
-        });
-        optimizer.addObservation(sample, metricValue, isValid);
-        const progressData = optimizer.getProgress();
-        const isBest = progressData.bestSample && JSON.stringify(progressData.bestSample) === JSON.stringify(sample);
-        sendResult({ iteration: i+1, settings: sample, value: metricValue, metric, isValid, isBest });
-        sendLog('info', `Iteration ${i+1}: ${metric} = ${metricValue} ${isValid ? '(Valid)' : '(Filtered)'}'`);
-        chrome.runtime.sendMessage({ action: 'optimizationProgress', iteration: i+1, totalIterations: combos.length });
-      }
-      return;
+    // Build parameter bounds for microservice
+    const pbounds = {};
+    enabledParams.forEach(p => { pbounds[p.name] = [p.min, p.max]; });
+    const initPoints = Math.min(2, iterations);
+    // Initialize microservice
+    let resp = await fetch('http://localhost:8000/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pbounds: Object.fromEntries(parameters.filter(p => p.enabled).map(p => [p.name, [p.min, p.max]])), init_points: Math.min(2, iterations), n_iter: iterations })
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `Init failed: ${resp.statusText}`);
     }
-    const initialSamples = await optimizer.getInitialSamples();
-    for (let i = 0; i < iterations; i++) {
+    let data = await resp.json();
+    if (data.params === undefined) {
+      throw new Error(`Init returned no params: ${JSON.stringify(data)}`);
+    }
+    let currentParams = data.params;
+    let done = data.done;
+    for (let i = 1; !done && i <= iterations; i++) {
       if (abortOptimization) {
         sendLog('info', 'Optimization stopped by user');
         break;
       }
-      sendLog('info', `Running iteration ${i+1}/${iterations}`);
-      const sample = i < initialSamples.length ? initialSamples[i] : await optimizer.getNextSample();
-      sendLog('debug', `Applying settings: ${JSON.stringify(sample)}`);
-      const settingsToApply = enabledParams.map(param => ({ name: param.name, type: param.type, value: sample[param.name] }));
+      sendLog('info', `Iteration ${i}/${iterations}, params: ${JSON.stringify(currentParams)}`);
+      // Apply new settings
+      const settingsToApply = enabledParams.map(p => ({ name: p.name, type: p.type, value: currentParams[p.name] }));
       await sendToContent('applySettings', { strategyIndex, settings: settingsToApply });
       if (deepBacktest) {
         sendLog('debug', 'Generating deep backtest report...');
@@ -164,32 +138,45 @@ async function runOptimization(settings) {
         await sendToContent('waitForBacktestComplete');
       }
       sendLog('debug', 'Reading metrics...');
-      const metricsToRead = [metric, ...filters.map(f => f.metric)];
-      const uniqueMetrics = [...new Set(metricsToRead)];
-      const metricsResp = await sendToContent('readAllMetrics', { metricNames: uniqueMetrics });
+      const metricNames = [...new Set([metric, ...filters.map(f => f.metric)])];
+      const metricsResp = await sendToContent('readAllMetrics', { metricNames });
       if (!metricsResp.success) throw new Error('Failed to read metrics');
-      const metricValue = metricsResp.metrics[metric];
+      const values = metricsResp.metrics;
+      const metricValue = values[metric];
       const isValid = filters.every(f => {
-        const v = metricsResp.metrics[f.metric];
+        const v = values[f.metric];
         return (f.min == null || v >= f.min) && (f.max == null || v <= f.max);
       });
-      optimizer.addObservation(sample, metricValue, isValid);
-      const result = { iteration: i+1, settings: sample, value: metricValue, metric, isValid, isBest: false };
-      const progress = optimizer.getProgress();
-      if (progress.bestSample && JSON.stringify(progress.bestSample) === JSON.stringify(sample)) {
-        result.isBest = true;
+      // Observe back to microservice
+      resp = await fetch('http://localhost:8000/observe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params: currentParams, target: metricValue })
+      });
+      if (!resp.ok) {
+        const errorData = await resp.json().catch(() => ({}));
+        throw new Error(errorData.detail || resp.statusText);
       }
+      data = await resp.json();
+      if (data.params === undefined) {
+        throw new Error(`No parameters returned from microservice: ${JSON.stringify(data)}`);
+      }
+      done = data.done;
+      currentParams = data.params;
+      // Emit result for UI
+      const result = { iteration: i, settings: currentParams, value: metricValue, metric, isValid, isBest: false };
       sendResult(result);
-      sendLog('info', `Iteration ${i+1}: ${metric} = ${metricValue} ${isValid ? '(Valid)' : '(Filtered)'}`);
-      // Send progress update
-      chrome.runtime.sendMessage({ action: 'optimizationProgress', iteration: i+1, totalIterations: iterations });
+      chrome.runtime.sendMessage({ action: 'optimizationProgress', iteration: i, totalIterations: iterations });
     }
-    const final = optimizer.getProgress();
-    if (final.bestValue != null) {
-      sendLog('info', `Optimization complete! Best ${metric}: ${final.bestValue}`);
-      sendLog('info', `Best settings: ${JSON.stringify(final.bestSample)}`);
-    } else {
-      sendLog('warning', 'No valid results found');
+    // Fetch best result
+    if (!abortOptimization) {
+      resp = await fetch('http://localhost:8000/best');
+      data = await resp.json();
+      const bestParams = data.params;
+      const bestValue = data.target;
+      sendLog('info', `Optimization complete! Best ${metric}: ${bestValue}`);
+      sendLog('info', `Best settings: ${JSON.stringify(bestParams)}`);
+      sendResult({ iteration: 'best', settings: bestParams, value: bestValue, metric, isValid: true, isBest: true });
     }
   } catch (error) {
     sendLog('error', `Optimization error: ${error.message}`);
@@ -197,7 +184,6 @@ async function runOptimization(settings) {
     if (deepBacktest) {
       await sendToContent('toggleDeepBacktest', { enabled: false });
     }
-    optimizer = null;
     abortOptimization = false;
     chrome.runtime.sendMessage({ action: 'optimizationCompleted' });
   }

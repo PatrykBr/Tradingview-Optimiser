@@ -6,10 +6,12 @@
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
-    "https://www.tradingview.com/*"
+    "https://www.tradingview.com/*",
+    "http://localhost:8000/*"
   ],
   "background": {
     "service_worker": "background.js"

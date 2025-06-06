@@ -1,7 +1,7 @@
 import React from 'react';
 import { getAvailableMetrics } from '../utils/metrics';
 
-function ResultsPanel({ results, bestResult, onClear }) {
+function ResultsPanel({ results, bestResult, parameters = [], onClear }) {
   const metrics = getAvailableMetrics();
 
   const formatValue = (value, metricKey) => {
@@ -31,24 +31,31 @@ function ResultsPanel({ results, bestResult, onClear }) {
   return (
     <div className="space-y-4">
       {bestResult && (
-        <div className="bg-tv-green bg-opacity-20 border border-tv-green rounded p-4">
-          <h3 className="text-lg font-semibold text-tv-green mb-2">Best Result So Far</h3>
-          <div className="space-y-2">
+        <div className="bg-tv-green bg-opacity-20 border border-tv-green rounded-lg p-4 text-white">
+          <h3 className="text-base font-semibold text-white mb-3">Best Result So Far</h3>
+          <div className="flex items-center space-x-6 mb-3">
             <div>
-              <span className="text-sm text-tv-gray-400">Metric Value:</span>
-              <span className="ml-2 font-medium">{formatValue(bestResult.value, bestResult.metric)}</span>
+              <p className="text-xs text-tv-gray-300 uppercase">Metric</p>
+              <p className="text-2xl font-bold">{formatValue(bestResult.value, bestResult.metric)}</p>
             </div>
             <div>
-              <span className="text-sm text-tv-gray-400">Settings:</span>
-              <div className="mt-1 text-sm bg-tv-gray-800 rounded p-2 font-mono">
-                {formatSettings(bestResult.settings)}
-              </div>
-            </div>
-            <div>
-              <span className="text-sm text-tv-gray-400">Iteration:</span>
-              <span className="ml-2">{bestResult.iteration}</span>
+              <p className="text-xs text-tv-gray-300 uppercase">Iteration</p>
+              <p className="text-lg font-medium">{bestResult.iteration}</p>
             </div>
           </div>
+          <details className="bg-tv-gray-800 rounded-lg p-3 text-xs">
+            <summary className="cursor-pointer text-tv-blue hover:text-blue-400">View Parameters</summary>
+            <div className="mt-2 space-y-1 font-mono">
+              {parameters
+                .filter(p => bestResult.settings.hasOwnProperty(p.name))
+                .map(p => (
+                  <div key={p.name} className="flex justify-between">
+                    <span className="text-tv-gray-300 truncate">{p.name}</span>
+                    <span className="text-white font-medium">{String(bestResult.settings[p.name])}</span>
+                  </div>
+                ))}
+            </div>
+          </details>
         </div>
       )}
 
@@ -90,17 +97,24 @@ function ResultsPanel({ results, bestResult, onClear }) {
                     <td className="py-2 px-2">
                       <span className={`inline-block px-2 py-1 text-xs rounded ${
                         result.isValid 
-                          ? 'bg-tv-green bg-opacity-20 text-tv-green' 
-                          : 'bg-tv-red bg-opacity-20 text-tv-red'
+                          ? 'bg-tv-green bg-opacity-20 text-white' 
+                          : 'bg-tv-red bg-opacity-20 text-white'
                       }`}>
                         {result.isValid ? 'Valid' : 'Filtered'}
                       </span>
                     </td>
                     <td className="py-2 px-2">
-                      <details className="cursor-pointer">
-                        <summary className="text-tv-blue hover:text-blue-400">View</summary>
-                        <div className="mt-1 text-xs bg-tv-gray-700 rounded p-2 font-mono">
-                          {formatSettings(result.settings)}
+                      <details className="bg-tv-gray-800 rounded-lg p-2 text-xs">
+                        <summary className="cursor-pointer text-tv-blue hover:text-blue-400">View</summary>
+                        <div className="mt-2 space-y-1 font-mono">
+                          {parameters
+                            .filter(p => result.settings.hasOwnProperty(p.name))
+                            .map(p => (
+                              <div key={p.name} className="flex justify-between">
+                                <span className="text-tv-gray-300 truncate">{p.name}</span>
+                                <span className="text-white font-medium">{String(result.settings[p.name])}</span>
+                              </div>
+                            ))}
                         </div>
                       </details>
                     </td>

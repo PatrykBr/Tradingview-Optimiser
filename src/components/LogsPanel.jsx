@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 function LogsPanel({ logs }) {
   const [logLevel, setLogLevel] = useState('basic');
   const logsEndRef = useRef(null);
+  const logsContainerRef = useRef(null);
 
   useEffect(() => {
     // Load log level from storage
@@ -14,8 +15,11 @@ function LogsPanel({ logs }) {
   }, []);
 
   useEffect(() => {
-    // Auto-scroll to bottom when new logs arrive
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Auto-scroll only the logs container to bottom when new logs arrive
+    const el = logsContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [logs]);
 
   const handleLogLevelChange = (level) => {
@@ -73,7 +77,7 @@ function LogsPanel({ logs }) {
         </div>
       </div>
 
-      <div className="bg-tv-gray-900 rounded p-3 h-96 overflow-y-auto font-mono text-xs">
+      <div ref={logsContainerRef} className="bg-tv-gray-900 rounded p-3 h-96 overflow-y-auto font-mono text-xs">
         {filteredLogs.length === 0 ? (
           <p className="text-tv-gray-500 text-center py-4">No logs yet</p>
         ) : (
@@ -87,7 +91,6 @@ function LogsPanel({ logs }) {
                 <span className="text-tv-gray-300 flex-1 break-all">{log.message}</span>
               </div>
             ))}
-            <div ref={logsEndRef} />
           </div>
         )}
       </div>

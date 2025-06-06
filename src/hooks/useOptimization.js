@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import BayesianOptimizer from '../services/bayesianOptimizer';
 
 export function useOptimization() {
   const [optimizationState, setOptimizationState] = useState('idle'); // idle, running, stopped
   const [optimizationSettings, setOptimizationSettings] = useState({
+    strategyIndex: 0,
     metric: 'netProfit',
     iterations: 50,
     deepBacktest: false,

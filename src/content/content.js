@@ -384,12 +384,19 @@
 
     // Wait for backtest to complete
     async waitForBacktestComplete() {
+      // Ensure strategy tester tab is open
+      if (!document.querySelector(domSelectors.strategyTester.containerActive)) {
+        const panelToggle = document.querySelector(domSelectors.strategyTester.container);
+        if (panelToggle) {
+          await DOMUtils.clickElement(panelToggle);
+          await DOMUtils.delay(1000);
+        }
+      }
       // Wait for at least one result row (performance or deep report) to appear
       const rowSelectors = [
         domSelectors.strategyTester.report.row,
         domSelectors.strategyTester.deepReport.row
       ].join(', ');
-      // Wait for data row to appear (timeout 30s)
       await DOMUtils.waitForElement(rowSelectors, 30000);
       // Additional wait to ensure content is fully loaded
       await DOMUtils.delay(1000);

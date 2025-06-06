@@ -20,6 +20,17 @@ function FiltersPanel({ filters, onAddFilter, onRemoveFilter }) {
       }
     });
   }, []);
+  // Listen to storage changes for favoriteMetrics
+  useEffect(() => {
+    const handleStorageChange = (changes, area) => {
+      if (area === 'local' && changes.favoriteMetrics) {
+        const newFavs = changes.favoriteMetrics.newValue;
+        if (Array.isArray(newFavs)) setFavoriteMetrics(newFavs);
+      }
+    };
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+  }, []);
   // Sort metrics: favorites first
   const sortedMetrics = [
     ...availableMetrics.filter(m => favoriteMetrics.includes(m.key)),
@@ -70,18 +81,35 @@ function FiltersPanel({ filters, onAddFilter, onRemoveFilter }) {
                 className="flex-1 bg-tv-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tv-blue"
               >
                 {sortedMetrics.map(metric => (
-                  <option key={metric.key} value={metric.key}>
-                    {favoriteMetrics.includes(metric.key) ? '★ ' : ''}{metric.name}
+                  <option
+                    key={metric.key}
+                    value={metric.key}
+                    className={favoriteMetrics.includes(metric.key) ? 'text-tv-orange' : ''}
+                  >
+                    {favoriteMetrics.includes(metric.key) ? '⭐ ' : ''}{metric.name}
                   </option>
                 ))}
               </select>
               <button
                 type="button"
                 onClick={toggleFavoriteForFilter}
-                className="ml-2 text-tv-orange"
+                className="ml-2 p-1 rounded-full hover:bg-tv-gray-700 disabled:opacity-50 cursor-pointer"
                 title={favoriteMetrics.includes(newFilter.metric) ? 'Remove from favorites' : 'Add to favorites'}
               >
-                {favoriteMetrics.includes(newFilter.metric) ? '★' : '☆'}
+                <svg
+                  className={`${favoriteMetrics.includes(newFilter.metric) ? 'text-tv-orange fill-current' : 'text-tv-gray-500 hover:text-tv-orange'} w-5 h-5 transition-colors`}
+                  fill={favoriteMetrics.includes(newFilter.metric) ? 'currentColor' : 'none'}
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"
+                  />
+                </svg>
               </button>
             </div>
           </div>
