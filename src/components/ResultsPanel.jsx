@@ -1,7 +1,7 @@
 import React from 'react';
 import { getAvailableMetrics } from '../utils/metrics';
 
-function ResultsPanel({ results, bestResult, parameters = [], onClear, isOptimizing = false }) {
+function ResultsPanel({ results, bestResult, parameters = [], onClear, onApplyBest, onExportCSV, onExportJSON, isOptimizing = false }) {
   const metrics = getAvailableMetrics();
 
   const formatValue = (value, metricKey) => {
@@ -28,6 +28,42 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, isOptimiz
       .join(', ');
   };
 
+  // Helper function to render parameter settings with fallback
+  const renderParameterSettings = (resultSettings) => {
+    if (!resultSettings) {
+      return <div className="text-tv-gray-400">No settings available</div>;
+    }
+    
+    const settingsEntries = Object.entries(resultSettings);
+    if (settingsEntries.length === 0) {
+      return <div className="text-tv-gray-400">Settings object is empty</div>;
+    }
+    
+    // If we have parameter definitions, use them for filtering and display
+    if (parameters && parameters.length > 0) {
+      // Only filter by enabled parameters that have matching settings
+      const enabledParams = parameters.filter(p => p.enabled);
+      const filteredParams = enabledParams.filter(p => resultSettings.hasOwnProperty(p.name));
+      
+      if (filteredParams.length > 0) {
+        return filteredParams.map(p => (
+          <div key={p.name} className="flex justify-between">
+            <span className="text-tv-gray-300 truncate">{p.name}</span>
+            <span className="text-white font-medium">{String(resultSettings[p.name])}</span>
+          </div>
+        ));
+      }
+    }
+    
+    // Fallback: display all available settings from the result
+    return settingsEntries.map(([key, value]) => (
+      <div key={key} className="flex justify-between">
+        <span className="text-tv-gray-300 truncate">{key}</span>
+        <span className="text-white font-medium">{String(value)}</span>
+      </div>
+    ));
+  };
+
   // Determine the title and styling based on optimization state
   const getBestResultTitle = () => {
     if (isOptimizing) {
@@ -41,8 +77,8 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, isOptimiz
     if (isOptimizing && bestResult) {
       return (
         <div className="flex items-center space-x-2 mb-2">
-          <div className="w-2 h-2 bg-tv-blue rounded-full animate-pulse"></div>
-          <span className="text-xs text-tv-blue font-medium">Optimization in progress...</span>
+          <div className="w-2 h-2 bg-tv-orange rounded-full animate-pulse"></div>
+          <span className="text-xs text-tv-orange font-medium bg-tv-gray-800 px-2 py-1 rounded">Optimization in progress...</span>
         </div>
       );
     }
@@ -64,26 +100,51 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, isOptimiz
               <p className="text-xs text-tv-gray-300 uppercase">Iteration</p>
               <p className="text-lg font-medium">{bestResult.iteration}</p>
             </div>
-            {isOptimizing && (
-              <div>
-                <p className="text-xs text-tv-gray-300 uppercase">Status</p>
-                <p className="text-lg font-medium text-tv-blue">Running</p>
-              </div>
-            )}
           </div>
           <details className="bg-tv-gray-800 rounded-lg p-3 text-xs">
             <summary className="cursor-pointer text-tv-blue hover:text-blue-400">View Parameters</summary>
             <div className="mt-2 space-y-1 font-mono">
-              {parameters
-                .filter(p => bestResult.settings.hasOwnProperty(p.name))
-                .map(p => (
-                  <div key={p.name} className="flex justify-between">
-                    <span className="text-tv-gray-300 truncate">{p.name}</span>
-                    <span className="text-white font-medium">{String(bestResult.settings[p.name])}</span>
-                  </div>
-                ))}
+              {renderParameterSettings(bestResult.settings)}
             </div>
           </details>
+        </div>
+      )}
+
+      {/* Action Buttons - Show when optimization is finished and there are results */}
+      {!isOptimizing && results.length > 0 && (
+        <div className="bg-tv-gray-800 rounded-lg p-4">
+          <h3 className="text-base font-semibold text-white mb-3">Actions</h3>
+          <div className="flex flex-wrap gap-3">
+            {bestResult && (
+              <button
+                onClick={onApplyBest}
+                className="flex items-center space-x-2 px-4 py-2 bg-tv-green text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span>Apply Best</span>
+              </button>
+            )}
+            <button
+              onClick={onExportCSV}
+              className="flex items-center space-x-2 px-4 py-2 bg-tv-blue text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span>Export CSV</span>
+            </button>
+            <button
+              onClick={onExportJSON}
+              className="flex items-center space-x-2 px-4 py-2 bg-tv-blue text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span>Export JSON</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -91,12 +152,6 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, isOptimiz
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-3">
             <h3 className="text-lg font-semibold">All Results</h3>
-            {isOptimizing && (
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-tv-blue rounded-full animate-pulse"></div>
-                <span className="text-xs text-tv-blue">Live Updates</span>
-              </div>
-            )}
           </div>
           <button
             onClick={onClear}
@@ -145,14 +200,7 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, isOptimiz
                       <details className="bg-tv-gray-800 rounded-lg p-2 text-xs">
                         <summary className="cursor-pointer text-tv-blue hover:text-blue-400">View</summary>
                         <div className="mt-2 space-y-1 font-mono">
-                          {parameters
-                            .filter(p => result.settings.hasOwnProperty(p.name))
-                            .map(p => (
-                              <div key={p.name} className="flex justify-between">
-                                <span className="text-tv-gray-300 truncate">{p.name}</span>
-                                <span className="text-white font-medium">{String(result.settings[p.name])}</span>
-                              </div>
-                            ))}
+                          {renderParameterSettings(result.settings)}
                         </div>
                       </details>
                     </td>

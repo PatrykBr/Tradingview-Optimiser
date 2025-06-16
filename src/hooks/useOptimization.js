@@ -240,6 +240,135 @@ export function useOptimization() {
     addLog('info', 'Results cleared');
   }, [addLog, optimizationSettings.iterations]);
 
+  // Apply best optimization result to TradingView
+  const applyBestResult = useCallback(async (bestResult) => {
+    if (!bestResult) {
+      addLog('error', 'No best result to apply');
+      return;
+    }
+
+    try {
+      addLog('info', `Applying best result from iteration ${bestResult.iteration}`);
+      
+      // Convert the result settings to the format expected by applySettings
+      const settingsToApply = Object.entries(bestResult.settings).map(([name, value]) => ({
+        name,
+        value
+      }));
+      
+      // Send message to content script to apply the settings
+      const response = await sendToContent('applySettings', {
+        strategyIndex: optimizationSettings.strategyIndex,
+        settings: settingsToApply
+      });
+      
+      if (response.success) {
+        addLog('success', 'Best optimization result applied successfully');
+      } else {
+        addLog('error', `Failed to apply result: ${response.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      addLog('error', `Error applying best result: ${error.message}`);
+    }
+  }, [addLog, sendToContent, optimizationSettings.strategyIndex]);
+
+  // Export results to CSV format
+  const exportToCSV = useCallback(() => {
+    if (results.length === 0) {
+      addLog('error', 'No results to export');
+      return;
+    }
+
+    try {
+      // Create CSV headers
+      const headers = ['Iteration', 'Metric Value', 'Valid', 'Metric Type'];
+      
+      // Add parameter headers
+      if (optimizationSettings.parameters && optimizationSettings.parameters.length > 0) {
+        const paramNames = optimizationSettings.parameters.map(p => p.name);
+        headers.push(...paramNames);
+      }
+      
+      // Create CSV rows
+      const rows = results.map(result => {
+        const row = [
+          result.iteration,
+          result.value,
+          result.isValid ? 'Yes' : 'No',
+          result.metric
+        ];
+        
+        // Add parameter values
+        if (optimizationSettings.parameters && optimizationSettings.parameters.length > 0) {
+          const paramValues = optimizationSettings.parameters.map(p => 
+            result.settings[p.name] !== undefined ? result.settings[p.name] : ''
+          );
+          row.push(...paramValues);
+        }
+        
+        return row;
+      });
+      
+      // Combine headers and rows
+      const csvContent = [headers, ...rows]
+        .map(row => row.map(field => `"${field}"`).join(','))
+        .join('\n');
+      
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `optimization_results_${Date.now()}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      addLog('success', `Exported ${results.length} results to CSV`);
+    } catch (error) {
+      addLog('error', `Error exporting to CSV: ${error.message}`);
+    }
+  }, [results, optimizationSettings.parameters, addLog]);
+
+  // Export results to JSON format
+  const exportToJSON = useCallback(() => {
+    if (results.length === 0) {
+      addLog('error', 'No results to export');
+      return;
+    }
+
+    try {
+      const exportData = {
+        metadata: {
+          exportDate: new Date().toISOString(),
+          optimizationSettings: optimizationSettings,
+          filters: filters,
+          totalResults: results.length,
+          validResults: results.filter(r => r.isValid).length
+        },
+        results: results
+      };
+      
+      const jsonContent = JSON.stringify(exportData, null, 2);
+      
+      // Create and download file
+      const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `optimization_results_${Date.now()}.json`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      addLog('success', `Exported ${results.length} results to JSON`);
+    } catch (error) {
+      addLog('error', `Error exporting to JSON: ${error.message}`);
+    }
+  }, [results, optimizationSettings, filters, addLog]);
+
   return {
     optimizationState,
     optimizationSettings,
@@ -252,6 +381,9 @@ export function useOptimization() {
     addFilter,
     removeFilter,
     clearResults,
+    applyBestResult,
+    exportToCSV,
+    exportToJSON,
     progress,
     isStateLoaded
   };

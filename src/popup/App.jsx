@@ -41,6 +41,9 @@ function App() {
     addFilter,
     removeFilter,
     clearResults,
+    applyBestResult,
+    exportToCSV,
+    exportToJSON,
     isStateLoaded
   } = useOptimization();
 
@@ -215,7 +218,6 @@ function App() {
                 <span className="text-xs font-medium">Running</span>
               </div>
             )}
-            <div className="w-2 h-2 bg-tv-green rounded-full" title="Connected to TradingView"></div>
           </div>
         </div>
       </div>
@@ -390,6 +392,9 @@ function App() {
               bestResult={bestResult}
               parameters={optimizationSettings.parameters}
               onClear={clearResults}
+              onApplyBest={() => applyBestResult(bestResult)}
+              onExportCSV={exportToCSV}
+              onExportJSON={exportToJSON}
               isOptimizing={optimizationState === 'running'}
             />
             <LogsPanel logs={logs} />
