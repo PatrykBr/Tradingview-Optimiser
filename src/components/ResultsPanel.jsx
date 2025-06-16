@@ -39,23 +39,8 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, onApplyBe
       return <div className="text-tv-gray-400">Settings object is empty</div>;
     }
     
-    // If we have parameter definitions, use them for filtering and display
-    if (parameters && parameters.length > 0) {
-      // Only filter by enabled parameters that have matching settings
-      const enabledParams = parameters.filter(p => p.enabled);
-      const filteredParams = enabledParams.filter(p => resultSettings.hasOwnProperty(p.name));
-      
-      if (filteredParams.length > 0) {
-        return filteredParams.map(p => (
-          <div key={p.name} className="flex justify-between">
-            <span className="text-tv-gray-300 truncate">{p.name}</span>
-            <span className="text-white font-medium">{String(resultSettings[p.name])}</span>
-          </div>
-        ));
-      }
-    }
-    
-    // Fallback: display all available settings from the result
+    // ALWAYS display all available settings from the result
+    // This ensures settings are shown regardless of current parameter states
     return settingsEntries.map(([key, value]) => (
       <div key={key} className="flex justify-between">
         <span className="text-tv-gray-300 truncate">{key}</span>

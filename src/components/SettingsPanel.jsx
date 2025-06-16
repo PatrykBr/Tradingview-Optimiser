@@ -7,7 +7,7 @@ function SettingsPanel({ settings, isLoading, onRefresh, onUpdateSettings, saved
     // Initialize settings: only populate when saved parameters exist, otherwise start empty
     if (Array.isArray(savedParameters) && savedParameters.length > 0) {
       setLocalSettings(savedParameters);
-    } else if (settings) {
+    } else if (Array.isArray(settings)) {
       setLocalSettings(settings.map(setting => ({
         ...setting,
         enabled: false,

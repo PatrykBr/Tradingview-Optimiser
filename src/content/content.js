@@ -182,52 +182,74 @@
       const inputRows = dialog.querySelectorAll(domSelectors.settingsDialog.inputRow);
       console.log('Found input rows:', inputRows.length);
       
-      inputRows.forEach((row) => {
-        // Try configured selectors for label
-        let label = row.querySelector(domSelectors.settingsDialog.inputLabel);
-        if (!label) {
-          // Try alternative generic selectors
-          label = row.querySelector('label') || row.querySelector('[class*="label"]') || row.querySelector('span');
-        }
-        if (!label) return;
-        // If label text is empty, fallback to preceding key cell label
-        if (!label.textContent.trim()) {
-          const prev = row.previousElementSibling;
-          if (prev && prev.matches('div.cell-tBgV1m0B.first-tBgV1m0B')) {
-            const alt = prev.querySelector('div.inner-tBgV1m0B');
-            if (alt) label = alt;
-          }
-        }
-        const setting = {
-          name: label.textContent.trim(),
+      for (const row of inputRows) {
+        // Identify input types first to determine label strategy
+        const checkboxInput = row.querySelector(domSelectors.settingsDialog.checkboxInput);
+        const selectInput = row.querySelector(domSelectors.settingsDialog.selectInput);
+        const inputElement = row.querySelector('input:not([type="checkbox"])');
+        
+        // Skip rows that don't have any input elements
+        if (!checkboxInput && !selectInput && !inputElement) continue;
+        
+        let label = null;
+        let setting = {
+          name: '',
           type: null,
           value: null,
           options: []
         };
 
-        // Identify input types: checkbox, select, or numeric (any non-checkbox input)
-        const checkboxInput = row.querySelector(domSelectors.settingsDialog.checkboxInput);
-        const selectInput = row.querySelector(domSelectors.settingsDialog.selectInput);
-        let inputElement;
-        if (checkboxInput) {
-          setting.type = 'checkbox';
-          setting.value = checkboxInput.checked;
-        } else if (selectInput) {
+        // For dropdown/select inputs, the label is usually in the previous row
+        if (selectInput) {
+          const prev = row.previousElementSibling;
+          if (prev && prev.matches('div.cell-tBgV1m0B.first-tBgV1m0B')) {
+            const prevLabel = prev.querySelector('div.inner-tBgV1m0B');
+            if (prevLabel && prevLabel.textContent.trim()) {
+              label = prevLabel;
+            }
+          }
+          // If no previous label found, try current row
+          if (!label) {
+            label = row.querySelector(domSelectors.settingsDialog.inputLabel) || 
+                   row.querySelector('label') || 
+                   row.querySelector('[class*="label"]') || 
+                   row.querySelector('span');
+          }
+          
           setting.type = 'select';
           setting.value = selectInput.textContent.trim();
-          // Capture options for native select elements
-          if (selectInput.tagName.toLowerCase() === 'select') {
-            setting.options = Array.from(selectInput.options).map(opt => opt.text.trim());
+          setting.options = await this.getDropdownOptions(selectInput);
+        }
+        // For checkboxes and number inputs, try current row first, then previous if needed
+        else {
+          label = row.querySelector(domSelectors.settingsDialog.inputLabel);
+          if (!label) {
+            label = row.querySelector('label') || row.querySelector('[class*="label"]') || row.querySelector('span');
           }
-        } else if ((inputElement = row.querySelector('input:not([type="checkbox"])'))) {
-          setting.type = 'number';
-          setting.value = inputElement.value;
+          // If label text is empty, fallback to preceding key cell label
+          if (!label || !label.textContent.trim()) {
+            const prev = row.previousElementSibling;
+            if (prev && prev.matches('div.cell-tBgV1m0B.first-tBgV1m0B')) {
+              const alt = prev.querySelector('div.inner-tBgV1m0B');
+              if (alt) label = alt;
+            }
+          }
+          
+          if (checkboxInput) {
+            setting.type = 'checkbox';
+            setting.value = checkboxInput.checked;
+          } else if (inputElement) {
+            setting.type = 'number';
+            setting.value = inputElement.value;
+          }
         }
 
-        if (setting.type) {
+        // Set the setting name from the label
+        if (label && label.textContent.trim()) {
+          setting.name = label.textContent.trim();
           settings.push(setting);
         }
-      });
+      }
 
       console.log('Read settings:', settings);
 
@@ -333,37 +355,33 @@
         const newSetting = newSettings.find(s => s.name === settingName);
         
         if (!newSetting) continue;
+        
 
-        // Apply based on type
+
+        // Apply based on available input elements and value type
         const numberInput = row.querySelector(domSelectors.settingsDialog.numberInput);
         const checkboxInput = row.querySelector(domSelectors.settingsDialog.checkboxInput);
         const selectInput = row.querySelector(domSelectors.settingsDialog.selectInput);
 
-        if (numberInput && newSetting.type === 'number') {
+        if (numberInput && (newSetting.type === 'number' || typeof newSetting.value === 'string' || typeof newSetting.value === 'number')) {
           DOMUtils.setInputValue(numberInput, newSetting.value);
           await DOMUtils.delay(200);
-        } else if (checkboxInput && newSetting.type === 'checkbox') {
-          if (checkboxInput.checked !== newSetting.value) {
+        } else if (checkboxInput && (newSetting.type === 'checkbox' || typeof newSetting.value === 'boolean')) {
+          const targetValue = typeof newSetting.value === 'boolean' ? newSetting.value : newSetting.value === 'true';
+          if (checkboxInput.checked !== targetValue) {
             await DOMUtils.clickElement(checkboxInput);
           }
-        } else if (selectInput && newSetting.type === 'select') {
+        } else if (selectInput && (newSetting.type === 'select' || (!numberInput && !checkboxInput))) {
           // Handle select inputs (both native <select> and custom dropdowns)
           if (selectInput.tagName.toLowerCase() === 'select') {
             // Native select element
             DOMUtils.setInputValue(selectInput, newSetting.value);
             await DOMUtils.delay(200);
           } else {
-            // Custom dropdown menu: click to open, then click matching option
-            await DOMUtils.clickElement(selectInput);
-            await DOMUtils.delay(200);
-            // Find all options within the settings dialog
-            const options = Array.from(dialog.querySelectorAll('[role="option"], option'));
-            for (const option of options) {
-              if (option.textContent.trim().toLowerCase() === newSetting.value.trim().toLowerCase()) {
-                await DOMUtils.clickElement(option);
-                await DOMUtils.delay(200);
-                break;
-              }
+            // Custom dropdown menu: use new method to handle separate overlay menus
+            const success = await this.clickDropdownOption(selectInput, newSetting.value);
+            if (!success) {
+              console.warn(`Failed to set dropdown value: ${newSetting.value} for ${settingName}`);
             }
           }
         }
@@ -400,6 +418,130 @@
       await DOMUtils.waitForElement(rowSelectors, 30000);
       // Additional wait to ensure content is fully loaded
       await DOMUtils.delay(1000);
+    },
+
+    // Helper method to find dropdown options for custom dropdowns
+    async getDropdownOptions(selectInput) {
+      // For native select elements
+      if (selectInput.tagName.toLowerCase() === 'select') {
+        return Array.from(selectInput.options).map(opt => opt.text.trim());
+      }
+      
+      try {
+        // Click to open dropdown
+        await DOMUtils.clickElement(selectInput);
+        await DOMUtils.delay(150); // Reduced delay
+        
+        // Optimized single-pass strategy: find dropdown menu efficiently
+        const selectId = selectInput.id;
+        let dropdownMenu = null;
+        
+        // First try ID-based selectors (fastest)
+        if (selectId) {
+          dropdownMenu = document.querySelector(`[id*="${selectId}"][role="listbox"]`) ||
+                        document.querySelector(`[id="${selectId}_listbox"]`) ||
+                        document.querySelector(`[id="${selectId}_menu"]`);
+        }
+        
+        // If not found, look for visible dropdown menus (limited scope)
+        if (!dropdownMenu) {
+          // Use more efficient approach - check only likely containers
+          const containers = [
+            document.querySelector('[data-name="indicator-properties-dialog"]'),
+            document.body
+          ].filter(Boolean);
+          
+          for (const container of containers) {
+            const menus = container.querySelectorAll('[role="listbox"], [data-name="popup-menu-container"]');
+            for (const menu of menus) {
+              // Quick visibility check without getComputedStyle
+              if (menu.offsetWidth > 0 && menu.offsetHeight > 0) {
+                dropdownMenu = menu;
+                break;
+              }
+            }
+            if (dropdownMenu) break;
+          }
+        }
+        
+        let options = [];
+        if (dropdownMenu) {
+          options = Array.from(dropdownMenu.querySelectorAll('[role="option"]'))
+            .map(opt => opt.textContent.trim());
+        }
+        
+        // Quick close with escape key (faster than body click)
+        const escEvent = new KeyboardEvent('keydown', {
+          key: 'Escape',
+          code: 'Escape',
+          keyCode: 27,
+          bubbles: true
+        });
+        document.dispatchEvent(escEvent);
+        await DOMUtils.delay(100); // Reduced delay
+        
+        return options;
+      } catch (error) {
+        console.log('Error getting dropdown options:', error);
+        return [];
+      }
+    },
+
+    // Helper method to find and click dropdown option in separate overlay
+    async clickDropdownOption(selectInput, targetValue) {
+      try {
+        // Click to open dropdown
+        await DOMUtils.clickElement(selectInput);
+        await DOMUtils.delay(150); // Reduced delay
+        
+        // Optimized option finding (reuse logic from getDropdownOptions)
+        const selectId = selectInput.id;
+        let dropdownMenu = null;
+        
+        // First try ID-based selectors (fastest)
+        if (selectId) {
+          dropdownMenu = document.querySelector(`[id*="${selectId}"][role="listbox"]`) ||
+                        document.querySelector(`[id="${selectId}_listbox"]`) ||
+                        document.querySelector(`[id="${selectId}_menu"]`);
+        }
+        
+        // If not found, look for visible dropdown menus (limited scope)
+        if (!dropdownMenu) {
+          const containers = [
+            document.querySelector('[data-name="indicator-properties-dialog"]'),
+            document.body
+          ].filter(Boolean);
+          
+          for (const container of containers) {
+            const menus = container.querySelectorAll('[role="listbox"], [data-name="popup-menu-container"]');
+            for (const menu of menus) {
+              // Quick visibility check
+              if (menu.offsetWidth > 0 && menu.offsetHeight > 0) {
+                dropdownMenu = menu;
+                break;
+              }
+            }
+            if (dropdownMenu) break;
+          }
+        }
+        
+        // Find and click the target option
+        if (dropdownMenu) {
+          const options = dropdownMenu.querySelectorAll('[role="option"]');
+          for (const option of options) {
+            if (option.textContent.trim().toLowerCase() === targetValue.toLowerCase()) {
+              await DOMUtils.clickElement(option);
+              await DOMUtils.delay(100); // Reduced delay
+              return true;
+            }
+          }
+        }
+        
+        return false;
+      } catch (error) {
+        console.log('Error clicking dropdown option:', error);
+        return false;
+      }
     }
   };
 
@@ -497,6 +639,28 @@
 
   // Deep backtest functionality
   const DeepBacktestManager = {
+    // Synchronize deep backtest state between extension and TradingView
+    async syncDeepBacktest(enabled) {
+      const toggle = document.querySelector(domSelectors.strategyTester.deepBacktest.toggle);
+      if (!toggle) {
+        throw new Error('Deep backtest toggle not found');
+      }
+
+      const isCurrentlyEnabled = toggle.getAttribute('aria-checked') === 'true' || toggle.checked;
+      
+      if (isCurrentlyEnabled !== enabled) {
+        if (enabled) {
+          console.log('[CT] Enabling deep backtest to match extension setting');
+        } else {
+          console.log('[CT] Disabling deep backtest to match extension setting');
+        }
+        await DOMUtils.clickElement(toggle);
+        await DOMUtils.delay(1000);
+      } else {
+        console.log(`[CT] Deep backtest already ${enabled ? 'enabled' : 'disabled'} - no sync needed`);
+      }
+    },
+
     // Toggle deep backtest
     async toggleDeepBacktest(enabled) {
       const toggle = document.querySelector(domSelectors.strategyTester.deepBacktest.toggle);
@@ -593,6 +757,12 @@
         case 'toggleDeepBacktest':
           console.log('[CT] toggleDeepBacktest ->', request.enabled);
           await DeepBacktestManager.toggleDeepBacktest(request.enabled);
+          sendResponse({ success: true });
+          break;
+
+        case 'syncDeepBacktest':
+          console.log('[CT] syncDeepBacktest ->', request.enabled);
+          await DeepBacktestManager.syncDeepBacktest(request.enabled);
           sendResponse({ success: true });
           break;
 

@@ -17,7 +17,7 @@
     "inputLabel": "[data-name='indicator-properties-dialog'] .label, [data-name='indicator-properties-dialog'] [class*='label-']",
     "numberInput": "[data-name='indicator-properties-dialog'] input[type='number'], [data-name='indicator-properties-dialog'] input[type='text'], [data-name='indicator-properties-dialog'] input[inputmode='numeric']",
     "checkboxInput": "[data-name='indicator-properties-dialog'] input[type='checkbox']",
-    "selectInput": "[data-name='indicator-properties-dialog'] [data-name='dropdown-menu'], [data-name='indicator-properties-dialog'] select",
+    "selectInput": "[data-name='indicator-properties-dialog'] [data-name='dropdown-menu'], [data-name='indicator-properties-dialog'] select, [data-name='indicator-properties-dialog'] [data-role='listbox'], [data-name='indicator-properties-dialog'] span[role='button'][aria-haspopup='listbox']",
     "okButton": "[data-name='indicator-properties-dialog'] button[name='submit']",
     "cancelButton": "[data-name='indicator-properties-dialog'] button[name='cancel'], [data-name='indicator-properties-dialog'] [data-name='close'][data-role='button']"
   },

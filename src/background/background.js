@@ -18,7 +18,11 @@ const STORAGE_KEYS = {
 
 // Helper: save to storage
 function saveToStorage(key, value) {
-  chrome.storage.local.set({ [key]: value });
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [key]: value }, () => {
+      resolve();
+    });
+  });
 }
 
 // Helper: load from storage
@@ -31,7 +35,7 @@ function loadFromStorage(key) {
 }
 
 // Helper: send log messages to popup UI and storage
-function sendLog(level, message) {
+async function sendLog(level, message) {
   console.log(`[BG] ${level.toUpperCase()} ${message}`);
   
   // Send to popup if it's open
@@ -39,8 +43,9 @@ function sendLog(level, message) {
     // Popup might be closed, that's ok
   });
   
-  // Also save to storage
-  loadFromStorage(STORAGE_KEYS.logs).then(logs => {
+  // Also save to storage (synchronously to avoid race conditions)
+  try {
+    const logs = await loadFromStorage(STORAGE_KEYS.logs);
     const currentLogs = logs || [];
     const logEntry = {
       timestamp: Date.now(),
@@ -48,23 +53,28 @@ function sendLog(level, message) {
       message
     };
     const updatedLogs = [...currentLogs, logEntry];
-    saveToStorage(STORAGE_KEYS.logs, updatedLogs);
-  });
+    await saveToStorage(STORAGE_KEYS.logs, updatedLogs);
+  } catch (error) {
+    console.error('Failed to save log to storage:', error);
+  }
 }
 
 // Helper: send individual result to popup UI and storage
-function sendResult(result) {
+async function sendResult(result) {
   // Send to popup if it's open
   chrome.runtime.sendMessage({ action: 'optimizationResult', result }).catch(() => {
     // Popup might be closed, that's ok
   });
   
-  // Also save to storage
-  loadFromStorage(STORAGE_KEYS.results).then(results => {
+  // Also save to storage (synchronously to avoid race conditions)
+  try {
+    const results = await loadFromStorage(STORAGE_KEYS.results);
     const currentResults = results || [];
     const updatedResults = [...currentResults, result];
-    saveToStorage(STORAGE_KEYS.results, updatedResults);
-  });
+    await saveToStorage(STORAGE_KEYS.results, updatedResults);
+  } catch (error) {
+    console.error('Failed to save result to storage:', error);
+  }
 }
 
 // Helper: update optimization progress
@@ -169,23 +179,27 @@ async function runOptimization(settings) {
   
   // Update state and clear previous results
   updateOptimizationState('running');
-  saveToStorage(STORAGE_KEYS.settings, settings);
-  saveToStorage(STORAGE_KEYS.filters, filters);
-  saveToStorage(STORAGE_KEYS.results, []);
-  saveToStorage(STORAGE_KEYS.logs, []);
+  await saveToStorage(STORAGE_KEYS.settings, settings);
+  await saveToStorage(STORAGE_KEYS.filters, filters);
+  await saveToStorage(STORAGE_KEYS.results, []);
+  await saveToStorage(STORAGE_KEYS.logs, []);
   updateProgress(0, iterations);
   
   try {
-    sendLog('info', 'Starting optimization via Python microservice...');
+    await sendLog('info', 'Starting optimization via Python microservice...');
     await chrome.storage.local.set({ antiDetection });
+    
+    // Synchronize deep backtest state between extension and TradingView
+    await sendLog('debug', 'Synchronizing deep backtest settings...');
+    await sendToContent('syncDeepBacktest', { enabled: deepBacktest });
+    
     if (deepBacktest) {
-      sendLog('debug', 'Enabling deep backtest...');
-      await sendToContent('toggleDeepBacktest', { enabled: true });
       if (startDate || endDate) {
-        sendLog('debug', `Setting date range: ${startDate} to ${endDate}`);
+        await sendLog('debug', `Setting date range: ${startDate} to ${endDate}`);
         await sendToContent('setDateRange', { startDate, endDate });
       }
     }
+    
     const enabledParams = parameters.filter(p => p.enabled);
     if (enabledParams.length === 0) throw new Error('No parameters selected for optimization');
     // Build parameter bounds for microservice
@@ -206,7 +220,7 @@ async function runOptimization(settings) {
       kernel_type: "matern" // Matern kernel typically works well for optimization
     };
     
-    sendLog('info', `Using advanced Bayesian optimization: ${initPoints} exploration + ${optimizationSettings.n_iter} Bayesian iterations`);
+    await sendLog('info', `Using advanced Bayesian optimization: ${initPoints} exploration + ${optimizationSettings.n_iter} Bayesian iterations`);
     
     // Initialize microservice with advanced settings
     let resp = await fetch('http://localhost:8000/init', {
@@ -226,7 +240,7 @@ async function runOptimization(settings) {
     let done = data.done;
     for (let i = 1; !done && i <= iterations; i++) {
       if (abortOptimization) {
-        sendLog('info', 'Optimization stopped by user');
+        await sendLog('info', 'Optimization stopped by user');
         break;
       }
       
@@ -236,22 +250,25 @@ async function runOptimization(settings) {
       // Log iteration details with acquisition info
       const logMsg = `Iteration ${i}/${iterations}, params: ${JSON.stringify(currentParams)}`;
       if (data.acquisition_value !== undefined && data.acquisition_value > 0) {
-        sendLog('info', `${logMsg} (acquisition: ${data.acquisition_value.toFixed(4)})`);
+        await sendLog('info', `${logMsg} (acquisition: ${data.acquisition_value.toFixed(4)})`);
       } else {
-        sendLog('info', `${logMsg} (exploration phase)`);
+        await sendLog('info', `${logMsg} (exploration phase)`);
       }
+      
+      // Store the current params used for this iteration
+      const iterationParams = { ...currentParams };
       
       // Apply new settings
       const settingsToApply = enabledParams.map(p => ({ name: p.name, type: p.type, value: currentParams[p.name] }));
       await sendToContent('applySettings', { strategyIndex, settings: settingsToApply });
       if (deepBacktest) {
-        sendLog('debug', 'Generating deep backtest report...');
+        await sendLog('debug', 'Generating deep backtest report...');
         await sendToContent('setDateRange', { startDate, endDate });
       } else {
-        sendLog('debug', 'Waiting for backtest to complete...');
+        await sendLog('debug', 'Waiting for backtest to complete...');
         await sendToContent('waitForBacktestComplete');
       }
-      sendLog('debug', 'Reading metrics...');
+      await sendLog('debug', 'Reading metrics...');
       const metricNames = [...new Set([metric, ...filters.map(f => f.metric)])];
       const metricsResp = await sendToContent('readAllMetrics', { metricNames });
       if (!metricsResp.success) throw new Error('Failed to read metrics');
@@ -281,13 +298,13 @@ async function runOptimization(settings) {
       // Log confidence interval if available
       if (data.confidence_interval) {
         const [lower, upper] = data.confidence_interval;
-        sendLog('debug', `Confidence interval for next params: [${lower.toFixed(3)}, ${upper.toFixed(3)}]`);
+        await sendLog('debug', `Confidence interval for next params: [${lower.toFixed(3)}, ${upper.toFixed(3)}]`);
       }
       
-      // Emit result for UI
+      // Emit result for UI - use the params that were actually tested, not the next ones
       const result = { 
         iteration: i, 
-        settings: currentParams, 
+        settings: iterationParams, 
         value: metricValue, 
         metric, 
         isValid, 
@@ -295,7 +312,7 @@ async function runOptimization(settings) {
         acquisition_value: data.acquisition_value,
         confidence_interval: data.confidence_interval
       };
-      sendResult(result);
+      await sendResult(result);
       
       // Periodically get optimization status for debugging
       if (i % 5 === 0) {
@@ -303,7 +320,7 @@ async function runOptimization(settings) {
           const statusResp = await fetch('http://localhost:8000/status');
           if (statusResp.ok) {
             const status = await statusResp.json();
-            sendLog('debug', `Optimization status - exploration ratio: ${status.current_exploration_ratio.toFixed(3)}, GP score: ${status.gp_score?.toFixed(3) || 'N/A'}`);
+            await sendLog('debug', `Optimization status - exploration ratio: ${status.current_exploration_ratio.toFixed(3)}, GP score: ${status.gp_score?.toFixed(3) || 'N/A'}`);
           }
         } catch (e) {
           // Status check is optional, don't fail on it
@@ -317,12 +334,12 @@ async function runOptimization(settings) {
       const bestParams = data.params;
       const bestValue = data.target;
       
-      sendLog('info', `Optimization complete! Best ${metric}: ${bestValue}`);
-      sendLog('info', `Best settings: ${JSON.stringify(bestParams)}`);
+      await sendLog('info', `Optimization complete! Best ${metric}: ${bestValue}`);
+      await sendLog('info', `Best settings: ${JSON.stringify(bestParams)}`);
       
       if (data.confidence_interval) {
         const [lower, upper] = data.confidence_interval;
-        sendLog('info', `Confidence interval for best result: [${lower.toFixed(3)}, ${upper.toFixed(3)}]`);
+        await sendLog('info', `Confidence interval for best result: [${lower.toFixed(3)}, ${upper.toFixed(3)}]`);
       }
       
       // Get final optimization statistics
@@ -330,13 +347,13 @@ async function runOptimization(settings) {
         const historyResp = await fetch('http://localhost:8000/history');
         if (historyResp.ok) {
           const history = await historyResp.json();
-          sendLog('info', `Total observations: ${history.total_observations}, Best found at iteration: ${history.best_iteration}`);
+          await sendLog('info', `Total observations: ${history.total_observations}, Best found at iteration: ${history.best_iteration}`);
         }
       } catch (e) {
         // History is optional
       }
       
-      sendResult({ 
+      await sendResult({ 
         iteration: 'best', 
         settings: bestParams, 
         value: bestValue, 
@@ -347,10 +364,10 @@ async function runOptimization(settings) {
       });
     }
   } catch (error) {
-    sendLog('error', `Optimization error: ${error.message}`);
+    await sendLog('error', `Optimization error: ${error.message}`);
   } finally {
     if (deepBacktest) {
-      await sendToContent('toggleDeepBacktest', { enabled: false });
+      await sendToContent('syncDeepBacktest', { enabled: false });
     }
     abortOptimization = false;
     updateOptimizationState('idle');

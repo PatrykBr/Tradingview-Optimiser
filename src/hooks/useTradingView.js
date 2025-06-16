@@ -57,9 +57,13 @@ export function useTradingView() {
       const response = await sendToContent('readStrategySettings', { strategyIndex });
       if (response.success) {
         setStrategySettings(response.settings);
+      } else {
+        console.error('Failed to read strategy settings:', response.error);
+        setStrategySettings([]);
       }
     } catch (error) {
       console.error('Failed to read strategy settings:', error);
+      setStrategySettings([]);
     } finally {
       setIsLoadingSettings(false);
     }
