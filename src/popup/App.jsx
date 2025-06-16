@@ -43,6 +43,32 @@ function App() {
     clearResults
   } = useOptimization();
 
+  // Calculate best result dynamically
+  const bestResult = React.useMemo(() => {
+    if (results.length === 0) return null;
+    
+    const validResults = results.filter(r => r.isValid);
+    if (validResults.length === 0) return null;
+    
+    // For metrics that should be maximized (like net profit, profit factor)
+    const isMaximizeMetric = ['netProfit', 'grossProfit', 'profitFactor', 'sharpeRatio'].includes(optimizationSettings.metric);
+    
+    let best = validResults[0];
+    for (const result of validResults) {
+      if (isMaximizeMetric) {
+        if (result.value > best.value) {
+          best = result;
+        }
+      } else {
+        if (result.value < best.value) {
+          best = result;
+        }
+      }
+    }
+    
+    return best;
+  }, [results, optimizationSettings.metric]);
+
   // Load configs for a strategy whenever it changes
   useEffect(() => {
     if (selectedStrategy) {
@@ -311,9 +337,10 @@ function App() {
           <div className="p-4 space-y-4">
             <ResultsPanel
               results={results}
-              bestResult={results.find(r => r.isBest)}
+              bestResult={bestResult}
               parameters={optimizationSettings.parameters}
               onClear={clearResults}
+              isOptimizing={optimizationState === 'running'}
             />
             <LogsPanel logs={logs} />
           </div>

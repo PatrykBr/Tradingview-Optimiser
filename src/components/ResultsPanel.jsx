@@ -1,7 +1,7 @@
 import React from 'react';
 import { getAvailableMetrics } from '../utils/metrics';
 
-function ResultsPanel({ results, bestResult, parameters = [], onClear }) {
+function ResultsPanel({ results, bestResult, parameters = [], onClear, isOptimizing = false }) {
   const metrics = getAvailableMetrics();
 
   const formatValue = (value, metricKey) => {
@@ -28,11 +28,33 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear }) {
       .join(', ');
   };
 
+  // Determine the title and styling based on optimization state
+  const getBestResultTitle = () => {
+    if (isOptimizing) {
+      return "Best Result So Far";
+    } else {
+      return bestResult ? "Final Best Result" : "Best Result";
+    }
+  };
+
+  const getBestResultIndicator = () => {
+    if (isOptimizing && bestResult) {
+      return (
+        <div className="flex items-center space-x-2 mb-2">
+          <div className="w-2 h-2 bg-tv-blue rounded-full animate-pulse"></div>
+          <span className="text-xs text-tv-blue font-medium">Optimization in progress...</span>
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="space-y-4">
       {bestResult && (
-        <div className="bg-tv-green bg-opacity-20 border border-tv-green rounded-lg p-4 text-white">
-          <h3 className="text-base font-semibold text-white mb-3">Best Result So Far</h3>
+        <div className={`${isOptimizing ? 'bg-tv-blue bg-opacity-20 border-tv-blue' : 'bg-tv-green bg-opacity-20 border-tv-green'} border rounded-lg p-4 text-white`}>
+          {getBestResultIndicator()}
+          <h3 className="text-base font-semibold text-white mb-3">{getBestResultTitle()}</h3>
           <div className="flex items-center space-x-6 mb-3">
             <div>
               <p className="text-xs text-tv-gray-300 uppercase">Metric</p>
@@ -42,6 +64,12 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear }) {
               <p className="text-xs text-tv-gray-300 uppercase">Iteration</p>
               <p className="text-lg font-medium">{bestResult.iteration}</p>
             </div>
+            {isOptimizing && (
+              <div>
+                <p className="text-xs text-tv-gray-300 uppercase">Status</p>
+                <p className="text-lg font-medium text-tv-blue">Running</p>
+              </div>
+            )}
           </div>
           <details className="bg-tv-gray-800 rounded-lg p-3 text-xs">
             <summary className="cursor-pointer text-tv-blue hover:text-blue-400">View Parameters</summary>
@@ -61,10 +89,18 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear }) {
 
       <div className="bg-tv-gray-800 rounded p-4">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">All Results</h3>
+          <div className="flex items-center space-x-3">
+            <h3 className="text-lg font-semibold">All Results</h3>
+            {isOptimizing && (
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-tv-blue rounded-full animate-pulse"></div>
+                <span className="text-xs text-tv-blue">Live Updates</span>
+              </div>
+            )}
+          </div>
           <button
             onClick={onClear}
-            disabled={results.length === 0}
+            disabled={results.length === 0 || isOptimizing}
             className="text-sm text-tv-red hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Clear Results
@@ -72,7 +108,9 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear }) {
         </div>
 
         {results.length === 0 ? (
-          <p className="text-tv-gray-400 text-center py-8">No results yet. Start an optimization to see results.</p>
+          <p className="text-tv-gray-400 text-center py-8">
+            {isOptimizing ? "Optimization starting..." : "No results yet. Start an optimization to see results."}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
