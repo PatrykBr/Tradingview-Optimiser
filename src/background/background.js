@@ -3,16 +3,94 @@
 // Optimization state
 let optimizer = null;
 let abortOptimization = false;
+let currentOptimizationState = 'idle'; // Track optimization state in background
 
-// Helper: send log messages to popup UI
-function sendLog(level, message) {
-  console.log(`[BG] ${level.toUpperCase()} ${message}`);
-  chrome.runtime.sendMessage({ action: 'optimizationLog', level, message });
+// Storage keys for persistence
+const STORAGE_KEY_PREFIX = 'optimizer_state_';
+const STORAGE_KEYS = {
+  state: `${STORAGE_KEY_PREFIX}state`,
+  settings: `${STORAGE_KEY_PREFIX}settings`,
+  filters: `${STORAGE_KEY_PREFIX}filters`,
+  results: `${STORAGE_KEY_PREFIX}results`,
+  logs: `${STORAGE_KEY_PREFIX}logs`,
+  progress: `${STORAGE_KEY_PREFIX}progress`
+};
+
+// Helper: save to storage
+function saveToStorage(key, value) {
+  chrome.storage.local.set({ [key]: value });
 }
 
-// Helper: send individual result to popup UI
+// Helper: load from storage
+function loadFromStorage(key) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([key], (result) => {
+      resolve(result[key]);
+    });
+  });
+}
+
+// Helper: send log messages to popup UI and storage
+function sendLog(level, message) {
+  console.log(`[BG] ${level.toUpperCase()} ${message}`);
+  
+  // Send to popup if it's open
+  chrome.runtime.sendMessage({ action: 'optimizationLog', level, message }).catch(() => {
+    // Popup might be closed, that's ok
+  });
+  
+  // Also save to storage
+  loadFromStorage(STORAGE_KEYS.logs).then(logs => {
+    const currentLogs = logs || [];
+    const logEntry = {
+      timestamp: Date.now(),
+      level,
+      message
+    };
+    const updatedLogs = [...currentLogs, logEntry];
+    saveToStorage(STORAGE_KEYS.logs, updatedLogs);
+  });
+}
+
+// Helper: send individual result to popup UI and storage
 function sendResult(result) {
-  chrome.runtime.sendMessage({ action: 'optimizationResult', result });
+  // Send to popup if it's open
+  chrome.runtime.sendMessage({ action: 'optimizationResult', result }).catch(() => {
+    // Popup might be closed, that's ok
+  });
+  
+  // Also save to storage
+  loadFromStorage(STORAGE_KEYS.results).then(results => {
+    const currentResults = results || [];
+    const updatedResults = [...currentResults, result];
+    saveToStorage(STORAGE_KEYS.results, updatedResults);
+  });
+}
+
+// Helper: update optimization progress
+function updateProgress(iteration, totalIterations) {
+  const progress = { current: iteration, total: totalIterations };
+  
+  // Send to popup if it's open
+  chrome.runtime.sendMessage({ action: 'optimizationProgress', iteration, totalIterations }).catch(() => {
+    // Popup might be closed, that's ok
+  });
+  
+  // Save to storage
+  saveToStorage(STORAGE_KEYS.progress, progress);
+}
+
+// Helper: update optimization state
+function updateOptimizationState(state) {
+  currentOptimizationState = state;
+  saveToStorage(STORAGE_KEYS.state, state);
+  
+  // Send to popup if it's open
+  if (state === 'idle') {
+    chrome.runtime.sendMessage({ action: 'optimizationCompleted' }).catch(() => {
+      // Popup might be closed, that's ok
+    });
+  }
 }
 
 // Helper: forward a message to the active TradingView tab's content script and await response
@@ -88,6 +166,15 @@ function generateCombinations(params) {
 async function runOptimization(settings) {
   const { metric, iterations, deepBacktest, startDate, endDate, antiDetection, parameters, filters, strategyIndex = 0 } = settings;
   abortOptimization = false;
+  
+  // Update state and clear previous results
+  updateOptimizationState('running');
+  saveToStorage(STORAGE_KEYS.settings, settings);
+  saveToStorage(STORAGE_KEYS.filters, filters);
+  saveToStorage(STORAGE_KEYS.results, []);
+  saveToStorage(STORAGE_KEYS.logs, []);
+  updateProgress(0, iterations);
+  
   try {
     sendLog('info', 'Starting optimization via Python microservice...');
     await chrome.storage.local.set({ antiDetection });
@@ -142,6 +229,9 @@ async function runOptimization(settings) {
         sendLog('info', 'Optimization stopped by user');
         break;
       }
+      
+      // Update progress
+      updateProgress(i, iterations);
       
       // Log iteration details with acquisition info
       const logMsg = `Iteration ${i}/${iterations}, params: ${JSON.stringify(currentParams)}`;
@@ -206,7 +296,6 @@ async function runOptimization(settings) {
         confidence_interval: data.confidence_interval
       };
       sendResult(result);
-      chrome.runtime.sendMessage({ action: 'optimizationProgress', iteration: i, totalIterations: iterations });
       
       // Periodically get optimization status for debugging
       if (i % 5 === 0) {
@@ -264,7 +353,7 @@ async function runOptimization(settings) {
       await sendToContent('toggleDeepBacktest', { enabled: false });
     }
     abortOptimization = false;
-    chrome.runtime.sendMessage({ action: 'optimizationCompleted' });
+    updateOptimizationState('idle');
   }
 }
 
@@ -277,7 +366,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
     case 'stopOptimization':
       abortOptimization = true;
+      updateOptimizationState('stopped');
       sendResponse({ success: true });
+      return true;
+    case 'getOptimizationState':
+      // Allow popup to query current optimization state
+      sendResponse({ 
+        state: currentOptimizationState,
+        success: true 
+      });
       return true;
     case 'checkTradingView':
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -315,6 +412,14 @@ chrome.runtime.onInstalled.addListener(() => {
     antiDetection: { minDelay: 500, maxDelay: 2000 },
     logLevel: 'basic'
   });
+});
+
+// On startup, check if there was an ongoing optimization and restore state
+chrome.runtime.onStartup.addListener(async () => {
+  const state = await loadFromStorage(STORAGE_KEYS.state);
+  if (state) {
+    currentOptimizationState = state;
+  }
 });
 
 // Handle tab updates to check if content script needs injection

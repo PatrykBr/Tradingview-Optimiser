@@ -1,5 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 
+const STORAGE_KEY_PREFIX = 'optimizer_state_';
+const STORAGE_KEYS = {
+  state: `${STORAGE_KEY_PREFIX}state`,
+  settings: `${STORAGE_KEY_PREFIX}settings`,
+  filters: `${STORAGE_KEY_PREFIX}filters`,
+  results: `${STORAGE_KEY_PREFIX}results`,
+  logs: `${STORAGE_KEY_PREFIX}logs`,
+  progress: `${STORAGE_KEY_PREFIX}progress`
+};
+
 export function useOptimization() {
   const [optimizationState, setOptimizationState] = useState('idle'); // idle, running, stopped
   const [optimizationSettings, setOptimizationSettings] = useState({
@@ -18,10 +28,103 @@ export function useOptimization() {
   const [filters, setFilters] = useState([]);
   const [results, setResults] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [progress, setProgress] = useState({ current: 0, total: optimizationSettings.iterations });
+  const [progress, setProgress] = useState({ current: 0, total: 50 });
+  const [isStateLoaded, setIsStateLoaded] = useState(false);
   
   const optimizerRef = useRef(null);
   const abortControllerRef = useRef(null);
+
+  // Helper function to save state to storage
+  const saveToStorage = useCallback((key, value) => {
+    chrome.storage.local.set({ [key]: value });
+  }, []);
+
+  // Helper function to load state from storage
+  const loadFromStorage = useCallback((key) => {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([key], (result) => {
+        resolve(result[key]);
+      });
+    });
+  }, []);
+
+  // Load persisted state on hook initialization
+  useEffect(() => {
+    const loadPersistedState = async () => {
+      try {
+        const [
+          persistedState,
+          persistedSettings,
+          persistedFilters,
+          persistedResults,
+          persistedLogs,
+          persistedProgress
+        ] = await Promise.all([
+          loadFromStorage(STORAGE_KEYS.state),
+          loadFromStorage(STORAGE_KEYS.settings),
+          loadFromStorage(STORAGE_KEYS.filters),
+          loadFromStorage(STORAGE_KEYS.results),
+          loadFromStorage(STORAGE_KEYS.logs),
+          loadFromStorage(STORAGE_KEYS.progress)
+        ]);
+
+        if (persistedState) setOptimizationState(persistedState);
+        if (persistedSettings) setOptimizationSettings(persistedSettings);
+        if (persistedFilters) setFilters(persistedFilters);
+        if (persistedResults) setResults(persistedResults);
+        if (persistedLogs) setLogs(persistedLogs);
+        if (persistedProgress) setProgress(persistedProgress);
+
+        // Add a log entry if we're resuming an ongoing optimization
+        if (persistedState === 'running' && persistedProgress && persistedProgress.current > 0) {
+          const resumeLogEntry = {
+            timestamp: Date.now(),
+            level: 'info',
+            message: `Optimization resumed - continuing from iteration ${persistedProgress.current}/${persistedProgress.total}`
+          };
+          setLogs(prev => [...(prev || []), resumeLogEntry]);
+        }
+
+        setIsStateLoaded(true);
+      } catch (error) {
+        console.error('Failed to load persisted state:', error);
+        setIsStateLoaded(true);
+      }
+    };
+
+    loadPersistedState();
+  }, [loadFromStorage]);
+
+  // Persist state changes to storage
+  useEffect(() => {
+    if (!isStateLoaded) return;
+    saveToStorage(STORAGE_KEYS.state, optimizationState);
+  }, [optimizationState, isStateLoaded, saveToStorage]);
+
+  useEffect(() => {
+    if (!isStateLoaded) return;
+    saveToStorage(STORAGE_KEYS.settings, optimizationSettings);
+  }, [optimizationSettings, isStateLoaded, saveToStorage]);
+
+  useEffect(() => {
+    if (!isStateLoaded) return;
+    saveToStorage(STORAGE_KEYS.filters, filters);
+  }, [filters, isStateLoaded, saveToStorage]);
+
+  useEffect(() => {
+    if (!isStateLoaded) return;
+    saveToStorage(STORAGE_KEYS.results, results);
+  }, [results, isStateLoaded, saveToStorage]);
+
+  useEffect(() => {
+    if (!isStateLoaded) return;
+    saveToStorage(STORAGE_KEYS.logs, logs);
+  }, [logs, isStateLoaded, saveToStorage]);
+
+  useEffect(() => {
+    if (!isStateLoaded) return;
+    saveToStorage(STORAGE_KEYS.progress, progress);
+  }, [progress, isStateLoaded, saveToStorage]);
 
   // Send message to content script via background
   const sendToContent = useCallback(async (action, data = {}) => {
@@ -80,11 +183,15 @@ export function useOptimization() {
 
   // Start optimization
   const startOptimization = useCallback(async () => {
-    // Start the background optimization process
+    // Clear previous state when starting new optimization
     if (optimizationState === 'running') return;
-    setOptimizationState('running');
+    
+    // Clear previous results and logs when starting new optimization
     setResults([]);
     setLogs([]);
+    setProgress({ current: 0, total: optimizationSettings.iterations });
+    setOptimizationState('running');
+    
     addLog('info', 'Sending startOptimization to background');
     await chrome.runtime.sendMessage({ action: 'startOptimization', settings: optimizationSettings, filters });
   }, [optimizationState, optimizationSettings, filters, addLog]);
@@ -115,11 +222,23 @@ export function useOptimization() {
     return () => chrome.runtime.onMessage.removeListener(handleBgMessage);
   }, [addLog]);
 
-  // Clear results
+  // Clear results and reset state
   const clearResults = useCallback(() => {
     setResults([]);
+    setLogs([]);
+    setProgress({ current: 0, total: optimizationSettings.iterations });
+    setOptimizationState('idle');
+    
+    // Clear from storage as well
+    chrome.storage.local.remove([
+      STORAGE_KEYS.results,
+      STORAGE_KEYS.logs,
+      STORAGE_KEYS.progress,
+      STORAGE_KEYS.state
+    ]);
+    
     addLog('info', 'Results cleared');
-  }, [addLog]);
+  }, [addLog, optimizationSettings.iterations]);
 
   return {
     optimizationState,
@@ -133,6 +252,7 @@ export function useOptimization() {
     addFilter,
     removeFilter,
     clearResults,
-    progress
+    progress,
+    isStateLoaded
   };
 } 

@@ -40,7 +40,8 @@ function App() {
     updateOptimizationSettings,
     addFilter,
     removeFilter,
-    clearResults
+    clearResults,
+    isStateLoaded
   } = useOptimization();
 
   // Calculate best result dynamically
@@ -68,6 +69,21 @@ function App() {
     
     return best;
   }, [results, optimizationSettings.metric]);
+
+  // Auto-switch to appropriate view when state is loaded (only once)
+  useEffect(() => {
+    if (!isStateLoaded) return;
+    
+    // Only auto-switch once when state is first loaded
+    // If optimization is running, switch to optimize tab
+    if (optimizationState === 'running') {
+      setActiveView('optimize');
+    }
+    // If there are results and no ongoing optimization, switch to results tab
+    else if (results.length > 0 && optimizationState === 'idle') {
+      setActiveView('results');
+    }
+  }, [isStateLoaded]); // Only depend on isStateLoaded to avoid switching during iterations
 
   // Load configs for a strategy whenever it changes
   useEffect(() => {
@@ -139,11 +155,30 @@ function App() {
   };
 
   // Calculate setup completion status
+  // When state is restored, we might have optimization settings even if selectedStrategy isn't loaded yet
+  const hasRestoredParameters = optimizationSettings.parameters?.length > 0;
+  const hasEnabledParameters = optimizationSettings.parameters?.some(p => p.enabled) || false;
+  
   const setupStatus = {
-    strategySelected: !!selectedStrategy,
-    parametersSet: optimizationSettings.parameters?.some(p => p.enabled) || false,
-    ready: !!selectedStrategy && (optimizationSettings.parameters?.some(p => p.enabled) || false)
+    strategySelected: !!selectedStrategy || hasRestoredParameters,
+    parametersSet: hasEnabledParameters,
+    ready: (!!selectedStrategy || hasRestoredParameters) && hasEnabledParameters
   };
+
+  // Show loading screen while state is being restored
+  if (!isStateLoaded) {
+    return (
+      <div className="w-96 h-[600px] bg-tv-gray-900 text-white flex items-center justify-center p-6">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-tv-blue/20 flex items-center justify-center">
+            <div className="w-8 h-8 border-2 border-tv-blue border-t-transparent rounded-full animate-spin"></div>
+          </div>
+          <h2 className="text-lg font-semibold mb-2 text-white">Loading Extension</h2>
+          <p className="text-sm text-tv-gray-400">Restoring previous state...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isConnected) {
     return (
@@ -188,9 +223,24 @@ function App() {
       {/* Navigation */}
       <div className="flex bg-tv-gray-800 border-b border-tv-gray-700">
         {[
-          { id: 'setup', label: 'Setup', icon: '⚙️', disabled: !setupStatus.strategySelected },
-          { id: 'optimize', label: 'Optimize', icon: '🚀', disabled: !setupStatus.ready },
-          { id: 'results', label: 'Results', icon: '📊', badge: results.length > 0 ? results.length : null }
+          { 
+            id: 'setup', 
+            label: 'Setup', 
+            icon: '⚙️', 
+            disabled: !setupStatus.strategySelected && optimizationState === 'idle' && results.length === 0
+          },
+          { 
+            id: 'optimize', 
+            label: 'Optimize', 
+            icon: '🚀', 
+            disabled: !setupStatus.ready && optimizationState === 'idle' && results.length === 0
+          },
+          { 
+            id: 'results', 
+            label: 'Results', 
+            icon: '📊', 
+            badge: results.length > 0 ? results.length : null 
+          }
         ].map(tab => (
           <button
             key={tab.id}
