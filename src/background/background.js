@@ -172,7 +172,112 @@ function generateCombinations(params) {
   return combos;
 }
 
-// Core optimization loop
+// Bayesian optimization session management
+let currentSessionId = null;
+const SERVER_URL = 'http://localhost:5000';
+
+// Convert extension parameters to server format
+function convertParametersToServerFormat(params) {
+  return params.map(param => {
+    const serverParam = {
+      name: param.name,
+      type: param.type
+    };
+    
+    if (param.type === 'number') {
+      serverParam.min_val = param.min;
+      serverParam.max_val = param.max;
+      serverParam.is_integer = (param.min % 1 === 0 && param.max % 1 === 0);
+    } else if (param.type === 'select' && param.options) {
+      serverParam.options = param.options;
+    }
+    
+    return serverParam;
+  });
+}
+
+// Convert filters to server format
+function convertFiltersToServerFormat(filters) {
+  return filters.map(filter => ({
+    metric: filter.metric,
+    min_val: filter.min,
+    max_val: filter.max
+  }));
+}
+
+// Make API call to optimization server
+async function callOptimizationServer(endpoint, data) {
+  try {
+    const response = await fetch(`${SERVER_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status} ${response.statusText}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    // Check if server is running
+    if (error.message.includes('fetch')) {
+      throw new Error('Optimization server not running. Please start the server using: python start_server.py');
+    }
+    throw error;
+  }
+}
+
+// Initialize Bayesian optimization session
+async function initializeBayesianSession(parameters, metric, filters, iterations) {
+  const serverParams = convertParametersToServerFormat(parameters);
+  const serverFilters = convertFiltersToServerFormat(filters);
+  
+  const response = await callOptimizationServer('/start_optimization', {
+    parameters: serverParams,
+    target_metric: metric,
+    filters: serverFilters,
+    max_iterations: iterations
+  });
+  
+  if (!response.success) {
+    throw new Error(`Failed to initialize optimization: ${response.error}`);
+  }
+  
+  return response.session_id;
+}
+
+// Get next parameter suggestion from Bayesian optimizer
+async function getNextParameters(sessionId) {
+  const response = await callOptimizationServer('/suggest_parameters', {
+    session_id: sessionId
+  });
+  
+  if (!response.success) {
+    throw new Error(`Failed to get parameter suggestion: ${response.error}`);
+  }
+  
+  return response.parameters;
+}
+
+// Register optimization result with Bayesian optimizer
+async function registerOptimizationResult(sessionId, parameters, metrics) {
+  const response = await callOptimizationServer('/register_result', {
+    session_id: sessionId,
+    parameters: parameters,
+    metrics: metrics
+  });
+  
+  if (!response.success) {
+    throw new Error(`Failed to register result: ${response.error}`);
+  }
+  
+  return response;
+}
+
+// Core Bayesian optimization loop with LHS initial sampling
 async function runOptimization(settings) {
   const { metric, iterations, deepBacktest, startDate, endDate, antiDetection, parameters, filters, strategyIndex = 0 } = settings;
   abortOptimization = false;
@@ -186,7 +291,7 @@ async function runOptimization(settings) {
   updateProgress(0, iterations);
   
   try {
-    await sendLog('info', 'Starting optimization via Python microservice...');
+    await sendLog('info', 'Starting Bayesian optimization with LHS initial sampling...');
     await chrome.storage.local.set({ antiDetection });
     
     // Synchronize deep backtest state between extension and TradingView
@@ -202,43 +307,18 @@ async function runOptimization(settings) {
     
     const enabledParams = parameters.filter(p => p.enabled);
     if (enabledParams.length === 0) throw new Error('No parameters selected for optimization');
-    // Build parameter bounds for microservice
-    const pbounds = {};
-    enabledParams.forEach(p => { pbounds[p.name] = [p.min, p.max]; });
     
-    // Advanced optimization settings
-    const initPoints = Math.max(2, Math.min(5, Math.floor(iterations * 0.2))); // 20% for exploration, min 2, max 5
-    const optimizationSettings = {
-      pbounds: Object.fromEntries(parameters.filter(p => p.enabled).map(p => [p.name, [p.min, p.max]])),
-      init_points: initPoints,
-      n_iter: iterations - initPoints, // Remaining iterations for Bayesian optimization
-      acquisition_type: "ucb", // Upper Confidence Bound for balanced exploration/exploitation
-      kappa: 2.576, // Higher kappa for more exploration when parameters are discrete
-      xi: 0.01, // Small xi for Expected Improvement
-      alpha: enabledParams.some(p => p.type === 'checkbox') ? 1e-3 : 1e-6, // Higher noise for discrete params
-      n_restarts_optimizer: 5, // More restarts for better GP optimization
-      kernel_type: "matern" // Matern kernel typically works well for optimization
-    };
+    // Initialize Bayesian optimization session
+    await sendLog('info', 'Initializing Bayesian optimization server...');
+    currentSessionId = await initializeBayesianSession(enabledParams, metric, filters, iterations);
+    await sendLog('info', `Created optimization session: ${currentSessionId}`);
+    await sendLog('info', `Optimizing ${enabledParams.length} parameters over ${iterations} iterations using LHS + Bayesian optimization`);
     
-    await sendLog('info', `Using advanced Bayesian optimization: ${initPoints} exploration + ${optimizationSettings.n_iter} Bayesian iterations`);
+    let bestResult = null;
+    let allResults = [];
+    let validResultsCount = 0;
     
-    // Initialize microservice with advanced settings
-    let resp = await fetch('http://localhost:8000/init', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(optimizationSettings)
-    });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.detail || `Init failed: ${resp.statusText}`);
-    }
-    let data = await resp.json();
-    if (data.params === undefined) {
-      throw new Error(`Init returned no params: ${JSON.stringify(data)}`);
-    }
-    let currentParams = data.params;
-    let done = data.done;
-    for (let i = 1; !done && i <= iterations; i++) {
+    for (let i = 1; i <= iterations; i++) {
       if (abortOptimization) {
         await sendLog('info', 'Optimization stopped by user');
         break;
@@ -247,20 +327,19 @@ async function runOptimization(settings) {
       // Update progress
       updateProgress(i, iterations);
       
-      // Log iteration details with acquisition info
-      const logMsg = `Iteration ${i}/${iterations}, params: ${JSON.stringify(currentParams)}`;
-      if (data.acquisition_value !== undefined && data.acquisition_value > 0) {
-        await sendLog('info', `${logMsg} (acquisition: ${data.acquisition_value.toFixed(4)})`);
-      } else {
-        await sendLog('info', `${logMsg} (exploration phase)`);
+      // Get next parameter suggestion from Bayesian optimizer (uses LHS for initial samples)
+      const currentParams = await getNextParameters(currentSessionId);
+      if (!currentParams) {
+        await sendLog('info', 'No more parameter suggestions available');
+        break;
       }
       
-      // Store the current params used for this iteration
-      const iterationParams = { ...currentParams };
+      await sendLog('info', `Iteration ${i}/${iterations}, params: ${JSON.stringify(currentParams)}`);
       
       // Apply new settings
       const settingsToApply = enabledParams.map(p => ({ name: p.name, type: p.type, value: currentParams[p.name] }));
       await sendToContent('applySettings', { strategyIndex, settings: settingsToApply });
+      
       if (deepBacktest) {
         await sendLog('debug', 'Generating deep backtest report...');
         await sendToContent('setDateRange', { startDate, endDate });
@@ -268,107 +347,88 @@ async function runOptimization(settings) {
         await sendLog('debug', 'Waiting for backtest to complete...');
         await sendToContent('waitForBacktestComplete');
       }
+      
       await sendLog('debug', 'Reading metrics...');
       const metricNames = [...new Set([metric, ...filters.map(f => f.metric)])];
+      await sendLog('debug', `Reading metrics: ${JSON.stringify(metricNames)}`);
       const metricsResp = await sendToContent('readAllMetrics', { metricNames });
       if (!metricsResp.success) throw new Error('Failed to read metrics');
+      
       const values = metricsResp.metrics;
+      await sendLog('debug', `Metrics received: ${JSON.stringify(values)}`);
       const metricValue = values[metric];
-      const isValid = filters.every(f => {
-        const v = values[f.metric];
-        return (f.min == null || v >= f.min) && (f.max == null || v <= f.max);
-      });
-      // Observe back to microservice
-      resp = await fetch('http://localhost:8000/observe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ params: currentParams, target: metricValue })
-      });
-      if (!resp.ok) {
-        const errorData = await resp.json().catch(() => ({}));
-        throw new Error(errorData.detail || resp.statusText);
-      }
-      data = await resp.json();
-      if (data.params === undefined) {
-        throw new Error(`No parameters returned from microservice: ${JSON.stringify(data)}`);
-      }
-      done = data.done;
-      currentParams = data.params;
       
-      // Log confidence interval if available
-      if (data.confidence_interval) {
-        const [lower, upper] = data.confidence_interval;
-        await sendLog('debug', `Confidence interval for next params: [${lower.toFixed(3)}, ${upper.toFixed(3)}]`);
+      // Register result with Bayesian optimizer
+      const registrationResult = await registerOptimizationResult(currentSessionId, currentParams, values);
+      await sendLog('debug', `Server response: ${JSON.stringify(registrationResult)}`);
+      const resultInfo = registrationResult.result_info || {};
+      const isValid = resultInfo.is_valid;
+      const isBest = resultInfo.is_best;
+      
+      if (isValid) {
+        validResultsCount++;
+        if (isBest) {
+          bestResult = { 
+            iteration: i, 
+            settings: currentParams, 
+            value: metricValue, 
+            metric, 
+            isValid: true 
+          };
+        }
       }
       
-      // Emit result for UI - use the params that were actually tested, not the next ones
+      await sendLog('debug', `Result registered - Valid: ${isValid}, Best: ${isBest}, Total valid: ${resultInfo.total_valid_results}`);
+      
+      // Emit result for UI
       const result = { 
         iteration: i, 
-        settings: iterationParams, 
+        settings: currentParams, 
         value: metricValue, 
         metric, 
         isValid, 
-        isBest: false,
-        acquisition_value: data.acquisition_value,
-        confidence_interval: data.confidence_interval
+        isBest
       };
+      
+      allResults.push(result);
       await sendResult(result);
-      
-      // Periodically get optimization status for debugging
-      if (i % 5 === 0) {
-        try {
-          const statusResp = await fetch('http://localhost:8000/status');
-          if (statusResp.ok) {
-            const status = await statusResp.json();
-            await sendLog('debug', `Optimization status - exploration ratio: ${status.current_exploration_ratio.toFixed(3)}, GP score: ${status.gp_score?.toFixed(3) || 'N/A'}`);
-          }
-        } catch (e) {
-          // Status check is optional, don't fail on it
-        }
-      }
     }
-    // Fetch best result
-    if (!abortOptimization) {
-      resp = await fetch('http://localhost:8000/best');
-      data = await resp.json();
-      const bestParams = data.params;
-      const bestValue = data.target;
-      
-      await sendLog('info', `Optimization complete! Best ${metric}: ${bestValue}`);
-      await sendLog('info', `Best settings: ${JSON.stringify(bestParams)}`);
-      
-      if (data.confidence_interval) {
-        const [lower, upper] = data.confidence_interval;
-        await sendLog('info', `Confidence interval for best result: [${lower.toFixed(3)}, ${upper.toFixed(3)}]`);
-      }
-      
-      // Get final optimization statistics
-      try {
-        const historyResp = await fetch('http://localhost:8000/history');
-        if (historyResp.ok) {
-          const history = await historyResp.json();
-          await sendLog('info', `Total observations: ${history.total_observations}, Best found at iteration: ${history.best_iteration}`);
-        }
-      } catch (e) {
-        // History is optional
-      }
+    
+    // Final summary
+    if (!abortOptimization && bestResult) {
+      await sendLog('info', `Bayesian optimization complete! Best ${metric}: ${bestResult.value}`);
+      await sendLog('info', `Best settings: ${JSON.stringify(bestResult.settings)}`);
+      await sendLog('info', `Total valid results: ${validResultsCount}/${allResults.length}`);
       
       await sendResult({ 
         iteration: 'best', 
-        settings: bestParams, 
-        value: bestValue, 
+        settings: bestResult.settings, 
+        value: bestResult.value, 
         metric, 
         isValid: true, 
-        isBest: true,
-        confidence_interval: data.confidence_interval
+        isBest: true
       });
+    } else if (!abortOptimization) {
+      await sendLog('info', 'Optimization complete! No valid results found.');
     }
+    
   } catch (error) {
     await sendLog('error', `Optimization error: ${error.message}`);
   } finally {
     if (deepBacktest) {
       await sendToContent('syncDeepBacktest', { enabled: false });
     }
+    
+    // Clean up session
+    if (currentSessionId) {
+      try {
+        await callOptimizationServer('/stop_optimization', { session_id: currentSessionId });
+        currentSessionId = null;
+      } catch (error) {
+        await sendLog('warning', `Failed to clean up session: ${error.message}`);
+      }
+    }
+    
     abortOptimization = false;
     updateOptimizationState('idle');
   }
@@ -399,44 +459,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ isValid: isValidPage, tabId: tabs[0]?.id });
       });
       return true;
-    case 'injectContentScript':
-      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
-        try {
-          await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, files: ['content.js'] });
-          sendResponse({ success: true });
-        } catch (error) {
-          sendResponse({ success: false, error: error.message });
-        }
-      });
-      return true;
     case 'forwardToContent':
+      // Forward message to content script
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        chrome.tabs.sendMessage(tabs[0].id, request.data, (response) => {
-          sendResponse(response);
-        });
+        if (tabs[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, request.data, sendResponse);
+        } else {
+          sendResponse({ success: false, error: 'No active tab' });
+        }
       });
       return true;
     default:
       sendResponse({ success: false, error: 'Unknown action' });
+      return true;
   }
 });
 
-// Handle extension installation
+// Initialize background state on startup
+chrome.runtime.onStartup.addListener(() => {
+  updateOptimizationState('idle');
+});
+
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('TradingView Strategy Optimizer installed');
-  chrome.storage.local.set({
-    favoriteMetrics: ['netProfit', 'sharpeRatio', 'winRate'],
-    antiDetection: { minDelay: 500, maxDelay: 2000 },
-    logLevel: 'basic'
-  });
-});
-
-// On startup, check if there was an ongoing optimization and restore state
-chrome.runtime.onStartup.addListener(async () => {
-  const state = await loadFromStorage(STORAGE_KEYS.state);
-  if (state) {
-    currentOptimizationState = state;
-  }
+  updateOptimizationState('idle');
 });
 
 // Handle tab updates to check if content script needs injection

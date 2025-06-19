@@ -128,6 +128,19 @@ function OptimizationPanel({ settings, state, progress, onUpdateSettings, onStar
         </div>
       )}
 
+      {/* Optimization Method Info */}
+      <div className="bg-tv-blue/10 border border-tv-blue/30 rounded-lg p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-2 h-2 bg-tv-blue rounded-full"></div>
+          <span className="text-sm font-medium text-tv-blue">Bayesian Optimization</span>
+        </div>
+        <p className="text-xs text-tv-gray-300">
+          Using Latin Hypercube Sampling (LHS) for initial exploration, then Bayesian optimization 
+          for intelligent parameter space exploration. This method converges faster and finds better 
+          solutions than random search.
+        </p>
+      </div>
+
       <div className="bg-tv-gray-800 rounded-lg p-4">
         <h3 className="text-sm font-medium mb-3">Optimization Settings</h3>
         
@@ -191,9 +204,14 @@ function OptimizationPanel({ settings, state, progress, onUpdateSettings, onStar
               disabled={isRunning}
               className="w-full bg-tv-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tv-blue disabled:opacity-50"
             />
-            <p className="text-xs text-tv-gray-400 mt-2">
-              Max possible combinations: {maxCombinations}
-            </p>
+            <div className="mt-2 space-y-1">
+              <p className="text-xs text-tv-gray-400">
+                Max possible combinations: {maxCombinations}
+              </p>
+              <p className="text-xs text-tv-blue">
+                💡 Recommended: 100-200 iterations for better convergence and more valid results
+              </p>
+            </div>
           </div>
 
           <div>

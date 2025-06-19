@@ -1,323 +1,723 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Tuple, Optional, List
-from bayes_opt import BayesianOptimization, acquisition
-from sklearn.gaussian_process.kernels import Matern
-import logging
-import random
-from datetime import datetime
+#!/usr/bin/env python3
+"""
+TradingView Strategy Optimizer Server
+Bayesian Optimization Backend for Browser Extension
 
-logging.basicConfig(level=logging.INFO)
+This server provides Bayesian optimization capabilities for the TradingView Strategy Optimizer extension.
+It uses the bayesian-optimization Python library to intelligently search for optimal parameter combinations.
+"""
+
+import json
+import logging
+import time
+from typing import Dict, List, Any, Optional, Tuple
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import numpy as np
+from bayes_opt import BayesianOptimization, UtilityFunction
+from scipy.stats import qmc
+from dataclasses import dataclass, asdict
+from threading import Lock
+import uuid
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+app = Flask(__name__)
+CORS(app)  # Enable CORS for browser extension
 
-# Global state
-optimizer: Optional[BayesianOptimization] = None
-init_points_global: int = 0
-n_iter_global: int = 0
-suggestion_count: int = 0
-pbounds_global: Dict[str, Tuple[float, float]] = {}
-optimization_history: List[Dict] = []
-parameter_types_global: Dict[str, str] = {}
-categorical_mappings_global: Dict[str, List[str]] = {}
+# Global state management
+optimization_sessions = {}
+session_lock = Lock()
 
-class InitRequest(BaseModel):
-    pbounds: Dict[str, Tuple[float, float]]
-    init_points: int
-    n_iter: int
-    acquisition_type: Optional[str] = "ucb"
-    kappa: Optional[float] = 2.576
-    xi: Optional[float] = 0.01
-    alpha: Optional[float] = 1e-6
-    random_state: Optional[int] = 42
-    parameter_types: Optional[Dict[str, str]] = {}
-    categorical_mappings: Optional[Dict[str, List[str]]] = {}
-    target_metrics: Optional[List[str]] = ["net_profit"]
-
-class ObserveRequest(BaseModel):
-    params: Dict[str, float]
-    target: float
-    additional_metrics: Optional[Dict[str, float]] = {}
-
-class SuggestResponse(BaseModel):
-    params: Dict[str, float]
-    done: bool
-    acquisition_value: Optional[float] = None
-
-class BestResponse(BaseModel):
-    params: Dict[str, float]
-    target: float
-
-class OptimizationStatus(BaseModel):
-    iteration: int
-    total_iterations: int
-    best_target: float
-    current_exploration_ratio: float
-
-def convert_parameters(params_dict, parameter_types, categorical_mappings, to_processed=True):
-    """Convert parameters between encoded and processed formats"""
-    result = {}
+# Configuration constants for optimization tuning
+OPTIMIZATION_CONFIG = {
+    # Acquisition function settings - IMPROVED based on results analysis
+    'acquisition_type': 'ucb',  # 'ucb', 'ei', 'poi'
+    'initial_kappa': 2.5,       # Reduced from 3.0 - your results show good convergence with less exploration
+    'kappa_decay': 0.92,        # Faster decay from 0.95 - exploit good regions more aggressively  
+    'kappa_min': 0.5,           # Lower minimum from 1.0 - allow more exploitation
+    'kappa_max': 4.0,           # Reduced from 5.0 - prevent excessive exploration
+    'xi': 0.02,                 # Increased from 0.01 - better balance for EI
     
-    for param_name, value in params_dict.items():
-        param_type = parameter_types.get(param_name, "continuous")
-        
-        if to_processed:
-            # Convert from encoded to processed (for display/response)
-            if param_type == "integer":
-                result[param_name] = int(round(float(value)))
-            elif param_type == "categorical":
-                if param_name in categorical_mappings:
-                    options = categorical_mappings[param_name]
-                    index = min(max(0, int(float(value))), len(options) - 1)
-                    result[param_name] = options[index]
-                else:
-                    result[param_name] = value
-            else:  # continuous
-                result[param_name] = float(value)
-        else:
-            # Convert from processed to encoded (for optimizer)
-            if param_type == "categorical" and param_name in categorical_mappings:
-                options = categorical_mappings[param_name]
-                if isinstance(value, str) and value in options:
-                    result[param_name] = float(options.index(value))
-                else:
-                    result[param_name] = float(value)
-            else:
-                result[param_name] = float(value)
+    # LHS sampling settings - ENHANCED for better initial coverage
+    'lhs_ratio': 4,             # Increased from 3 - more initial samples for better coverage
+    'lhs_max_samples': 25,      # Increased from 20 - your parameter space benefits from more samples
+    'lhs_candidates': 8,        # Increased from 5 - try more LHS designs for optimal coverage
     
-    return result
+    # Convergence detection - SMARTER based on your results
+    'convergence_window': 15,   # Increased from 10 - more robust convergence detection
+    'improvement_threshold': 0.005,  # Reduced from 0.01 - detect smaller improvements (your results show gradual improvement)
+    'early_stopping': True,    
+    'plateau_detection': True,  # NEW: Detect when we're stuck in local optima
+    'plateau_window': 8,        # NEW: Window for plateau detection
+    
+    # Advanced settings - ENHANCED GP performance
+    'random_seed': 42,          
+    'gaussian_process_alpha': 5e-7,  # Reduced noise parameter for smoother GP
+    'n_restarts_optimizer': 8, # Increased from 5 - better GP hyperparameter optimization
+    'gp_kernel_bounds': (1e-3, 1e3),  # NEW: Better kernel parameter bounds
+    
+    # NEW: Multi-objective support (in case you want to optimize multiple metrics)
+    'multi_objective': False,
+    'secondary_metrics': [],    # e.g., ['maxDrawdown', 'winRate'] 
+    'metric_weights': {},       # Weights for combining metrics
+    
+    # NEW: Adaptive parameter bounds (narrow search space as we learn)
+    'adaptive_bounds': True,
+    'bounds_shrink_factor': 0.8,  # How much to shrink bounds around good regions
+    'bounds_update_threshold': 0.7,  # Only shrink if this fraction of top results are in narrower region
+}
 
-@app.post("/init", response_model=SuggestResponse)
-def init(req: InitRequest):
-    global optimizer, init_points_global, n_iter_global, suggestion_count
-    global pbounds_global, optimization_history, parameter_types_global, categorical_mappings_global
+@dataclass
+class Parameter:
+    """Represents a strategy parameter for optimization"""
+    name: str
+    type: str  # 'number', 'checkbox', 'select'
+    min_val: Optional[float] = None
+    max_val: Optional[float] = None
+    options: Optional[List[str]] = None
+    is_integer: bool = False
     
-    try:
-        # Store global parameters
-        pbounds_global = req.pbounds
-        init_points_global = req.init_points
-        n_iter_global = req.n_iter
-        suggestion_count = 0
-        parameter_types_global = req.parameter_types or {}
-        categorical_mappings_global = req.categorical_mappings or {}
-        optimization_history = []
+    def to_bounds_dict(self) -> Dict[str, Tuple[float, float]]:
+        """Convert parameter to bounds dictionary for BayesianOptimization"""
+        if self.type == 'number':
+            return {self.name: (self.min_val, self.max_val)}
+        elif self.type == 'checkbox':
+            return {self.name: (0, 1)}
+        elif self.type == 'select' and self.options:
+            return {self.name: (0, len(self.options) - 1)}
+        return {}
+
+@dataclass
+class Filter:
+    """Represents a filter constraint on metrics"""
+    metric: str
+    min_val: Optional[float] = None
+    max_val: Optional[float] = None
+    
+    def applies_to(self, metric_value: float) -> bool:
+        """Check if the metric value passes this filter"""
+        if self.min_val is not None and metric_value < self.min_val:
+            return False
+        if self.max_val is not None and metric_value > self.max_val:
+            return False
+        return True
+
+class OptimizationSession:
+    """Manages a single Bayesian optimization session"""
+    
+    def __init__(self, session_id: str, parameters: List[Parameter], target_metric: str, 
+                 filters: List[Filter], max_iterations: int = 100):
+        self.session_id = session_id
+        self.parameters = parameters
+        self.target_metric = target_metric
+        self.filters = filters
+        self.max_iterations = max_iterations
         
-        logger.info(f"Initializing optimization with bounds: {pbounds_global}")
+        # Build parameter bounds for Bayesian optimization
+        self.pbounds = {}
+        self.categorical_mappings = {}
         
-        # Adjust bounds for categorical parameters
-        adjusted_bounds = {}
-        for param_name, (min_val, max_val) in pbounds_global.items():
-            param_type = parameter_types_global.get(param_name, "continuous")
-            if param_type == "categorical" and param_name in categorical_mappings_global:
-                num_options = len(categorical_mappings_global[param_name])
-                adjusted_bounds[param_name] = (0, num_options - 1)
-            else:
-                adjusted_bounds[param_name] = (min_val, max_val)
+        for param in parameters:
+            bounds = param.to_bounds_dict()
+            self.pbounds.update(bounds)
+            
+            # Store categorical mappings for later conversion
+            if param.type == 'select' and param.options:
+                self.categorical_mappings[param.name] = param.options
         
-        # Create acquisition function
-        if req.acquisition_type.lower() == "ei":
-            acq_func = acquisition.ExpectedImprovement(xi=req.xi)
-        elif req.acquisition_type.lower() == "poi":
-            acq_func = acquisition.ProbabilityOfImprovement(xi=req.xi)
-        else:  # ucb
-            acq_func = acquisition.UpperConfidenceBound(kappa=req.kappa)
-        
-        # Initialize optimizer
-        optimizer = BayesianOptimization(
-            f=None,
-            pbounds=adjusted_bounds,
-            acquisition_function=acq_func,
-            random_state=req.random_state,
+        # Initialize Bayesian optimizer with enhanced GP settings
+        self.optimizer = BayesianOptimization(
+            f=None,  # We don't provide the function directly
+            pbounds=self.pbounds,
+            verbose=0,
+            random_state=OPTIMIZATION_CONFIG['random_seed'],
             allow_duplicate_points=True
         )
         
-        # Set GP parameters
-        kernel = Matern(length_scale=1.0, length_scale_bounds=(1e-2, 1e2), nu=2.5)
-        optimizer.set_gp_params(alpha=req.alpha, kernel=kernel, n_restarts_optimizer=5)
+        # Enhanced GP configuration for better performance
+        self._configure_gaussian_process()
         
-        # Generate first suggestion (random)
-        suggestion = {}
-        for param_name, (min_val, max_val) in adjusted_bounds.items():
-            suggestion[param_name] = random.uniform(min_val, max_val)
-        
-        # Convert to proper parameter types for response
-        processed_params = convert_parameters(suggestion, parameter_types_global, categorical_mappings_global, to_processed=True)
-        response_params = convert_parameters(processed_params, parameter_types_global, categorical_mappings_global, to_processed=False)
-        
-        suggestion_count += 1
-        total_iterations = init_points_global + n_iter_global
-        done = suggestion_count >= total_iterations
-        
-        logger.info(f"Generated suggestion {suggestion_count}/{total_iterations}: {processed_params}")
-        
-        return SuggestResponse(
-            params=response_params,
-            done=done,
-            acquisition_value=0.0
+        # Initialize utility function with configurable parameters
+        self.utility = UtilityFunction(
+            kind=OPTIMIZATION_CONFIG['acquisition_type'], 
+            kappa=OPTIMIZATION_CONFIG['initial_kappa'], 
+            xi=OPTIMIZATION_CONFIG['xi']
         )
         
-    except Exception as e:
-        logger.error(f"Error in init: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/observe", response_model=SuggestResponse)
-def observe(req: ObserveRequest):
-    global optimizer, suggestion_count, optimization_history
+        # Generate optimized LHS samples using configuration
+        lhs_samples = min(
+            OPTIMIZATION_CONFIG['lhs_max_samples'], 
+            max_iterations // OPTIMIZATION_CONFIG['lhs_ratio']
+        )
+        self.initial_samples = self._generate_lhs_samples(n_samples=lhs_samples)
+        self.initial_sample_index = 0
+        
+        # Enhanced tracking with configurable convergence detection
+        self.iteration_count = 0
+        self.best_result = None
+        self.all_results = []
+        self.filtered_results = []
+        self.convergence_window = OPTIMIZATION_CONFIG['convergence_window']
+        self.improvement_threshold = OPTIMIZATION_CONFIG['improvement_threshold']
+        
+        # NEW: Adaptive bounds tracking
+        self.original_bounds = self.pbounds.copy()
+        self.bounds_updated = False
+        
+        logger.info(f"Created optimization session {session_id} with {len(parameters)} parameters and {len(self.initial_samples)} LHS initial samples")
     
-    try:
-        if optimizer is None:
-            raise HTTPException(status_code=400, detail="Optimizer not initialized")
+    def _configure_gaussian_process(self):
+        """Configure the Gaussian Process with enhanced settings"""
+        from sklearn.gaussian_process.kernels import Matern, ConstantKernel as C
         
-        logger.info(f"Observe called with params: {req.params}")
-        
-        # Convert parameters to encoded format for optimizer
-        encoded_params = convert_parameters(req.params, parameter_types_global, categorical_mappings_global, to_processed=False)
-        logger.info(f"Encoded params: {encoded_params}")
-        
-        # Register observation
-        optimizer.register(params=encoded_params, target=req.target)
-        logger.info(f"Registered observation successfully")
-        
-        # Store in history
-        processed_params = convert_parameters(req.params, parameter_types_global, categorical_mappings_global, to_processed=True)
-        history_entry = {
-            "iteration": suggestion_count,
-            "params": processed_params,
-            "target": req.target,
-            "timestamp": datetime.now().isoformat()
-        }
-        optimization_history.append(history_entry)
-        
-        logger.info(f"Observed result: {processed_params} -> {req.target}")
-        
-        # Check if done
-        total_iterations = init_points_global + n_iter_global
-        done = suggestion_count >= total_iterations
-        
-        if done:
-            logger.info("Optimization completed!")
-            return SuggestResponse(params={}, done=True)
-        
-        # Get next suggestion
-        if suggestion_count < init_points_global:
-            # Random exploration
-            logger.info("Using random exploration")
-            suggestion = {}
-            # Use space.keys for parameter names and space.bounds array for ranges
-            param_names = list(optimizer.space.keys)
-            bounds_array = optimizer.space.bounds
-            logger.info(f"Param names: {param_names}")
-            logger.info(f"Bounds array: {bounds_array}")
+        # Enhanced GP configuration for better performance
+        if hasattr(self.optimizer, '_gp'):
+            self.optimizer._gp.alpha = OPTIMIZATION_CONFIG['gaussian_process_alpha']
+            self.optimizer._gp.n_restarts_optimizer = OPTIMIZATION_CONFIG['n_restarts_optimizer']
             
+            # Set better kernel if possible
+            try:
+                # Matern kernel with nu=2.5 is good for optimization
+                kernel = C(1.0, OPTIMIZATION_CONFIG['gp_kernel_bounds']) * Matern(
+                    length_scale=1.0, 
+                    length_scale_bounds=OPTIMIZATION_CONFIG['gp_kernel_bounds'],
+                    nu=2.5
+                )
+                self.optimizer._gp.kernel = kernel
+                logger.info("Enhanced GP kernel configuration applied")
+            except Exception as e:
+                logger.warning(f"Could not set enhanced kernel: {e}")
+    
+    def suggest_next_parameters(self) -> Dict[str, Any]:
+        """Suggest the next set of parameters to test"""
+        if self.iteration_count >= self.max_iterations:
+            return None
+        
+        # Check for early convergence if enabled
+        if OPTIMIZATION_CONFIG['early_stopping'] and self._check_convergence():
+            logger.info(f"Session {self.session_id}: Early convergence detected after {self.iteration_count} iterations")
+            return None
+        
+        # Use LHS samples for initial exploration, then switch to Bayesian optimization
+        if self.initial_sample_index < len(self.initial_samples):
+            raw_suggestion = self.initial_samples[self.initial_sample_index]
+            self.initial_sample_index += 1
+            source = "LHS"
+        else:
+            # Update acquisition function adaptively
+            self._update_acquisition_function()
+            
+            # Update adaptive bounds if enabled
+            self._update_adaptive_bounds()
+            
+            # Get suggestion from Bayesian optimizer
+            raw_suggestion = self.optimizer.suggest(self.utility)
+            source = "Bayesian"
+        
+        # Convert raw suggestion to proper parameter values
+        suggestion = self._convert_raw_params(raw_suggestion)
+        
+        logger.info(f"Session {self.session_id}: Suggested parameters for iteration {self.iteration_count + 1} (source: {source})")
+        return suggestion
+    
+    def register_result(self, parameters: Dict[str, Any], metrics: Dict[str, float]) -> Dict[str, Any]:
+        """Register the result of testing a parameter combination"""
+        target_value = metrics.get(self.target_metric)
+        if target_value is None:
+            raise ValueError(f"Target metric '{self.target_metric}' not found in results")
+        
+        # Apply filters to determine if result is valid
+        is_valid = self._apply_filters(metrics)
+        
+        # Convert parameters back to raw format for Bayesian optimizer
+        raw_params = self._convert_to_raw_params(parameters)
+        
+        # Only register valid results with the Bayesian optimizer
+        if is_valid:
+            self.optimizer.register(params=raw_params, target=target_value)
+            
+            # Update best result if this is better
+            if self.best_result is None or target_value > self.best_result['target_value']:
+                self.best_result = {
+                    'parameters': parameters.copy(),
+                    'metrics': metrics.copy(),
+                    'target_value': target_value,
+                    'iteration': self.iteration_count + 1
+                }
+        else:
+            self.filtered_results.append({
+                'parameters': parameters.copy(),
+                'metrics': metrics.copy(),
+                'target_value': target_value,
+                'iteration': self.iteration_count + 1,
+                'filtered_reason': self._get_filter_failure_reason(metrics)
+            })
+        
+        # Store all results for logging
+        result_entry = {
+            'parameters': parameters.copy(),
+            'metrics': metrics.copy(),
+            'target_value': target_value,
+            'iteration': self.iteration_count + 1,
+            'is_valid': is_valid,
+            'timestamp': time.time()
+        }
+        self.all_results.append(result_entry)
+        
+        self.iteration_count += 1
+        
+        logger.info(f"Session {self.session_id}: Registered result for iteration {self.iteration_count} "
+                   f"(valid: {is_valid}, target: {target_value:.4f})")
+        
+        return {
+            'is_valid': is_valid,
+            'is_best': is_valid and (self.best_result and 
+                                   self.best_result['iteration'] == self.iteration_count),
+            'iteration': self.iteration_count,
+            'total_valid_results': len([r for r in self.all_results if r['is_valid']]),
+            'total_filtered_results': len(self.filtered_results)
+        }
+    
+    def _convert_raw_params(self, raw_params: Dict[str, float]) -> Dict[str, Any]:
+        """Convert raw Bayesian optimizer parameters to actual parameter values"""
+        result = {}
+        
+        for param in self.parameters:
+            raw_value = raw_params[param.name]
+            
+            if param.type == 'number':
+                if param.is_integer:
+                    result[param.name] = int(round(raw_value))
+                else:
+                    result[param.name] = round(raw_value, 2)
+            elif param.type == 'checkbox':
+                result[param.name] = raw_value > 0.5
+            elif param.type == 'select':
+                index = int(round(raw_value))
+                index = max(0, min(index, len(param.options) - 1))  # Clamp to valid range
+                result[param.name] = param.options[index]
+        
+        return result
+    
+    def _convert_to_raw_params(self, params: Dict[str, Any]) -> Dict[str, float]:
+        """Convert actual parameter values back to raw format for Bayesian optimizer"""
+        result = {}
+        
+        for param in self.parameters:
+            value = params[param.name]
+            
+            if param.type == 'number':
+                result[param.name] = float(value)
+            elif param.type == 'checkbox':
+                result[param.name] = 1.0 if value else 0.0
+            elif param.type == 'select':
+                if value in param.options:
+                    result[param.name] = float(param.options.index(value))
+                else:
+                    result[param.name] = 0.0  # Fallback
+        
+        return result
+    
+    def _apply_filters(self, metrics: Dict[str, float]) -> bool:
+        """Apply all filters to determine if result is valid"""
+        for filter_obj in self.filters:
+            metric_value = metrics.get(filter_obj.metric)
+            if metric_value is not None and not filter_obj.applies_to(metric_value):
+                return False
+        return True
+    
+    def _get_filter_failure_reason(self, metrics: Dict[str, float]) -> str:
+        """Get human-readable reason why filters failed"""
+        failed_filters = []
+        for filter_obj in self.filters:
+            metric_value = metrics.get(filter_obj.metric)
+            if metric_value is not None and not filter_obj.applies_to(metric_value):
+                reason = f"{filter_obj.metric}={metric_value:.4f}"
+                if filter_obj.min_val is not None:
+                    reason += f" < {filter_obj.min_val}"
+                if filter_obj.max_val is not None:
+                    reason += f" > {filter_obj.max_val}"
+                failed_filters.append(reason)
+        return "; ".join(failed_filters)
+    
+    def _generate_lhs_samples(self, n_samples: int) -> List[Dict[str, float]]:
+        """Generate optimized Latin Hypercube Samples for initial exploration"""
+        if not self.pbounds or n_samples <= 0:
+            return []
+        
+        # Get parameter names and bounds
+        param_names = list(self.pbounds.keys())
+        n_params = len(param_names)
+        
+        if n_params == 0:
+            return []
+        
+        # Generate multiple LHS candidates and select the best one based on space-filling criteria
+        best_samples = None
+        best_score = -float('inf')
+        
+        for attempt in range(OPTIMIZATION_CONFIG['lhs_candidates']):  # Try multiple LHS designs
+            # Generate LHS samples using scipy with enhanced optimization
+            sampler = qmc.LatinHypercube(d=n_params, scramble=True, optimization="random-cd", seed=OPTIMIZATION_CONFIG['random_seed'] + attempt)
+            lhs_samples = sampler.random(n=n_samples)
+            
+            # Calculate space-filling quality (minimum distance between points)
+            min_distances = []
+            for i in range(len(lhs_samples)):
+                distances = []
+                for j in range(len(lhs_samples)):
+                    if i != j:
+                        dist = np.linalg.norm(lhs_samples[i] - lhs_samples[j])
+                        distances.append(dist)
+                min_distances.append(min(distances))
+            
+            # Score is the minimum of all minimum distances (maximin criterion)
+            score = min(min_distances) if min_distances else 0
+            
+            if score > best_score:
+                best_score = score
+                best_samples = lhs_samples
+        
+        # Scale samples to parameter bounds
+        scaled_samples = []
+        for sample in best_samples:
+            scaled_sample = {}
             for i, param_name in enumerate(param_names):
-                if i < len(bounds_array):
-                    min_val, max_val = float(bounds_array[i][0]), float(bounds_array[i][1])
-                    suggestion[param_name] = random.uniform(min_val, max_val)
-                    logger.info(f"Generated {param_name}: {suggestion[param_name]} in range [{min_val}, {max_val}]")
-        else:
-            # Bayesian optimization
-            logger.info("Using Bayesian optimization")
-            suggestion = optimizer.suggest()
-            logger.info(f"Raw suggestion from optimizer: {suggestion} (type: {type(suggestion)})")
+                min_val, max_val = self.pbounds[param_name]
+                scaled_value = min_val + sample[i] * (max_val - min_val)
+                scaled_sample[param_name] = scaled_value
+            scaled_samples.append(scaled_sample)
         
-        # Ensure suggestion is a dictionary
-        if not isinstance(suggestion, dict):
-            logger.error(f"Suggestion is not a dict! Type: {type(suggestion)}, Value: {suggestion}")
-            raise ValueError(f"optimizer.suggest() returned {type(suggestion)} instead of dict")
-        
-        # Convert to proper parameter types for response
-        processed_params = convert_parameters(suggestion, parameter_types_global, categorical_mappings_global, to_processed=True)
-        response_params = convert_parameters(processed_params, parameter_types_global, categorical_mappings_global, to_processed=False)
-        
-        suggestion_count += 1
-        
-        logger.info(f"Generated suggestion {suggestion_count}/{total_iterations}: {processed_params}")
-        
-        return SuggestResponse(
-            params=response_params,
-            done=False,
-            acquisition_value=None
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in observe: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/best", response_model=BestResponse)
-def best():
-    global optimizer
+        logger.info(f"Generated {len(scaled_samples)} optimized LHS samples (score: {best_score:.4f}) for initial exploration")
+        return scaled_samples
     
-    try:
-        if optimizer is None or len(optimizer.space.target) == 0:
-            raise HTTPException(status_code=400, detail="No observations yet")
-        
-        # Get best result
-        best_params_raw = optimizer.max["params"]
-        best_target = optimizer.max["target"]
-        
-        logger.info(f"Raw best params: {best_params_raw} (type: {type(best_params_raw)})")
-        
-        # Ensure best_params is a dictionary
-        if not isinstance(best_params_raw, dict):
-            logger.error(f"Best params is not a dict! Type: {type(best_params_raw)}")
-            raise ValueError(f"optimizer.max['params'] returned {type(best_params_raw)} instead of dict")
-        
-        # Convert to proper parameter types
-        best_params = convert_parameters(best_params_raw, parameter_types_global, categorical_mappings_global, to_processed=True)
-        
-        logger.info(f"Best result: {best_params} -> {best_target}")
-        
-        return BestResponse(params=best_params, target=best_target)
-        
-    except Exception as e:
-        logger.error(f"Error in best: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    def get_status(self) -> Dict[str, Any]:
+        """Get current optimization status"""
+        return {
+            'session_id': self.session_id,
+            'iteration_count': self.iteration_count,
+            'max_iterations': self.max_iterations,
+            'total_results': len(self.all_results),
+            'valid_results': len([r for r in self.all_results if r['is_valid']]),
+            'filtered_results': len(self.filtered_results),
+            'best_result': self.best_result,
+            'is_complete': self.iteration_count >= self.max_iterations,
+            'parameters_count': len(self.parameters),
+            'filters_count': len(self.filters),
+            'lhs_samples_used': self.initial_sample_index,
+            'lhs_samples_total': len(self.initial_samples),
+            'optimization_phase': 'LHS' if self.initial_sample_index < len(self.initial_samples) else 'Bayesian'
+        }
 
-@app.get("/status", response_model=OptimizationStatus)
-def status():
-    global optimizer, suggestion_count
-    
-    try:
-        if optimizer is None:
-            raise HTTPException(status_code=400, detail="Optimizer not initialized")
+    def _update_acquisition_function(self):
+        """Adaptively adjust acquisition function parameters based on progress"""
+        if len(self.all_results) < 5:
+            return  # Not enough data yet
         
-        total_iterations = init_points_global + n_iter_global
-        best_target = optimizer.max["target"] if len(optimizer.space.target) > 0 else 0.0
+        # Calculate recent improvement rate
+        valid_results = [r for r in self.all_results if r['is_valid']]
+        if len(valid_results) < 3:
+            return
         
-        # Calculate exploration ratio
-        if suggestion_count <= init_points_global:
-            exploration_ratio = 1.0
-        else:
-            exploitation_iterations = suggestion_count - init_points_global
-            max_exploitation_iterations = n_iter_global
-            exploration_ratio = max(0.1, 1.0 - (exploitation_iterations / max_exploitation_iterations))
-        
-        return OptimizationStatus(
-            iteration=suggestion_count,
-            total_iterations=total_iterations,
-            best_target=best_target,
-            current_exploration_ratio=exploration_ratio
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        recent_results = valid_results[-self.convergence_window:]
+        if len(recent_results) >= 3:
+            recent_values = [r['target_value'] for r in recent_results]
+            improvement_rate = (max(recent_values) - min(recent_values)) / len(recent_values)
+            
+            # Adjust kappa based on improvement rate using configuration
+            if improvement_rate < self.improvement_threshold:
+                # Increase exploration if we're not improving much
+                new_kappa = min(OPTIMIZATION_CONFIG['kappa_max'], self.utility.kappa * 1.1)
+            else:
+                # Increase exploitation if we're finding good areas
+                new_kappa = max(OPTIMIZATION_CONFIG['kappa_min'], self.utility.kappa * OPTIMIZATION_CONFIG['kappa_decay'])
+            
+            self.utility = UtilityFunction(
+                kind=OPTIMIZATION_CONFIG['acquisition_type'], 
+                kappa=new_kappa, 
+                xi=OPTIMIZATION_CONFIG['xi']
+            )
+            logger.info(f"Adapted acquisition function: kappa={new_kappa:.2f}, improvement_rate={improvement_rate:.4f}")
 
-@app.get("/history")
-def get_history():
-    return {"history": optimization_history}
+    def _update_adaptive_bounds(self):
+        """Adaptively shrink parameter bounds around high-performing regions"""
+        if not OPTIMIZATION_CONFIG['adaptive_bounds'] or self.bounds_updated:
+            return
+        
+        valid_results = [r for r in self.all_results if r['is_valid']]
+        if len(valid_results) < 20:  # Need sufficient data
+            return
+        
+        # Get top performing results
+        top_results = sorted(valid_results, key=lambda x: x['target_value'], reverse=True)
+        top_fraction = int(len(top_results) * OPTIMIZATION_CONFIG['bounds_update_threshold'])
+        top_performers = top_results[:max(5, top_fraction)]
+        
+        new_bounds = {}
+        bounds_changed = False
+        
+        for param_name, (orig_min, orig_max) in self.original_bounds.items():
+            # Get parameter values from top performers
+            param_values = []
+            for result in top_performers:
+                raw_params = self._convert_to_raw_params(result['parameters'])
+                if param_name in raw_params:
+                    param_values.append(raw_params[param_name])
+            
+            if len(param_values) >= 3:  # Need sufficient samples
+                param_min, param_max = min(param_values), max(param_values)
+                param_range = param_max - param_min
+                
+                # Expand slightly around the observed range
+                buffer = param_range * (1 - OPTIMIZATION_CONFIG['bounds_shrink_factor']) / 2
+                new_min = max(orig_min, param_min - buffer)
+                new_max = min(orig_max, param_max + buffer)
+                
+                # Only update if bounds are meaningfully narrower
+                if (new_max - new_min) < 0.8 * (orig_max - orig_min):
+                    new_bounds[param_name] = (new_min, new_max)
+                    bounds_changed = True
+                else:
+                    new_bounds[param_name] = (orig_min, orig_max)
+            else:
+                new_bounds[param_name] = (orig_min, orig_max)
+        
+        if bounds_changed:
+            self.pbounds = new_bounds
+            self.bounds_updated = True
+            logger.info(f"Updated parameter bounds based on top performers: {new_bounds}")
 
-@app.get("/health")
+    def _check_convergence(self) -> bool:
+        """Enhanced convergence detection with plateau detection"""
+        valid_results = [r for r in self.all_results if r['is_valid']]
+        if len(valid_results) < self.convergence_window:
+            return False
+        
+        recent_values = [r['target_value'] for r in valid_results[-self.convergence_window:]]
+        improvement = max(recent_values) - min(recent_values)
+        
+        # Traditional convergence check
+        if improvement < self.improvement_threshold:
+            return True
+        
+        # NEW: Plateau detection - check if we're stuck in local optimum
+        if OPTIMIZATION_CONFIG['plateau_detection'] and len(valid_results) >= OPTIMIZATION_CONFIG['plateau_window']:
+            plateau_values = [r['target_value'] for r in valid_results[-OPTIMIZATION_CONFIG['plateau_window']:]]
+            plateau_improvement = max(plateau_values) - min(plateau_values)
+            
+            # If we're on a plateau, increase exploration
+            if plateau_improvement < self.improvement_threshold * 0.5:
+                logger.info(f"Plateau detected, increasing exploration")
+                self.utility.kappa = min(OPTIMIZATION_CONFIG['kappa_max'], self.utility.kappa * 1.2)
+                return False  # Don't converge yet, let increased exploration work
+        
+        return False
+
+# API Endpoints
+
+@app.route('/health', methods=['GET'])
 def health_check():
-    return {"status": "healthy", "version": "2.0.0-stable"}
+    """Health check endpoint"""
+    return jsonify({'status': 'healthy', 'message': 'Bayesian Optimization Server is running'})
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+@app.route('/start_optimization', methods=['POST'])
+def start_optimization():
+    """Start a new Bayesian optimization session"""
+    try:
+        data = request.json
+        
+        # Parse parameters
+        parameters = []
+        for param_data in data.get('parameters', []):
+            param = Parameter(
+                name=param_data['name'],
+                type=param_data['type'],
+                min_val=param_data.get('min_val'),
+                max_val=param_data.get('max_val'),
+                options=param_data.get('options'),
+                is_integer=param_data.get('is_integer', False)
+            )
+            parameters.append(param)
+        
+        # Parse filters
+        filters = []
+        for filter_data in data.get('filters', []):
+            filter_obj = Filter(
+                metric=filter_data['metric'],
+                min_val=filter_data.get('min_val'),
+                max_val=filter_data.get('max_val')
+            )
+            filters.append(filter_obj)
+        
+        # Create new session
+        session_id = str(uuid.uuid4())
+        target_metric = data.get('target_metric', 'netProfit')
+        max_iterations = data.get('max_iterations', 100)
+        
+        session = OptimizationSession(
+            session_id=session_id,
+            parameters=parameters,
+            target_metric=target_metric,
+            filters=filters,
+            max_iterations=max_iterations
+        )
+        
+        with session_lock:
+            optimization_sessions[session_id] = session
+        
+        logger.info(f"Started optimization session {session_id} with {len(parameters)} parameters")
+        
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'message': f'Optimization session started with {len(parameters)} parameters'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error starting optimization: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/suggest_parameters', methods=['POST'])
+def suggest_parameters():
+    """Get next parameter suggestion from Bayesian optimizer"""
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        
+        if not session_id or session_id not in optimization_sessions:
+            return jsonify({'success': False, 'error': 'Invalid session ID'}), 400
+        
+        session = optimization_sessions[session_id]
+        suggestion = session.suggest_next_parameters()
+        
+        if suggestion is None:
+            return jsonify({
+                'success': True,
+                'parameters': None,
+                'message': 'Optimization complete - maximum iterations reached'
+            })
+        
+        return jsonify({
+            'success': True,
+            'parameters': suggestion,
+            'iteration': session.iteration_count + 1,
+            'max_iterations': session.max_iterations
+        })
+        
+    except Exception as e:
+        logger.error(f"Error suggesting parameters: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/register_result', methods=['POST'])
+def register_result():
+    """Register the result of testing a parameter combination"""
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        parameters = data.get('parameters')
+        metrics = data.get('metrics')
+        
+        if not session_id or session_id not in optimization_sessions:
+            return jsonify({'success': False, 'error': 'Invalid session ID'}), 400
+        
+        if not parameters or not metrics:
+            return jsonify({'success': False, 'error': 'Parameters and metrics are required'}), 400
+        
+        session = optimization_sessions[session_id]
+        result_info = session.register_result(parameters, metrics)
+        
+        return jsonify({
+            'success': True,
+            'result_info': result_info,
+            'session_status': session.get_status()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error registering result: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/get_session_status', methods=['POST'])
+def get_session_status():
+    """Get current status of an optimization session"""
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        
+        if not session_id or session_id not in optimization_sessions:
+            return jsonify({'success': False, 'error': 'Invalid session ID'}), 400
+        
+        session = optimization_sessions[session_id]
+        status = session.get_status()
+        
+        return jsonify({
+            'success': True,
+            'status': status
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting session status: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/stop_optimization', methods=['POST'])
+def stop_optimization():
+    """Stop and clean up an optimization session"""
+    try:
+        data = request.json
+        session_id = data.get('session_id')
+        
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session ID is required'}), 400
+        
+        with session_lock:
+            if session_id in optimization_sessions:
+                session = optimization_sessions[session_id]
+                final_status = session.get_status()
+                del optimization_sessions[session_id]
+                
+                logger.info(f"Stopped optimization session {session_id}")
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Optimization session stopped',
+                    'final_status': final_status
+                })
+            else:
+                return jsonify({'success': False, 'error': 'Session not found'}), 404
+        
+    except Exception as e:
+        logger.error(f"Error stopping optimization: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/list_sessions', methods=['GET'])
+def list_sessions():
+    """List all active optimization sessions"""
+    try:
+        with session_lock:
+            sessions_info = {}
+            for session_id, session in optimization_sessions.items():
+                sessions_info[session_id] = session.get_status()
+        
+        return jsonify({
+            'success': True,
+            'sessions': sessions_info,
+            'total_sessions': len(sessions_info)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing sessions: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+if __name__ == '__main__':
+    logger.info("Starting TradingView Strategy Optimizer - Bayesian Optimization Server")
+    logger.info("Make sure to install dependencies: pip install flask flask-cors bayesian-optimization numpy")
+    
+    # Run the server
+    app.run(
+        host='127.0.0.1',
+        port=5000,
+        debug=False,
+        threaded=True
+    ) 

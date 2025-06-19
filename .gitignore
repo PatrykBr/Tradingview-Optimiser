@@ -26,7 +26,23 @@ Thumbs.db
 .env.test.local
 .env.production.local
 
+# Python virtual environment
+venv/
+env/
+.venv/
+.env/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Python logs and outputs
+*.log
+optimization_log.json
+optimization_results_*.json
+
 # Temporary files
 *.tmp
-*.temp 
-__pycache__
+*.temp

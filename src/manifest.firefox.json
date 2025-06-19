@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "TradingView Strategy Optimizer",
   "version": "1.0.0",
-  "description": "Optimize TradingView strategy parameters using Bayesian optimization",
+  "description": "Optimize TradingView strategy parameters",
   "permissions": [
     "activeTab",
     "storage",
@@ -10,8 +10,7 @@
     "tabs"
   ],
   "host_permissions": [
-    "https://www.tradingview.com/*",
-    "http://localhost:8000/*"
+    "https://www.tradingview.com/*"
   ],
   "background": {
     "scripts": ["background.js"],
