@@ -135,9 +135,9 @@ function OptimizationPanel({ settings, state, progress, onUpdateSettings, onStar
           <span className="text-sm font-medium text-tv-blue">Bayesian Optimization</span>
         </div>
         <p className="text-xs text-tv-gray-300">
-          Using Latin Hypercube Sampling (LHS) for initial exploration, then Bayesian optimization 
-          for intelligent parameter space exploration. This method converges faster and finds better 
-          solutions than random search.
+          First tests current settings as baseline, then uses Latin Hypercube Sampling (LHS) for initial exploration, 
+          followed by Bayesian optimization for intelligent parameter space exploration. This method converges faster 
+          and finds better solutions than random search.
         </p>
       </div>
 

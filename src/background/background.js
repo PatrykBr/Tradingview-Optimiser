@@ -308,15 +308,95 @@ async function runOptimization(settings) {
     const enabledParams = parameters.filter(p => p.enabled);
     if (enabledParams.length === 0) throw new Error('No parameters selected for optimization');
     
+    // First, capture current settings and test them (iteration 0)
+    await sendLog('info', 'Capturing current settings for baseline evaluation...');
+    const currentSettingsResp = await sendToContent('readStrategySettings', { strategyIndex });
+    if (!currentSettingsResp.success) {
+      throw new Error('Failed to read current strategy settings');
+    }
+    
+    const currentSettings = currentSettingsResp.settings;
+    await sendLog('debug', `Current settings: ${JSON.stringify(currentSettings)}`);
+    
+    // Create a mapping of current values for enabled parameters
+    const currentParams = {};
+    for (const param of enabledParams) {
+      const currentSetting = currentSettings.find(s => s.name === param.name);
+      if (currentSetting) {
+        currentParams[param.name] = currentSetting.value;
+      } else {
+        // Fallback to parameter default if current setting not found
+        currentParams[param.name] = param.default || param.min || false;
+        await sendLog('warning', `Current value not found for parameter ${param.name}, using fallback: ${currentParams[param.name]}`);
+      }
+    }
+    
+    await sendLog('info', 'Testing current settings as baseline (iteration 0)...');
+    updateProgress(0, iterations + 1); // +1 because we're adding iteration 0
+    
+    // Test current settings first
+    if (deepBacktest) {
+      await sendLog('debug', 'Checking date range for deep backtest...');
+      if (startDate || endDate) {
+        await sendLog('debug', `Setting date range: ${startDate} to ${endDate}`);
+        await sendToContent('setDateRange', { startDate, endDate });
+      }
+      await sendLog('debug', 'Generating deep backtest report with current settings...');
+    } else {
+      await sendLog('debug', 'Waiting for backtest to complete with current settings...');
+      await sendToContent('waitForBacktestComplete');
+    }
+    
+    // Read metrics for current settings
+    await sendLog('debug', 'Reading metrics for current settings...');
+    const metricNames = [...new Set([metric, ...filters.map(f => f.metric)])];
+    const currentMetricsResp = await sendToContent('readAllMetrics', { metricNames });
+    if (!currentMetricsResp.success) throw new Error('Failed to read metrics for current settings');
+    
+    const currentValues = currentMetricsResp.metrics;
+    const currentMetricValue = currentValues[metric];
+    await sendLog('info', `Current settings baseline - ${metric}: ${currentMetricValue}`);
+    
     // Initialize Bayesian optimization session
     await sendLog('info', 'Initializing Bayesian optimization server...');
     currentSessionId = await initializeBayesianSession(enabledParams, metric, filters, iterations);
     await sendLog('info', `Created optimization session: ${currentSessionId}`);
-    await sendLog('info', `Optimizing ${enabledParams.length} parameters over ${iterations} iterations using LHS + Bayesian optimization`);
+    
+    // Register the current settings as the first result
+    await sendLog('debug', 'Registering current settings with optimizer...');
+    const currentRegistrationResult = await registerOptimizationResult(currentSessionId, currentParams, currentValues);
+    const currentResultInfo = currentRegistrationResult.result_info || {};
     
     let bestResult = null;
     let allResults = [];
     let validResultsCount = 0;
+    
+    // Handle the current settings result
+    if (currentResultInfo.is_valid) {
+      validResultsCount++;
+      bestResult = { 
+        iteration: 0, 
+        settings: currentParams, 
+        value: currentMetricValue, 
+        metric, 
+        isValid: true 
+      };
+    }
+    
+    // Emit result for UI
+    const currentResult = { 
+      iteration: 0, 
+      settings: currentParams, 
+      value: currentMetricValue, 
+      metric, 
+      isValid: currentResultInfo.is_valid,
+      isBest: currentResultInfo.is_best
+    };
+    
+    allResults.push(currentResult);
+    await sendResult(currentResult);
+    
+    await sendLog('info', `Starting optimization from iteration 1 (${enabledParams.length} parameters over ${iterations} iterations using LHS + Bayesian optimization)`);
     
     for (let i = 1; i <= iterations; i++) {
       if (abortOptimization) {
@@ -325,19 +405,19 @@ async function runOptimization(settings) {
       }
       
       // Update progress
-      updateProgress(i, iterations);
+      updateProgress(i, iterations + 1); // +1 because we added iteration 0
       
       // Get next parameter suggestion from Bayesian optimizer (uses LHS for initial samples)
-      const currentParams = await getNextParameters(currentSessionId);
-      if (!currentParams) {
+      const suggestedParams = await getNextParameters(currentSessionId);
+      if (!suggestedParams) {
         await sendLog('info', 'No more parameter suggestions available');
         break;
       }
       
-      await sendLog('info', `Iteration ${i}/${iterations}, params: ${JSON.stringify(currentParams)}`);
+      await sendLog('info', `Iteration ${i}/${iterations}, params: ${JSON.stringify(suggestedParams)}`);
       
       // Apply new settings
-      const settingsToApply = enabledParams.map(p => ({ name: p.name, type: p.type, value: currentParams[p.name] }));
+      const settingsToApply = enabledParams.map(p => ({ name: p.name, type: p.type, value: suggestedParams[p.name] }));
       await sendToContent('applySettings', { strategyIndex, settings: settingsToApply });
       
       if (deepBacktest) {
@@ -359,7 +439,7 @@ async function runOptimization(settings) {
       const metricValue = values[metric];
       
       // Register result with Bayesian optimizer
-      const registrationResult = await registerOptimizationResult(currentSessionId, currentParams, values);
+      const registrationResult = await registerOptimizationResult(currentSessionId, suggestedParams, values);
       await sendLog('debug', `Server response: ${JSON.stringify(registrationResult)}`);
       const resultInfo = registrationResult.result_info || {};
       const isValid = resultInfo.is_valid;
@@ -370,7 +450,7 @@ async function runOptimization(settings) {
         if (isBest) {
           bestResult = { 
             iteration: i, 
-            settings: currentParams, 
+            settings: suggestedParams, 
             value: metricValue, 
             metric, 
             isValid: true 
@@ -383,7 +463,7 @@ async function runOptimization(settings) {
       // Emit result for UI
       const result = { 
         iteration: i, 
-        settings: currentParams, 
+        settings: suggestedParams, 
         value: metricValue, 
         metric, 
         isValid, 
