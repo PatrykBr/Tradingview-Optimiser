@@ -34,40 +34,72 @@ session_lock = Lock()
 # Configuration constants for optimization tuning
 OPTIMIZATION_CONFIG = {
     # Acquisition function settings - IMPROVED based on results analysis
-    'acquisition_type': 'ucb',  # 'ucb', 'ei', 'poi'
+    'acquisition_type': 'ei',  # Changed from 'ucb' - EI is better for profit factor optimization
     'initial_kappa': 2.5,       # Reduced from 3.0 - your results show good convergence with less exploration
     'kappa_decay': 0.92,        # Faster decay from 0.95 - exploit good regions more aggressively  
     'kappa_min': 0.5,           # Lower minimum from 1.0 - allow more exploitation
     'kappa_max': 4.0,           # Reduced from 5.0 - prevent excessive exploration
-    'xi': 0.02,                 # Increased from 0.01 - better balance for EI
+    'xi': 0.05,                 # Increased from 0.02 - better for profit factor with EI
     
     # LHS sampling settings - ENHANCED for better initial coverage
-    'lhs_ratio': 4,             # Increased from 3 - more initial samples for better coverage
-    'lhs_max_samples': 25,      # Increased from 20 - your parameter space benefits from more samples
-    'lhs_candidates': 8,        # Increased from 5 - try more LHS designs for optimal coverage
+    'lhs_ratio': 3.5,           # Use ~28% of iterations for initial sampling
+    'lhs_max_samples': 100,     # Maximum initial samples regardless of iterations
+    'lhs_min_samples': 20,      # Minimum initial samples for small runs
+    'lhs_candidates': 10,       # Number of LHS designs to try for optimal coverage
+    'use_sobol': True,          # Use Sobol sequence instead of LHS for better coverage
     
     # Convergence detection - SMARTER based on your results
-    'convergence_window': 15,   # Increased from 10 - more robust convergence detection
-    'improvement_threshold': 0.005,  # Reduced from 0.01 - detect smaller improvements (your results show gradual improvement)
-    'early_stopping': True,    
+    'convergence_window': 20,   # Increased for 200-iteration runs
+    'improvement_threshold': 0.002,  # More sensitive for profit factor
+    'early_stopping': True,     # Enable but only after sufficient iterations
+    'early_stop_min_iterations': 50,  # Don't stop before this many iterations
     'plateau_detection': True,  # NEW: Detect when we're stuck in local optima
-    'plateau_window': 8,        # NEW: Window for plateau detection
+    'plateau_window': 10,       # Increased for profit factor optimization
     
     # Advanced settings - ENHANCED GP performance
     'random_seed': 42,          
-    'gaussian_process_alpha': 5e-7,  # Reduced noise parameter for smoother GP
-    'n_restarts_optimizer': 8, # Increased from 5 - better GP hyperparameter optimization
-    'gp_kernel_bounds': (1e-3, 1e3),  # NEW: Better kernel parameter bounds
+    'gaussian_process_alpha': 1e-6,  # Optimized for profit factor's typical noise level
+    'n_restarts_optimizer': 10, # Increased for better GP hyperparameter optimization
+    'gp_kernel_bounds': (1e-3, 1e3),  # Better kernel parameter bounds
     
     # NEW: Multi-objective support (in case you want to optimize multiple metrics)
-    'multi_objective': False,
-    'secondary_metrics': [],    # e.g., ['maxDrawdown', 'winRate'] 
-    'metric_weights': {},       # Weights for combining metrics
+    'multi_objective': False,    # Disabled - focusing purely on profit factor
+    'secondary_metrics': [],     # Not used for single-objective
+    'metric_weights': {},        # Not used for single-objective
     
     # NEW: Adaptive parameter bounds (narrow search space as we learn)
     'adaptive_bounds': True,
     'bounds_shrink_factor': 0.8,  # How much to shrink bounds around good regions
     'bounds_update_threshold': 0.7,  # Only shrink if this fraction of top results are in narrower region
+    
+    # Metric-specific optimizations
+    'metric_transforms': {
+        'profitFactor': {
+            'log_transform': True,
+            'outlier_threshold': 100  # Very high - only for numerical stability
+        },
+        'sharpeRatio': {
+            'log_transform': False,
+            'outlier_threshold': 20   # Sharpe > 20 is likely a calculation error
+        },
+        'winRate': {
+            'log_transform': False,
+            'outlier_threshold': None  # No cap - already bounded 0-100
+        },
+        'netProfit': {
+            'log_transform': False,
+            'outlier_threshold': None  # No cap on net profit
+        },
+        'maxDrawdown': {
+            'log_transform': False,
+            'outlier_threshold': None,
+            'negate': True  # Since we minimize drawdown by maximizing -drawdown
+        },
+        'percentProfitable': {
+            'log_transform': False,
+            'outlier_threshold': None  # Already bounded 0-100
+        }
+    }
 }
 
 @dataclass
@@ -109,12 +141,13 @@ class OptimizationSession:
     """Manages a single Bayesian optimization session"""
     
     def __init__(self, session_id: str, parameters: List[Parameter], target_metric: str, 
-                 filters: List[Filter], max_iterations: int = 100):
+                 filters: List[Filter], max_iterations: int = 100, use_sobol: bool = True):
         self.session_id = session_id
         self.parameters = parameters
         self.target_metric = target_metric
         self.filters = filters
         self.max_iterations = max_iterations
+        self.use_sobol = use_sobol  # Store sampling method preference
         
         # Build parameter bounds for Bayesian optimization
         self.pbounds = {}
@@ -148,9 +181,12 @@ class OptimizationSession:
         )
         
         # Generate optimized LHS samples using configuration
-        lhs_samples = min(
-            OPTIMIZATION_CONFIG['lhs_max_samples'], 
-            max_iterations // OPTIMIZATION_CONFIG['lhs_ratio']
+        lhs_samples = max(
+            OPTIMIZATION_CONFIG['lhs_min_samples'],
+            min(
+                OPTIMIZATION_CONFIG['lhs_max_samples'], 
+                int(max_iterations / OPTIMIZATION_CONFIG['lhs_ratio'])
+            )
         )
         self.initial_samples = self._generate_lhs_samples(n_samples=lhs_samples)
         self.initial_sample_index = 0
@@ -167,7 +203,7 @@ class OptimizationSession:
         self.original_bounds = self.pbounds.copy()
         self.bounds_updated = False
         
-        logger.info(f"Created optimization session {session_id} with {len(parameters)} parameters and {len(self.initial_samples)} LHS initial samples")
+        logger.info(f"Created optimization session {session_id} with {len(parameters)} parameters and {len(self.initial_samples)} {'Sobol' if self.use_sobol else 'LHS'} initial samples")
     
     def _configure_gaussian_process(self):
         """Configure the Gaussian Process with enhanced settings"""
@@ -196,8 +232,10 @@ class OptimizationSession:
         if self.iteration_count >= self.max_iterations:
             return None
         
-        # Check for early convergence if enabled
-        if OPTIMIZATION_CONFIG['early_stopping'] and self._check_convergence():
+        # Check for early convergence if enabled and we've done enough iterations
+        if (OPTIMIZATION_CONFIG['early_stopping'] and 
+            self.iteration_count >= OPTIMIZATION_CONFIG['early_stop_min_iterations'] and 
+            self._check_convergence()):
             logger.info(f"Session {self.session_id}: Early convergence detected after {self.iteration_count} iterations")
             return None
         
@@ -229,6 +267,26 @@ class OptimizationSession:
         if target_value is None:
             raise ValueError(f"Target metric '{self.target_metric}' not found in results")
         
+        # Apply metric-specific transformations if configured
+        optimization_target = target_value
+        metric_config = OPTIMIZATION_CONFIG['metric_transforms'].get(self.target_metric, {})
+        
+        if metric_config:
+            # Handle metrics that need to be minimized (e.g., drawdown)
+            if metric_config.get('negate'):
+                optimization_target = -target_value
+            
+            # Handle edge cases based on metric type
+            if optimization_target <= 0 and metric_config.get('log_transform'):
+                optimization_target = 0.01  # Small positive value for log transform
+            elif 'outlier_threshold' in metric_config and metric_config['outlier_threshold'] is not None:
+                if optimization_target > metric_config['outlier_threshold']:
+                    # Cap extreme values to avoid GP issues
+                    optimization_target = metric_config['outlier_threshold']
+            elif metric_config.get('log_transform') and optimization_target > 0:
+                # Log transform for better GP modeling
+                optimization_target = np.log(optimization_target + 1)  # +1 to handle values near 0
+        
         # Apply filters to determine if result is valid
         is_valid = self._apply_filters(metrics)
         
@@ -237,10 +295,10 @@ class OptimizationSession:
         
         # Only register valid results with the Bayesian optimizer
         if is_valid:
-            self.optimizer.register(params=raw_params, target=target_value)
+            self.optimizer.register(params=raw_params, target=optimization_target)
             
             # Update best result if this is better
-            if self.best_result is None or target_value > self.best_result['target_value']:
+            if self.best_result is None or target_value > self.best_result.get('target_value', 0.0):
                 self.best_result = {
                     'parameters': parameters.copy(),
                     'metrics': metrics.copy(),
@@ -344,7 +402,7 @@ class OptimizationSession:
         return "; ".join(failed_filters)
     
     def _generate_lhs_samples(self, n_samples: int) -> List[Dict[str, float]]:
-        """Generate optimized Latin Hypercube Samples for initial exploration"""
+        """Generate optimized Latin Hypercube Samples or Sobol sequence for initial exploration"""
         if not self.pbounds or n_samples <= 0:
             return []
         
@@ -354,6 +412,10 @@ class OptimizationSession:
         
         if n_params == 0:
             return []
+        
+        # Use Sobol sequence if enabled for better coverage
+        if self.use_sobol:
+            return self._generate_sobol_samples(n_samples, param_names)
         
         # Generate multiple LHS candidates and select the best one based on space-filling criteria
         best_samples = None
@@ -392,6 +454,27 @@ class OptimizationSession:
             scaled_samples.append(scaled_sample)
         
         logger.info(f"Generated {len(scaled_samples)} optimized LHS samples (score: {best_score:.4f}) for initial exploration")
+        return scaled_samples
+    
+    def _generate_sobol_samples(self, n_samples: int, param_names: List[str]) -> List[Dict[str, float]]:
+        """Generate Sobol sequence samples for better space coverage than LHS"""
+        n_params = len(param_names)
+        
+        # Generate Sobol sequence
+        sampler = qmc.Sobol(d=n_params, scramble=True, seed=OPTIMIZATION_CONFIG['random_seed'])
+        sobol_samples = sampler.random(n=n_samples)
+        
+        # Scale samples to parameter bounds
+        scaled_samples = []
+        for sample in sobol_samples:
+            scaled_sample = {}
+            for i, param_name in enumerate(param_names):
+                min_val, max_val = self.pbounds[param_name]
+                scaled_value = min_val + sample[i] * (max_val - min_val)
+                scaled_sample[param_name] = scaled_value
+            scaled_samples.append(scaled_sample)
+        
+        logger.info(f"Generated {len(scaled_samples)} Sobol sequence samples for superior initial exploration")
         return scaled_samples
     
     def get_status(self) -> Dict[str, Any]:
@@ -556,24 +639,26 @@ def start_optimization():
         session_id = str(uuid.uuid4())
         target_metric = data.get('target_metric', 'netProfit')
         max_iterations = data.get('max_iterations', 100)
+        use_sobol = data.get('use_sobol', True)  # Get use_sobol from request
         
         session = OptimizationSession(
             session_id=session_id,
             parameters=parameters,
             target_metric=target_metric,
             filters=filters,
-            max_iterations=max_iterations
+            max_iterations=max_iterations,
+            use_sobol=use_sobol
         )
         
         with session_lock:
             optimization_sessions[session_id] = session
         
-        logger.info(f"Started optimization session {session_id} with {len(parameters)} parameters")
+        logger.info(f"Started optimization session {session_id} with {len(parameters)} parameters using {'Sobol' if use_sobol else 'LHS'} sampling")
         
         return jsonify({
             'success': True,
             'session_id': session_id,
-            'message': f'Optimization session started with {len(parameters)} parameters'
+            'message': f'Optimization session started with {len(parameters)} parameters using {"Sobol" if use_sobol else "LHS"} sampling'
         })
         
     except Exception as e:

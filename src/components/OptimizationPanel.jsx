@@ -1,19 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { getAvailableMetrics } from '../utils/metrics';
 
-function OptimizationPanel({ settings, state, progress, onUpdateSettings, onStart, onStop }) {
+function OptimizationPanel({ settings = {
+  strategyIndex: 0,
+  metric: 'netProfit',
+  iterations: 100,
+  deepBacktest: false,
+  startDate: '',
+  endDate: '',
+  antiDetection: {
+    minDelay: 500,
+    maxDelay: 2000
+  },
+  parameters: []
+}, state, progress, onUpdateSettings, onStart, onStop }) {
   const [localSettings, setLocalSettings] = useState({
     metric: 'netProfit',
-    iterations: 50,
+    iterations: 100,
     deepBacktest: false,
     startDate: '',
     endDate: '',
     antiDetection: {
       minDelay: 500,
       maxDelay: 2000
-    }
+    },
+    useSobol: true  // Default to Sobol sequence sampling
   });
 
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const availableMetrics = getAvailableMetrics();
   const [favoriteMetrics, setFavoriteMetrics] = useState([]);
 
@@ -135,7 +149,7 @@ function OptimizationPanel({ settings, state, progress, onUpdateSettings, onStar
           <span className="text-sm font-medium text-tv-blue">Bayesian Optimization</span>
         </div>
         <p className="text-xs text-tv-gray-300">
-          First tests current settings as baseline, then uses Latin Hypercube Sampling (LHS) for initial exploration, 
+          First tests current settings as baseline, then uses {localSettings.useSobol ? 'Sobol sequence sampling' : 'Latin Hypercube Sampling (LHS)'} for initial exploration, 
           followed by Bayesian optimization for intelligent parameter space exploration. This method converges faster 
           and finds better solutions than random search.
         </p>
@@ -208,9 +222,14 @@ function OptimizationPanel({ settings, state, progress, onUpdateSettings, onStar
               <p className="text-xs text-tv-gray-400">
                 Max possible combinations: {maxCombinations}
               </p>
-              <p className="text-xs text-tv-blue">
-                💡 Recommended: 100-200 iterations for better convergence and more valid results
-              </p>
+              <small className="text-gray-400 text-xs mt-1 block">
+                💡 Recommended: {
+                  localSettings.metric === 'profitFactor' ? '200 iterations for profit factor' :
+                  localSettings.metric === 'sharpeRatio' ? '150 iterations for Sharpe ratio' :
+                  localSettings.metric === 'winRate' ? '100 iterations for win rate' :
+                  '100-200 iterations'
+                } (30% {localSettings.useSobol ? 'Sobol sequence' : 'Latin Hypercube'} + 70% Bayesian optimization)
+              </small>
             </div>
           </div>
 
@@ -289,6 +308,71 @@ function OptimizationPanel({ settings, state, progress, onUpdateSettings, onStar
             />
           </div>
         </div>
+      </div>
+
+      {/* Advanced Settings */}
+      <div className="bg-tv-gray-800 rounded-lg p-4">
+        <button
+          type="button"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="flex items-center justify-between w-full text-sm font-medium text-tv-gray-300 hover:text-white transition-colors"
+        >
+          <span>Advanced Settings</span>
+          <svg
+            className={`w-4 h-4 transform transition-transform ${showAdvanced ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        
+        {showAdvanced && (
+          <div className="mt-4 space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-tv-gray-300 mb-2">
+                Initial Sampling Method
+              </label>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="samplingMethod"
+                    checked={localSettings.useSobol === true}
+                    onChange={() => handleChange('useSobol', true)}
+                    disabled={isRunning}
+                    className="w-4 h-4 text-tv-blue bg-tv-gray-700 border-tv-gray-600 focus:ring-tv-blue focus:ring-1 disabled:opacity-50"
+                  />
+                  <span className="text-xs text-tv-gray-300">
+                    <span className="font-medium">Sobol Sequence</span>
+                    <span className="text-tv-gray-400 ml-1">(Recommended - Better space coverage)</span>
+                  </span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="samplingMethod"
+                    checked={localSettings.useSobol === false}
+                    onChange={() => handleChange('useSobol', false)}
+                    disabled={isRunning}
+                    className="w-4 h-4 text-tv-blue bg-tv-gray-700 border-tv-gray-600 focus:ring-tv-blue focus:ring-1 disabled:opacity-50"
+                  />
+                  <span className="text-xs text-tv-gray-300">
+                    <span className="font-medium">Latin Hypercube Sampling</span>
+                    <span className="text-tv-gray-400 ml-1">(Classic method)</span>
+                  </span>
+                </label>
+              </div>
+              <p className="text-xs text-tv-gray-400 mt-2">
+                {localSettings.useSobol 
+                  ? "Sobol sequences provide superior space-filling properties, especially for high-dimensional parameter spaces. They ensure more uniform coverage of the search space."
+                  : "Latin Hypercube Sampling (LHS) is a statistical method that ensures good coverage by dividing each dimension into equal intervals. A classic and proven approach."
+                }
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-3">

@@ -28,6 +28,8 @@
     "strategyTitle": "#bottom-area [class^='strategyGroup'] [data-strategy-title]",
     "strategySettingsButton": "#bottom-area div[class^='backtesting'] [class^='strategyGroup'] > div:nth-child(2) > button:nth-child(1)",
     "tabs": {
+      "overview": "[id='Overview']",
+      "overviewActive": "[id='Overview'][class*='selected']",
       "performance": "[id='Performance Summary'], [id='Performance']",
       "performanceActive": "[id='Performance Summary'][class*='selected'], [id='Performance'][class*='selected']",
       "trades": "[id='Trade Analysis'], [id='Trades Analysis']",

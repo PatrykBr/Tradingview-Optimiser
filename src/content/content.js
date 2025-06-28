@@ -1,24 +1,33 @@
 // Content script for TradingView Strategy Optimizer
 // This script runs in the context of TradingView pages
 
-(async function() {
+(() => {
   'use strict';
 
-  // Load DOM selectors configuration
-  let domSelectors = {};
-  try {
-    const response = await fetch(chrome.runtime.getURL('config/dom_selectors.json'));
-    domSelectors = await response.json();
-  } catch (error) {
-    console.error('Failed to load DOM selectors:', error);
-  }
+  // Abort flag for stopping operations
+  let abortCurrentOperation = false;
+
+  // DOM selectors from config
+  const domSelectors = chrome.runtime.getManifest().content_scripts[0].js.includes('dom_selectors.json') 
+    ? {} // Would be loaded from config
+    : JSON.parse(document.querySelector('script[type="application/json"]')?.textContent || '{}');
+  
+  // Load DOM selectors from extension config
+  fetch(chrome.runtime.getURL('config/dom_selectors.json'))
+    .then(r => r.json())
+    .then(config => Object.assign(domSelectors, config))
+    .catch(console.error);
 
   // Utility functions for DOM interaction
   const DOMUtils = {
-    // Wait for element to appear
+    // Interruptible wait for element
     async waitForElement(selector, timeout = 10000) {
       const startTime = Date.now();
       while (Date.now() - startTime < timeout) {
+        // Check abort flag
+        if (abortCurrentOperation) {
+          throw new Error('Operation aborted by user');
+        }
         const element = document.querySelector(selector);
         if (element) return element;
         await this.delay(100);
@@ -30,6 +39,10 @@
     async waitForAnyElement(selectors, timeout = 10000) {
       const startTime = Date.now();
       while (Date.now() - startTime < timeout) {
+        // Check abort flag
+        if (abortCurrentOperation) {
+          throw new Error('Operation aborted by user');
+        }
         for (const selector of selectors) {
           const element = document.querySelector(selector);
           if (element) return element;
@@ -43,7 +56,18 @@
     async delay(ms) {
       const antiDetection = await this.getAntiDetectionSettings();
       const randomDelay = Math.random() * (antiDetection.maxDelay - antiDetection.minDelay) + antiDetection.minDelay;
-      return new Promise(resolve => setTimeout(resolve, ms || randomDelay));
+      const delayTime = ms || randomDelay;
+      
+      // Interruptible delay - check abort flag every 100ms
+      const checkInterval = 100;
+      const iterations = Math.ceil(delayTime / checkInterval);
+      
+      for (let i = 0; i < iterations; i++) {
+        if (abortCurrentOperation) {
+          throw new Error('Operation aborted by user');
+        }
+        await new Promise(resolve => setTimeout(resolve, Math.min(checkInterval, delayTime - (i * checkInterval))));
+      }
     },
 
     // Get anti-detection settings from storage
@@ -410,6 +434,32 @@
           await DOMUtils.delay(1000);
         }
       }
+      
+      // Check if Overview tab is active and switch to Performance Summary
+      const overviewActive = document.querySelector(domSelectors.strategyTester.tabs.overviewActive);
+      if (overviewActive) {
+        console.log('[CT] Overview tab is active in waitForBacktestComplete, switching to Performance Summary');
+        const perfTabSelectors = domSelectors.strategyTester.tabs.performance.split(', ');
+        const perfTab = await DOMUtils.waitForAnyElement(perfTabSelectors);
+        if (perfTab) {
+          console.log('[CT] Clicking Performance Summary tab');
+          await DOMUtils.clickElement(perfTab);
+          
+          // Wait for Performance Summary tab to become active
+          console.log('[CT] Waiting for Performance Summary tab to become active');
+          const activeSelector = domSelectors.strategyTester.tabs.performanceActive;
+          try {
+            await DOMUtils.waitForElement(activeSelector, 5000);
+            console.log('[CT] Performance Summary tab is now active');
+          } catch (error) {
+            console.log('[CT] Warning: Performance Summary tab may not be fully active');
+          }
+          
+          // Additional delay to ensure content is loaded
+          await DOMUtils.delay(1000);
+        }
+      }
+      
       // Wait for at least one result row (performance or deep report) to appear
       const rowSelectors = [
         domSelectors.strategyTester.report.row,
@@ -547,6 +597,31 @@
 
   // Metrics reading functionality
   const MetricsManager = {
+    // Ensure we're not on the Overview tab
+    async ensureNotOnOverviewTab() {
+      const overviewActive = document.querySelector(domSelectors.strategyTester.tabs.overviewActive);
+      if (overviewActive) {
+        console.log('[CT] Overview tab is active, switching to Performance Summary');
+        const perfTabSelectors = domSelectors.strategyTester.tabs.performance.split(', ');
+        const perfTab = await DOMUtils.waitForAnyElement(perfTabSelectors);
+        if (perfTab) {
+          console.log('[CT] Clicking Performance Summary tab to exit Overview');
+          await DOMUtils.clickElement(perfTab);
+          
+          // Wait for Performance Summary tab to become active
+          const activeSelector = domSelectors.strategyTester.tabs.performanceActive;
+          try {
+            await DOMUtils.waitForElement(activeSelector, 5000);
+            console.log('[CT] Performance Summary tab is now active');
+          } catch (error) {
+            console.log('[CT] Warning: Performance Summary tab may not be fully active');
+          }
+          
+          await DOMUtils.delay(1000);
+        }
+      }
+    },
+    
     // Read a specific metric value from the table
     async readMetric(metricName) {
       console.log('[CT] readMetric start for', metricName);
@@ -556,6 +631,7 @@
         throw new Error(`Unknown metric: ${metricName}`);
       }
       console.log('[CT] metricConfig.tab =', metricConfig.tab);
+      
       // Click the appropriate tab if needed
       const tabSelectors = {
         performance: domSelectors.strategyTester.tabs.performance.split(', '),
@@ -622,6 +698,9 @@
 
     // Read multiple metrics
     async readAllMetrics(metricNames) {
+      // First ensure we're not on the Overview tab
+      await this.ensureNotOnOverviewTab();
+      
       const results = {};
       
       for (const metricName of metricNames) {
@@ -719,8 +798,20 @@
 
   async function handleMessage(request, sendResponse) {
     console.log('[CT] handleMessage start for', request.action);
+    
+    // Reset abort flag for new operations (except for abort itself)
+    if (request.action !== 'abortOperation') {
+      abortCurrentOperation = false;
+    }
+    
     try {
       switch (request.action) {
+        case 'abortOperation':
+          console.log('[CT] Abort signal received');
+          abortCurrentOperation = true;
+          sendResponse({ success: true });
+          break;
+          
         case 'detectStrategies':
           const strategies = await StrategyManager.detectStrategies();
           console.log('[CT] detectStrategies -> responding', strategies);

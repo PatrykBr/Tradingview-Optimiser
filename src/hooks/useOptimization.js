@@ -15,7 +15,7 @@ export function useOptimization() {
   const [optimizationSettings, setOptimizationSettings] = useState({
     strategyIndex: 0,
     metric: 'netProfit',
-    iterations: 50,
+    iterations: 100,
     deepBacktest: false,
     startDate: '',
     endDate: '',
@@ -28,7 +28,7 @@ export function useOptimization() {
   const [filters, setFilters] = useState([]);
   const [results, setResults] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [progress, setProgress] = useState({ current: 0, total: 50 });
+  const [progress, setProgress] = useState({ current: 0, total: 100 });
   const [isStateLoaded, setIsStateLoaded] = useState(false);
   
   const optimizerRef = useRef(null);

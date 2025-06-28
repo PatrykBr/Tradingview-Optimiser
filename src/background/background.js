@@ -231,7 +231,7 @@ async function callOptimizationServer(endpoint, data) {
 }
 
 // Initialize Bayesian optimization session
-async function initializeBayesianSession(parameters, metric, filters, iterations) {
+async function initializeBayesianSession(parameters, metric, filters, iterations, useSobol = true) {
   const serverParams = convertParametersToServerFormat(parameters);
   const serverFilters = convertFiltersToServerFormat(filters);
   
@@ -239,7 +239,8 @@ async function initializeBayesianSession(parameters, metric, filters, iterations
     parameters: serverParams,
     target_metric: metric,
     filters: serverFilters,
-    max_iterations: iterations
+    max_iterations: iterations,
+    use_sobol: useSobol
   });
   
   if (!response.success) {
@@ -279,7 +280,7 @@ async function registerOptimizationResult(sessionId, parameters, metrics) {
 
 // Core Bayesian optimization loop with LHS initial sampling
 async function runOptimization(settings) {
-  const { metric, iterations, deepBacktest, startDate, endDate, antiDetection, parameters, filters, strategyIndex = 0 } = settings;
+  const { metric, iterations, deepBacktest, startDate, endDate, antiDetection, parameters, filters, strategyIndex = 0, useSobol = true } = settings;
   abortOptimization = false;
   
   // Update state and clear previous results
@@ -291,7 +292,7 @@ async function runOptimization(settings) {
   updateProgress(0, iterations);
   
   try {
-    await sendLog('info', 'Starting Bayesian optimization with LHS initial sampling...');
+    await sendLog('info', `Starting Bayesian optimization with ${useSobol ? 'Sobol sequence' : 'LHS'} initial sampling...`);
     await chrome.storage.local.set({ antiDetection });
     
     // Synchronize deep backtest state between extension and TradingView
@@ -359,7 +360,7 @@ async function runOptimization(settings) {
     
     // Initialize Bayesian optimization session
     await sendLog('info', 'Initializing Bayesian optimization server...');
-    currentSessionId = await initializeBayesianSession(enabledParams, metric, filters, iterations);
+    currentSessionId = await initializeBayesianSession(enabledParams, metric, filters, iterations, useSobol);
     await sendLog('info', `Created optimization session: ${currentSessionId}`);
     
     // Register the current settings as the first result
@@ -396,7 +397,7 @@ async function runOptimization(settings) {
     allResults.push(currentResult);
     await sendResult(currentResult);
     
-    await sendLog('info', `Starting optimization from iteration 1 (${enabledParams.length} parameters over ${iterations} iterations using LHS + Bayesian optimization)`);
+    await sendLog('info', `Starting optimization from iteration 1 (${enabledParams.length} parameters over ${iterations} iterations using ${useSobol ? 'Sobol' : 'LHS'} + Bayesian optimization)`);
     
     for (let i = 1; i <= iterations; i++) {
       if (abortOptimization) {
@@ -414,11 +415,23 @@ async function runOptimization(settings) {
         break;
       }
       
+      // Check abort after getting parameters
+      if (abortOptimization) {
+        await sendLog('info', 'Optimization stopped by user');
+        break;
+      }
+      
       await sendLog('info', `Iteration ${i}/${iterations}, params: ${JSON.stringify(suggestedParams)}`);
       
       // Apply new settings
       const settingsToApply = enabledParams.map(p => ({ name: p.name, type: p.type, value: suggestedParams[p.name] }));
       await sendToContent('applySettings', { strategyIndex, settings: settingsToApply });
+      
+      // Check abort after applying settings
+      if (abortOptimization) {
+        await sendLog('info', 'Optimization stopped by user');
+        break;
+      }
       
       if (deepBacktest) {
         await sendLog('debug', 'Generating deep backtest report...');
@@ -428,11 +441,23 @@ async function runOptimization(settings) {
         await sendToContent('waitForBacktestComplete');
       }
       
+      // Check abort after backtest
+      if (abortOptimization) {
+        await sendLog('info', 'Optimization stopped by user');
+        break;
+      }
+      
       await sendLog('debug', 'Reading metrics...');
       const metricNames = [...new Set([metric, ...filters.map(f => f.metric)])];
       await sendLog('debug', `Reading metrics: ${JSON.stringify(metricNames)}`);
       const metricsResp = await sendToContent('readAllMetrics', { metricNames });
       if (!metricsResp.success) throw new Error('Failed to read metrics');
+      
+      // Check abort after reading metrics
+      if (abortOptimization) {
+        await sendLog('info', 'Optimization stopped by user');
+        break;
+      }
       
       const values = metricsResp.metrics;
       await sendLog('debug', `Metrics received: ${JSON.stringify(values)}`);
@@ -475,7 +500,9 @@ async function runOptimization(settings) {
     }
     
     // Final summary
-    if (!abortOptimization && bestResult) {
+    if (abortOptimization) {
+      await sendLog('info', 'Optimization was stopped by user');
+    } else if (bestResult) {
       await sendLog('info', `Bayesian optimization complete! Best ${metric}: ${bestResult.value}`);
       await sendLog('info', `Best settings: ${JSON.stringify(bestResult.settings)}`);
       await sendLog('info', `Total valid results: ${validResultsCount}/${allResults.length}`);
@@ -488,7 +515,7 @@ async function runOptimization(settings) {
         isValid: true, 
         isBest: true
       });
-    } else if (!abortOptimization) {
+    } else {
       await sendLog('info', 'Optimization complete! No valid results found.');
     }
     
@@ -523,7 +550,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
     case 'stopOptimization':
       abortOptimization = true;
+      // Also notify content script to abort current operation
+      sendToContent('abortOperation').then(() => {
+        console.log('Sent abort signal to content script');
+      }).catch(() => {
+        // Content script might not be available, that's ok
+      });
       updateOptimizationState('stopped');
+      // Send immediate feedback to user
+      sendLog('info', 'Stopping optimization...');
       sendResponse({ success: true });
       return true;
     case 'getOptimizationState':
