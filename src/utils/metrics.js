@@ -59,23 +59,4 @@ export function getAvailableMetrics() {
   ];
 }
 
-export function getMetricByKey(key) {
-  const metrics = getAvailableMetrics();
-  return metrics.find(m => m.key === key);
-}
-
-export function formatMetricValue(value, metricKey) {
-  const metric = getMetricByKey(metricKey);
-  if (!metric || value === null || value === undefined) return 'N/A';
-  
-  switch (metric.format) {
-    case 'currency':
-      return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    case 'percentage':
-      return `${value.toFixed(2)}%`;
-    case 'number':
-      return value.toFixed(2);
-    default:
-      return value.toString();
-  }
-} 
+ 

@@ -7,16 +7,18 @@
   // Abort flag for stopping operations
   let abortCurrentOperation = false;
 
-  // DOM selectors from config
-  const domSelectors = chrome.runtime.getManifest().content_scripts[0].js.includes('dom_selectors.json') 
-    ? {} // Would be loaded from config
-    : JSON.parse(document.querySelector('script[type="application/json"]')?.textContent || '{}');
+  // DOM selectors - will be loaded from config
+  let domSelectors = {};
   
   // Load DOM selectors from extension config
   fetch(chrome.runtime.getURL('config/dom_selectors.json'))
     .then(r => r.json())
-    .then(config => Object.assign(domSelectors, config))
-    .catch(console.error);
+    .then(config => {
+      domSelectors = config;
+    })
+    .catch(error => {
+      console.error('[CT] Failed to load DOM selectors:', error);
+    });
 
   // Utility functions for DOM interaction
   const DOMUtils = {
@@ -171,32 +173,35 @@
 
     // Read settings for a specific strategy
     async readStrategySettings(strategyIndex) {
-      console.log('Reading settings for strategy index:', strategyIndex);
-      
       const strategies = await this.detectStrategies();
       if (strategyIndex >= strategies.length) {
         throw new Error('Strategy index out of range');
       }
 
       const strategy = strategies[strategyIndex];
-      console.log('Strategy:', strategy.name);
       
       // Use legend button to open settings quickly
-      const legendButton = strategy.element.querySelector(domSelectors.strategy.settingsButton);
+      let legendButton = strategy.element.querySelector(domSelectors.strategy.settingsButton);
+      
+      // Hover over strategy to reveal settings button if needed
+      if (!legendButton) {
+        await DOMUtils.hoverElement(strategy.element);
+        legendButton = strategy.element.querySelector(domSelectors.strategy.settingsButton);
+      }
+      
       if (!legendButton) {
         throw new Error('Legend settings button not found');
       }
-      console.log('Clicking legend settings button');
-      ['mousedown','mouseup','click'].forEach(type => {
-        legendButton.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-      });
+      
+      // Click the button to open the dialog
+      await DOMUtils.clickElement(legendButton);
+      
+      // Wait for dialog to open
       const dialog = await DOMUtils.waitForElement(domSelectors.settingsDialog.container, 5000);
-      console.log('Settings dialog opened');
       
       // Click on inputs tab if exists
       const inputsTab = dialog.querySelector(domSelectors.settingsDialog.tabInputs);
       if (inputsTab && !inputsTab.classList.contains('selected')) {
-        console.log('Clicking inputs tab');
         inputsTab.click();
         await DOMUtils.delay(100);
       }
@@ -204,7 +209,6 @@
       // Read all settings
       const settings = [];
       const inputRows = dialog.querySelectorAll(domSelectors.settingsDialog.inputRow);
-      console.log('Found input rows:', inputRows.length);
       
       for (const row of inputRows) {
         // Identify input types first to determine label strategy
@@ -275,8 +279,6 @@
         }
       }
 
-      console.log('Read settings:', settings);
-
       // Close dialog
       const cancelButton = dialog.querySelector(domSelectors.settingsDialog.cancelButton);
       if (cancelButton) {
@@ -306,14 +308,10 @@
       
       // Open settings dialog (same as readStrategySettings)
       let settingsButton = strategy.element.querySelector(domSelectors.strategy.settingsButton);
-      console.log('Settings button before hover in applySettings:', settingsButton);
-      console.log('Hovering over strategy legend to reveal settings button');
       await DOMUtils.hoverElement(strategy.element);
       settingsButton = strategy.element.querySelector(domSelectors.strategy.settingsButton);
-      console.log('Settings button after hover in applySettings:', settingsButton);
       
       if (settingsButton) {
-        console.log('Clicking settings button in applySettings');
         await DOMUtils.clickElement(settingsButton);
       } else {
         // Try Strategy Tester panel
@@ -390,8 +388,17 @@
         if (numberInput && (newSetting.type === 'number' || typeof newSetting.value === 'string' || typeof newSetting.value === 'number')) {
           DOMUtils.setInputValue(numberInput, newSetting.value);
           await DOMUtils.delay(200);
-        } else if (checkboxInput && (newSetting.type === 'checkbox' || typeof newSetting.value === 'boolean')) {
-          const targetValue = typeof newSetting.value === 'boolean' ? newSetting.value : newSetting.value === 'true';
+        } else if (checkboxInput && newSetting.type === 'checkbox') {
+          // Fixed: Handle boolean values properly
+          let targetValue;
+          if (typeof newSetting.value === 'boolean') {
+            targetValue = newSetting.value;
+          } else if (typeof newSetting.value === 'string') {
+            targetValue = newSetting.value === 'true';
+          } else {
+            targetValue = !!newSetting.value;
+          }
+          
           if (checkboxInput.checked !== targetValue) {
             await DOMUtils.clickElement(checkboxInput);
           }
@@ -438,21 +445,16 @@
       // Check if Overview tab is active and switch to Performance Summary
       const overviewActive = document.querySelector(domSelectors.strategyTester.tabs.overviewActive);
       if (overviewActive) {
-        console.log('[CT] Overview tab is active in waitForBacktestComplete, switching to Performance Summary');
         const perfTabSelectors = domSelectors.strategyTester.tabs.performance.split(', ');
         const perfTab = await DOMUtils.waitForAnyElement(perfTabSelectors);
         if (perfTab) {
-          console.log('[CT] Clicking Performance Summary tab');
           await DOMUtils.clickElement(perfTab);
           
           // Wait for Performance Summary tab to become active
-          console.log('[CT] Waiting for Performance Summary tab to become active');
           const activeSelector = domSelectors.strategyTester.tabs.performanceActive;
           try {
             await DOMUtils.waitForElement(activeSelector, 5000);
-            console.log('[CT] Performance Summary tab is now active');
           } catch (error) {
-            console.log('[CT] Warning: Performance Summary tab may not be fully active');
           }
           
           // Additional delay to ensure content is loaded
@@ -532,7 +534,6 @@
         
         return options;
       } catch (error) {
-        console.log('Error getting dropdown options:', error);
         return [];
       }
     },
@@ -589,7 +590,6 @@
         
         return false;
       } catch (error) {
-        console.log('Error clicking dropdown option:', error);
         return false;
       }
     }
@@ -601,20 +601,16 @@
     async ensureNotOnOverviewTab() {
       const overviewActive = document.querySelector(domSelectors.strategyTester.tabs.overviewActive);
       if (overviewActive) {
-        console.log('[CT] Overview tab is active, switching to Performance Summary');
         const perfTabSelectors = domSelectors.strategyTester.tabs.performance.split(', ');
         const perfTab = await DOMUtils.waitForAnyElement(perfTabSelectors);
         if (perfTab) {
-          console.log('[CT] Clicking Performance Summary tab to exit Overview');
           await DOMUtils.clickElement(perfTab);
           
           // Wait for Performance Summary tab to become active
           const activeSelector = domSelectors.strategyTester.tabs.performanceActive;
           try {
             await DOMUtils.waitForElement(activeSelector, 5000);
-            console.log('[CT] Performance Summary tab is now active');
           } catch (error) {
-            console.log('[CT] Warning: Performance Summary tab may not be fully active');
           }
           
           await DOMUtils.delay(1000);
@@ -624,13 +620,10 @@
     
     // Read a specific metric value from the table
     async readMetric(metricName) {
-      console.log('[CT] readMetric start for', metricName);
       const metricConfig = domSelectors.metrics[metricName];
       if (!metricConfig) {
-        console.log('[CT] Unknown metric:', metricName);
         throw new Error(`Unknown metric: ${metricName}`);
       }
-      console.log('[CT] metricConfig.tab =', metricConfig.tab);
       
       // Click the appropriate tab if needed
       const tabSelectors = {
@@ -648,31 +641,23 @@
         };
 
         const isActive = document.querySelector(activeSelectors[metricConfig.tab]);
-        console.log('[CT] isActive for tab', metricConfig.tab, '=', !!isActive);
         if (!isActive) {
-          console.log('[CT] waiting for tab button for selectors:', tabSelectors[metricConfig.tab]);
           const tabButton = await DOMUtils.waitForAnyElement(tabSelectors[metricConfig.tab]);
-          console.log('[CT] tabButton element for', metricConfig.tab, '=', tabButton);
           if (tabButton) {
-            console.log('[CT] clicking tab for', metricConfig.tab);
             await DOMUtils.clickElement(tabButton);
             await DOMUtils.delay(1000);
           }
         }
       }
 
-      console.log('[CT] scanning rows for metric', metricName);
       // Read the metric value by scanning rows for the metric label
       const rowSelectors = [
         domSelectors.strategyTester.report.row,
         domSelectors.strategyTester.deepReport.row
       ];
       const selector = rowSelectors.join(', ');
-      console.log('[CT] rowSelectors combined selector =', selector);
       const rows = document.querySelectorAll(selector);
-      console.log('[CT] rows found =', rows.length);
       if (rows.length === 0) {
-        console.log('[CT] No data rows found for metric', metricName);
         throw new Error('No data rows found');
       }
       for (const row of rows) {
@@ -683,16 +668,13 @@
           if (actualLabel === expectedLabel) {
             const cells = row.querySelectorAll('td');
             if (cells.length < 2) {
-              console.log('[CT] Data cell not found for metric:', metricConfig.label);
               throw new Error(`Data cell not found for metric: ${metricConfig.label}`);
             }
             const rawValue = cells[1].textContent.trim();
-            console.log('[CT] rawValue for', metricName, '=', rawValue);
             return DOMUtils.parseMetricValue(rawValue, metricConfig.parser);
           }
         }
       }
-      console.log('[CT] Metric row not found for', metricConfig.label);
       throw new Error(`Metric row not found: ${metricConfig.label}`);
     },
 
@@ -729,14 +711,11 @@
       
       if (isCurrentlyEnabled !== enabled) {
         if (enabled) {
-          console.log('[CT] Enabling deep backtest to match extension setting');
         } else {
-          console.log('[CT] Disabling deep backtest to match extension setting');
         }
         await DOMUtils.clickElement(toggle);
         await DOMUtils.delay(1000);
       } else {
-        console.log(`[CT] Deep backtest already ${enabled ? 'enabled' : 'disabled'} - no sync needed`);
       }
     },
 
@@ -791,87 +770,70 @@
 
   // Message handler
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log('[CT] Received message:', request.action, request.data || request);
     handleMessage(request, sendResponse);
     return true; // Keep message channel open for async response
   });
 
   async function handleMessage(request, sendResponse) {
-    console.log('[CT] handleMessage start for', request.action);
-    
-    // Reset abort flag for new operations (except for abort itself)
-    if (request.action !== 'abortOperation') {
-      abortCurrentOperation = false;
+    // Handle abort operation specially
+    if (request.action === 'abortOperation') {
+      abortCurrentOperation = true;
+      sendResponse({ success: true });
+      return;
     }
+    
+    // Reset abort flag for new operations
+    abortCurrentOperation = false;
     
     try {
       switch (request.action) {
-        case 'abortOperation':
-          console.log('[CT] Abort signal received');
-          abortCurrentOperation = true;
-          sendResponse({ success: true });
-          break;
           
         case 'detectStrategies':
           const strategies = await StrategyManager.detectStrategies();
-          console.log('[CT] detectStrategies -> responding', strategies);
           sendResponse({ success: true, strategies: strategies.map(({ index, name }) => ({ index, name })) });
           break;
 
         case 'readStrategySettings':
           const settings = await StrategyManager.readStrategySettings(request.strategyIndex);
-          console.log('[CT] readStrategySettings -> responding', settings);
           sendResponse({ success: true, settings });
           break;
 
         case 'applySettings':
-          console.log('[CT] applySettings start');
           await StrategyManager.applySettings(request.strategyIndex, request.settings);
-          console.log('[CT] applySettings done');
           sendResponse({ success: true });
           break;
 
         case 'readMetric':
-          console.log('[CT] readMetric request for', request.metricName);
           const value = await MetricsManager.readMetric(request.metricName);
-          console.log('[CT] readMetric -> responding', value);
           sendResponse({ success: true, value });
           break;
 
         case 'readAllMetrics':
-          console.log('[CT] readAllMetrics request for', request.metricNames);
           const metrics = await MetricsManager.readAllMetrics(request.metricNames);
-          console.log('[CT] readAllMetrics -> responding', metrics);
           sendResponse({ success: true, metrics });
           break;
 
         case 'toggleDeepBacktest':
-          console.log('[CT] toggleDeepBacktest ->', request.enabled);
           await DeepBacktestManager.toggleDeepBacktest(request.enabled);
           sendResponse({ success: true });
           break;
 
         case 'syncDeepBacktest':
-          console.log('[CT] syncDeepBacktest ->', request.enabled);
           await DeepBacktestManager.syncDeepBacktest(request.enabled);
           sendResponse({ success: true });
           break;
 
         case 'setDateRange':
-          console.log('[CT] setDateRange ->', request.startDate, request.endDate);
           await DeepBacktestManager.setDateRange(request.startDate, request.endDate);
           sendResponse({ success: true });
           break;
 
         case 'waitForBacktestComplete':
-          console.log('[CT] waitForBacktestComplete -> start');
           await StrategyManager.waitForBacktestComplete();
-          console.log('[CT] waitForBacktestComplete -> done');
           sendResponse({ success: true });
           break;
 
         default:
-          console.log('[CT] Unknown action:', request.action);
           sendResponse({ success: false, error: 'Unknown action' });
       }
     } catch (error) {
@@ -879,6 +841,4 @@
       sendResponse({ success: false, error: error.message });
     }
   }
-
-  console.log('TradingView Strategy Optimizer content script loaded');
 })(); 

@@ -8,6 +8,7 @@ dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
 
 # OS files
 .DS_Store
@@ -30,7 +31,6 @@ Thumbs.db
 venv/
 env/
 .venv/
-.env/
 
 # Python cache and compiled files
 __pycache__/
@@ -38,8 +38,7 @@ __pycache__/
 *$py.class
 *.so
 
-# Python logs and outputs
-*.log
+# Python output files
 optimization_log.json
 optimization_results_*.json
 

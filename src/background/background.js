@@ -1,7 +1,6 @@
 // Background service worker for TradingView Strategy Optimizer
 
 // Optimization state
-let optimizer = null;
 let abortOptimization = false;
 let currentOptimizationState = 'idle'; // Track optimization state in background
 
@@ -16,7 +15,12 @@ const STORAGE_KEYS = {
   progress: `${STORAGE_KEY_PREFIX}progress`
 };
 
-// Helper: save to storage
+/**
+ * Save data to Chrome storage
+ * @param {string} key - Storage key
+ * @param {any} value - Value to store
+ * @returns {Promise<void>}
+ */
 function saveToStorage(key, value) {
   return new Promise((resolve) => {
     chrome.storage.local.set({ [key]: value }, () => {
@@ -25,7 +29,11 @@ function saveToStorage(key, value) {
   });
 }
 
-// Helper: load from storage
+/**
+ * Load data from Chrome storage
+ * @param {string} key - Storage key
+ * @returns {Promise<any>} The stored value or undefined
+ */
 function loadFromStorage(key) {
   return new Promise((resolve) => {
     chrome.storage.local.get([key], (result) => {
@@ -34,9 +42,14 @@ function loadFromStorage(key) {
   });
 }
 
-// Helper: send log messages to popup UI and storage
+/**
+ * Send log message to popup UI and storage
+ * @param {string} level - Log level (info, warning, error, debug)
+ * @param {string} message - Log message
+ * @returns {Promise<void>}
+ */
 async function sendLog(level, message) {
-  console.log(`[BG] ${level.toUpperCase()} ${message}`);
+  // Log to storage only, not console
   
   // Send to popup if it's open
   chrome.runtime.sendMessage({ action: 'optimizationLog', level, message }).catch(() => {
@@ -59,7 +72,11 @@ async function sendLog(level, message) {
   }
 }
 
-// Helper: send individual result to popup UI and storage
+/**
+ * Send optimization result to popup UI and storage
+ * @param {Object} result - Optimization result object
+ * @returns {Promise<void>}
+ */
 async function sendResult(result) {
   // Send to popup if it's open
   chrome.runtime.sendMessage({ action: 'optimizationResult', result }).catch(() => {
@@ -77,7 +94,11 @@ async function sendResult(result) {
   }
 }
 
-// Helper: update optimization progress
+/**
+ * Update optimization progress
+ * @param {number} iteration - Current iteration number
+ * @param {number} totalIterations - Total number of iterations
+ */
 function updateProgress(iteration, totalIterations) {
   const progress = { current: iteration, total: totalIterations };
   
@@ -90,7 +111,10 @@ function updateProgress(iteration, totalIterations) {
   saveToStorage(STORAGE_KEYS.progress, progress);
 }
 
-// Helper: update optimization state
+/**
+ * Update optimization state
+ * @param {string} state - New state (idle, running, stopped)
+ */
 function updateOptimizationState(state) {
   currentOptimizationState = state;
   saveToStorage(STORAGE_KEYS.state, state);
@@ -103,7 +127,12 @@ function updateOptimizationState(state) {
   }
 }
 
-// Helper: forward a message to the active TradingView tab's content script and await response
+/**
+ * Forward a message to the active TradingView tab's content script
+ * @param {string} action - Action to perform
+ * @param {Object} data - Additional data for the action
+ * @returns {Promise<Object>} Response from content script
+ */
 function sendToContent(action, data = {}) {
   return new Promise(resolve => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -116,67 +145,15 @@ function sendToContent(action, data = {}) {
   });
 }
 
-// Calculate the maximum possible combinations for exhaustive search
-function calculateMaxCombinations(params) {
-  let combos = 1;
-  params.forEach(param => {
-    if (param.type === 'number') {
-      const range = param.max - param.min;
-      const isFloat = param.min % 1 !== 0 || param.max % 1 !== 0;
-      const step = isFloat ? 0.01 : 1;
-      combos *= Math.floor(range / step) + 1;
-    } else if (param.type === 'checkbox') {
-      combos *= 2;
-    } else if (param.type === 'select' && Array.isArray(param.options)) {
-      combos *= param.options.length;
-    }
-  });
-  return combos;
-}
-
-// Generate all combinations of parameter values for exhaustive search
-function generateCombinations(params) {
-  const lists = params.map(param => {
-    if (param.type === 'number') {
-      const isFloat = param.min % 1 !== 0 || param.max % 1 !== 0;
-      const multiplier = isFloat ? 100 : 1;
-      const start = Math.round(param.min * multiplier);
-      const end = Math.round(param.max * multiplier);
-      const step = isFloat ? 1 : multiplier;
-      const values = [];
-      for (let v = start; v <= end; v += step) {
-        values.push(isFloat ? v / multiplier : v / multiplier);
-      }
-      return values;
-    } else if (param.type === 'checkbox') {
-      return [false, true];
-    } else if (param.type === 'select' && Array.isArray(param.options)) {
-      return param.options;
-    }
-    return [];
-  });
-
-  const combos = [];
-  function helper(idx, current) {
-    if (idx === params.length) {
-      combos.push({ ...current });
-      return;
-    }
-    const param = params[idx];
-    lists[idx].forEach(value => {
-      current[param.name] = value;
-      helper(idx + 1, current);
-    });
-  }
-  helper(0, {});
-  return combos;
-}
-
 // Bayesian optimization session management
 let currentSessionId = null;
 const SERVER_URL = 'http://localhost:5000';
 
-// Convert extension parameters to server format
+/**
+ * Convert extension parameters to server format
+ * @param {Array} params - Extension parameter format
+ * @returns {Array} Server parameter format
+ */
 function convertParametersToServerFormat(params) {
   return params.map(param => {
     const serverParam = {
@@ -196,7 +173,11 @@ function convertParametersToServerFormat(params) {
   });
 }
 
-// Convert filters to server format
+/**
+ * Convert filters to server format
+ * @param {Array} filters - Extension filter format
+ * @returns {Array} Server filter format
+ */
 function convertFiltersToServerFormat(filters) {
   return filters.map(filter => ({
     metric: filter.metric,
@@ -205,7 +186,13 @@ function convertFiltersToServerFormat(filters) {
   }));
 }
 
-// Make API call to optimization server
+/**
+ * Make API call to optimization server
+ * @param {string} endpoint - API endpoint
+ * @param {Object} data - Request data
+ * @returns {Promise<Object>} Server response
+ * @throws {Error} If server is not running or returns error
+ */
 async function callOptimizationServer(endpoint, data) {
   try {
     const response = await fetch(`${SERVER_URL}${endpoint}`, {
@@ -230,7 +217,15 @@ async function callOptimizationServer(endpoint, data) {
   }
 }
 
-// Initialize Bayesian optimization session
+/**
+ * Initialize Bayesian optimization session
+ * @param {Array} parameters - Strategy parameters to optimize
+ * @param {string} metric - Target metric to optimize
+ * @param {Array} filters - Metric constraints
+ * @param {number} iterations - Maximum number of iterations
+ * @param {boolean} useSobol - Whether to use Sobol sequence for initial sampling
+ * @returns {Promise<string>} Session ID
+ */
 async function initializeBayesianSession(parameters, metric, filters, iterations, useSobol = true) {
   const serverParams = convertParametersToServerFormat(parameters);
   const serverFilters = convertFiltersToServerFormat(filters);
@@ -250,7 +245,11 @@ async function initializeBayesianSession(parameters, metric, filters, iterations
   return response.session_id;
 }
 
-// Get next parameter suggestion from Bayesian optimizer
+/**
+ * Get next parameter suggestion from Bayesian optimizer
+ * @param {string} sessionId - Optimization session ID
+ * @returns {Promise<Object|null>} Suggested parameters or null if optimization complete
+ */
 async function getNextParameters(sessionId) {
   const response = await callOptimizationServer('/suggest_parameters', {
     session_id: sessionId
@@ -263,7 +262,13 @@ async function getNextParameters(sessionId) {
   return response.parameters;
 }
 
-// Register optimization result with Bayesian optimizer
+/**
+ * Register optimization result with Bayesian optimizer
+ * @param {string} sessionId - Optimization session ID
+ * @param {Object} parameters - Tested parameters
+ * @param {Object} metrics - Resulting metrics
+ * @returns {Promise<Object>} Registration result with validation info
+ */
 async function registerOptimizationResult(sessionId, parameters, metrics) {
   const response = await callOptimizationServer('/register_result', {
     session_id: sessionId,
@@ -278,7 +283,11 @@ async function registerOptimizationResult(sessionId, parameters, metrics) {
   return response;
 }
 
-// Core Bayesian optimization loop with LHS initial sampling
+/**
+ * Core Bayesian optimization loop
+ * @param {Object} settings - Optimization settings
+ * @returns {Promise<void>}
+ */
 async function runOptimization(settings) {
   const { metric, iterations, deepBacktest, startDate, endDate, antiDetection, parameters, filters, strategyIndex = 0, useSobol = true } = settings;
   abortOptimization = false;
@@ -333,7 +342,7 @@ async function runOptimization(settings) {
     }
     
     await sendLog('info', 'Testing current settings as baseline (iteration 0)...');
-    updateProgress(0, iterations + 1); // +1 because we're adding iteration 0
+    updateProgress(0, iterations); // Fixed: use actual iterations count
     
     // Test current settings first
     if (deepBacktest) {
@@ -399,14 +408,17 @@ async function runOptimization(settings) {
     
     await sendLog('info', `Starting optimization from iteration 1 (${enabledParams.length} parameters over ${iterations} iterations using ${useSobol ? 'Sobol' : 'LHS'} + Bayesian optimization)`);
     
+    // Main optimization loop - limit memory usage by keeping only recent results in memory
+    const MAX_RESULTS_IN_MEMORY = 100;
+    
     for (let i = 1; i <= iterations; i++) {
       if (abortOptimization) {
         await sendLog('info', 'Optimization stopped by user');
         break;
       }
       
-      // Update progress
-      updateProgress(i, iterations + 1); // +1 because we added iteration 0
+      // Update progress - fixed to show proper percentage
+      updateProgress(i, iterations);
       
       // Get next parameter suggestion from Bayesian optimizer (uses LHS for initial samples)
       const suggestedParams = await getNextParameters(currentSessionId);
@@ -497,6 +509,16 @@ async function runOptimization(settings) {
       
       allResults.push(result);
       await sendResult(result);
+      
+      // Memory management: keep only recent results in memory
+      if (allResults.length > MAX_RESULTS_IN_MEMORY) {
+        // Keep the best result and recent results
+        const bestResultItem = allResults.find(r => r.isBest);
+        const recentResults = allResults.slice(-MAX_RESULTS_IN_MEMORY);
+        allResults = bestResultItem && !recentResults.includes(bestResultItem) 
+          ? [bestResultItem, ...recentResults] 
+          : recentResults;
+      }
     }
     
     // Final summary
@@ -552,7 +574,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       abortOptimization = true;
       // Also notify content script to abort current operation
       sendToContent('abortOperation').then(() => {
-        console.log('Sent abort signal to content script');
+        // Abort signal sent
       }).catch(() => {
         // Content script might not be available, that's ok
       });
@@ -602,6 +624,6 @@ chrome.runtime.onInstalled.addListener(() => {
 // Handle tab updates to check if content script needs injection
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url?.includes('tradingview.com/chart')) {
-    console.log('TradingView chart page loaded');
+    // TradingView chart page loaded
   }
 }); 

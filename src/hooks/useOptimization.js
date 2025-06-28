@@ -30,21 +30,51 @@ export function useOptimization() {
   const [logs, setLogs] = useState([]);
   const [progress, setProgress] = useState({ current: 0, total: 100 });
   const [isStateLoaded, setIsStateLoaded] = useState(false);
-  
-  const optimizerRef = useRef(null);
-  const abortControllerRef = useRef(null);
 
-  // Helper function to save state to storage
+  // Helper function to save state to storage with error handling
   const saveToStorage = useCallback((key, value) => {
-    chrome.storage.local.set({ [key]: value });
+    try {
+      chrome.storage.local.set({ [key]: value }, () => {
+        if (chrome.runtime.lastError) {
+          console.error(`Error saving to storage (${key}):`, chrome.runtime.lastError);
+          // If quota exceeded, try to clear old logs/results
+          if (chrome.runtime.lastError.message?.includes('quota')) {
+            console.warn('Storage quota exceeded, clearing old data...');
+            // Clear logs older than 24 hours
+            if (key === STORAGE_KEYS.logs && Array.isArray(value)) {
+              const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+              const recentLogs = value.filter(log => log.timestamp > oneDayAgo);
+              chrome.storage.local.set({ [key]: recentLogs });
+            }
+            // Keep only last 500 results
+            else if (key === STORAGE_KEYS.results && Array.isArray(value)) {
+              const recentResults = value.slice(-500);
+              chrome.storage.local.set({ [key]: recentResults });
+            }
+          }
+        }
+      });
+    } catch (error) {
+      console.error(`Error in saveToStorage for ${key}:`, error);
+    }
   }, []);
 
-  // Helper function to load state from storage
+  // Helper function to load state from storage with error handling
   const loadFromStorage = useCallback((key) => {
     return new Promise((resolve) => {
-      chrome.storage.local.get([key], (result) => {
-        resolve(result[key]);
-      });
+      try {
+        chrome.storage.local.get([key], (result) => {
+          if (chrome.runtime.lastError) {
+            console.error(`Error loading from storage (${key}):`, chrome.runtime.lastError);
+            resolve(undefined);
+          } else {
+            resolve(result[key]);
+          }
+        });
+      } catch (error) {
+        console.error(`Error in loadFromStorage for ${key}:`, error);
+        resolve(undefined);
+      }
     });
   }, []);
 

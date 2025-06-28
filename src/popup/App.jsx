@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import Header from '../components/Header';
 import StrategySelector from '../components/StrategySelector';
 import SettingsPanel from '../components/SettingsPanel';
 import OptimizationPanel from '../components/OptimizationPanel';
