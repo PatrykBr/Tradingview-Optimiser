@@ -32,7 +32,7 @@
         }
         const element = document.querySelector(selector);
         if (element) return element;
-        await this.delay(100);
+        await this.delay(20, false);  // Fast polling, no anti-detection
       }
       throw new Error(`Element ${selector} not found within ${timeout}ms`);
     },
@@ -49,26 +49,48 @@
           const element = document.querySelector(selector);
           if (element) return element;
         }
-        await this.delay(100);
+        await this.delay(20, false);  // Fast polling, no anti-detection
       }
       throw new Error(`None of the elements found within ${timeout}ms`);
     },
 
     // Random delay for anti-detection
-    async delay(ms) {
-      const antiDetection = await this.getAntiDetectionSettings();
-      const randomDelay = Math.random() * (antiDetection.maxDelay - antiDetection.minDelay) + antiDetection.minDelay;
-      const delayTime = ms || randomDelay;
-      
-      // Interruptible delay - check abort flag every 100ms
-      const checkInterval = 100;
-      const iterations = Math.ceil(delayTime / checkInterval);
-      
-      for (let i = 0; i < iterations; i++) {
-        if (abortCurrentOperation) {
-          throw new Error('Operation aborted by user');
+    async delay(ms, useAntiDetection = true) {
+      // If a specific delay is provided and anti-detection is disabled, use it directly
+      if (ms !== undefined && !useAntiDetection) {
+        const checkInterval = 100;
+        const iterations = Math.ceil(ms / checkInterval);
+        for (let i = 0; i < iterations; i++) {
+          if (DOMUtils.abortFlag) {
+            throw new Error('Operation aborted');
+          }
+          await new Promise(resolve => setTimeout(resolve, Math.min(checkInterval, ms - (i * checkInterval))));
         }
-        await new Promise(resolve => setTimeout(resolve, Math.min(checkInterval, delayTime - (i * checkInterval))));
+        return;
+      }
+      
+      // Use anti-detection delays only when explicitly enabled
+      if (useAntiDetection) {
+        const antiDetection = await this.getAntiDetectionSettings();
+        const randomDelay = Math.random() * (antiDetection.maxDelay - antiDetection.minDelay) + antiDetection.minDelay;
+        const delayTime = ms || randomDelay;
+        
+        // Interruptible delay - check abort flag every 100ms
+        const checkInterval = 100;
+        const iterations = Math.ceil(delayTime / checkInterval);
+        for (let i = 0; i < iterations; i++) {
+          if (DOMUtils.abortFlag) {
+            throw new Error('Operation aborted');
+          }
+          await new Promise(resolve => setTimeout(resolve, Math.min(checkInterval, delayTime - (i * checkInterval))));
+        }
+      } else {
+        // Minimal delay when anti-detection is not needed
+        const delayTime = ms || 50;
+        if (DOMUtils.abortFlag) {
+          throw new Error('Operation aborted');
+        }
+        await new Promise(resolve => setTimeout(resolve, delayTime));
       }
     },
 
@@ -83,7 +105,7 @@
 
     // Generic mouse event dispatcher
     async dispatchMouseEvents(element, eventTypes, eventOptions = {}) {
-      await this.delay();
+      // No delay before events for faster interaction
       eventTypes.forEach(type => {
         element.dispatchEvent(new MouseEvent(type, { 
           bubbles: true, 
@@ -92,7 +114,8 @@
           ...eventOptions 
         }));
       });
-      await this.delay();
+      // Minimal delay after events
+      await this.delay(10, false);
     },
 
     // Click element with anti-detection delay
@@ -201,7 +224,7 @@
       const inputsTab = dialog.querySelector(domSelectors.settingsDialog.tabInputs);
       if (inputsTab && !inputsTab.classList.contains('selected')) {
         inputsTab.click();
-        await DOMUtils.delay(100);
+        await DOMUtils.delay(50, false);  // Minimal delay, no anti-detection
       }
 
       // Read all settings
@@ -329,7 +352,7 @@
           }
           
           await DOMUtils.rightClickElement(titleElement);
-          await DOMUtils.delay(500);
+          await DOMUtils.delay(50, false);  // Minimal delay for UI interaction
           
           const settingsMenuItem = await DOMUtils.waitForElement(domSelectors.strategy.menuItemSettings, 3000);
           if (settingsMenuItem) {
@@ -347,11 +370,14 @@
       const inputsTab = dialog.querySelector(domSelectors.settingsDialog.tabInputs);
       if (inputsTab && !inputsTab.classList.contains('selected')) {
         await DOMUtils.clickElement(inputsTab);
-        await DOMUtils.delay(500);
+        await DOMUtils.delay(30, false);  // Ultra-minimal delay during settings application
       }
 
       // Apply each setting
       const inputRows = dialog.querySelectorAll(domSelectors.settingsDialog.inputRow);
+      
+      // Batch apply all settings without delays between them
+      const settingPromises = [];
       
       for (const row of inputRows) {
         let label = row.querySelector(domSelectors.settingsDialog.inputLabel);
@@ -376,8 +402,6 @@
         
         if (!newSetting) continue;
         
-
-
         // Apply based on available input elements and value type
         const numberInput = row.querySelector(domSelectors.settingsDialog.numberInput);
         const checkboxInput = row.querySelector(domSelectors.settingsDialog.checkboxInput);
@@ -385,7 +409,6 @@
 
         if (numberInput && (newSetting.type === 'number' || typeof newSetting.value === 'string' || typeof newSetting.value === 'number')) {
           DOMUtils.setInputValue(numberInput, newSetting.value);
-          await DOMUtils.delay(200);
         } else if (checkboxInput && newSetting.type === 'checkbox') {
           // Fixed: Handle boolean values properly
           let targetValue;
@@ -398,23 +421,29 @@
           }
           
           if (checkboxInput.checked !== targetValue) {
-            await DOMUtils.clickElement(checkboxInput);
+            checkboxInput.click();  // Direct click without await
           }
         } else if (selectInput && (newSetting.type === 'select' || (!numberInput && !checkboxInput))) {
           // Handle select inputs (both native <select> and custom dropdowns)
           if (selectInput.tagName.toLowerCase() === 'select') {
             // Native select element
             DOMUtils.setInputValue(selectInput, newSetting.value);
-            await DOMUtils.delay(200);
           } else {
             // Custom dropdown menu: use new method to handle separate overlay menus
-            const success = await this.clickDropdownOption(selectInput, newSetting.value);
-            if (!success) {
+            settingPromises.push(this.clickDropdownOption(selectInput, newSetting.value).catch(e => {
               console.warn(`Failed to set dropdown value: ${newSetting.value} for ${settingName}`);
-            }
+            }));
           }
         }
       }
+      
+      // Wait for all dropdown operations to complete
+      if (settingPromises.length > 0) {
+        await Promise.all(settingPromises);
+      }
+      
+      // Small delay before clicking OK to ensure all values are set
+      await DOMUtils.delay(50, false);
 
       // Click OK to apply
       const okButton = dialog.querySelector(domSelectors.settingsDialog.okButton);
@@ -436,7 +465,7 @@
         const panelToggle = document.querySelector(domSelectors.strategyTester.container);
         if (panelToggle) {
           await DOMUtils.clickElement(panelToggle);
-          await DOMUtils.delay(1000);
+          await DOMUtils.delay(100, false);  // Minimal delay for UI interaction
         }
       }
       
@@ -451,12 +480,12 @@
           // Wait for Performance Summary tab to become active
           const activeSelector = domSelectors.strategyTester.tabs.performanceActive;
           try {
-            await DOMUtils.waitForElement(activeSelector, 5000);
+            await DOMUtils.waitForElement(activeSelector, 2000);  // Reduced timeout
           } catch (error) {
           }
           
           // Additional delay to ensure content is loaded
-          await DOMUtils.delay(1000);
+          await DOMUtils.delay(100, false);  // Minimal delay for UI interaction
         }
       }
       
@@ -465,9 +494,9 @@
         domSelectors.strategyTester.report.row,
         domSelectors.strategyTester.deepReport.row
       ].join(', ');
-      await DOMUtils.waitForElement(rowSelectors, 30000);
+      await DOMUtils.waitForElement(rowSelectors, 15000);  // Balanced timeout
       // Additional wait to ensure content is fully loaded
-      await DOMUtils.delay(1000);
+      await DOMUtils.delay(200, false);  // Small delay for UI interaction
     },
 
     // Helper method to find dropdown options for custom dropdowns
@@ -480,7 +509,7 @@
       try {
         // Click to open dropdown
         await DOMUtils.clickElement(selectInput);
-        await DOMUtils.delay(150); // Reduced delay
+        await DOMUtils.delay(50, false); // Minimal delay, no anti-detection
         
         // Optimized single-pass strategy: find dropdown menu efficiently
         const selectId = selectInput.id;
@@ -528,7 +557,7 @@
           bubbles: true
         });
         document.dispatchEvent(escEvent);
-        await DOMUtils.delay(100); // Reduced delay
+        await DOMUtils.delay(50, false); // Minimal delay, no anti-detection
         
         return options;
       } catch (error) {
@@ -541,7 +570,7 @@
       try {
         // Click to open dropdown
         await DOMUtils.clickElement(selectInput);
-        await DOMUtils.delay(150); // Reduced delay
+        await DOMUtils.delay(50, false); // Minimal delay, no anti-detection
         
         // Optimized option finding (reuse logic from getDropdownOptions)
         const selectId = selectInput.id;
@@ -580,7 +609,7 @@
           for (const option of options) {
             if (option.textContent.trim().toLowerCase() === targetValue.toLowerCase()) {
               await DOMUtils.clickElement(option);
-              await DOMUtils.delay(100); // Reduced delay
+              await DOMUtils.delay(50, false); // Minimal delay, no anti-detection
               return true;
             }
           }
@@ -611,7 +640,7 @@
           } catch (error) {
           }
           
-          await DOMUtils.delay(1000);
+          await DOMUtils.delay(100, false);  // Minimal delay for UI interaction
         }
       }
     },
@@ -647,13 +676,26 @@
           const tabButton = await DOMUtils.waitForAnyElement(tabSelectors[metricConfig.tab]);
           if (tabButton) {
             await DOMUtils.clickElement(tabButton);
-            await DOMUtils.delay(1500); // Increased delay for tab content to load
+            
+            // For ratios tab, it might need more time to load
+            const delay = metricConfig.tab === 'ratios' ? 400 : 200;
+            await DOMUtils.delay(delay, false); // Adaptive delay for tab content to load
             
             // Wait for the tab to become active
             try {
               await DOMUtils.waitForElement(activeSelectors[metricConfig.tab], 3000);
+              // Extra delay for ratios tab to ensure data is loaded
+              if (metricConfig.tab === 'ratios') {
+                await DOMUtils.delay(300, false);
+              }
             } catch (error) {
               console.warn(`[CT] Tab ${metricConfig.tab} did not become active, continuing anyway`);
+              // Try clicking again if it didn't work
+              if (metricConfig.tab === 'ratios' && !document.querySelector(activeSelectors[metricConfig.tab])) {
+                console.log(`[CT] Retrying ratios tab click...`);
+                await DOMUtils.clickElement(tabButton);
+                await DOMUtils.delay(400, false);
+              }
             }
           }
         }
@@ -674,21 +716,29 @@
         const alternativeSelectors = [
           'table tbody tr',
           'div[class*="report"] table tbody tr',
-          'div[class*="backtesting"] table tbody tr'
+          'div[class*="backtesting"] table tbody tr',
+          // Add more specific selectors for ratios tab
+          '#bottom-area div[id="Ratios"][class*="selected"] ~ div table tbody tr',
+          '#bottom-area div[class*="tab-"] table tbody tr',
+          'div[class*="content-"] table tbody tr'
         ];
         
         let foundRows = false;
         for (const altSelector of alternativeSelectors) {
           const altRows = document.querySelectorAll(altSelector);
           if (altRows.length > 0) {
-
+            console.log(`[CT] Found rows using alternative selector: ${altSelector}`);
             foundRows = true;
             break;
           }
         }
         
         if (!foundRows) {
-          throw new Error('No data rows found');
+          // For ratios tab, wait a bit longer as it may load slower
+          if (metricConfig.tab === 'ratios') {
+            console.log(`[CT] Waiting longer for ratios tab data...`);
+            await DOMUtils.delay(500, false);
+          }
         }
       }
       
@@ -697,7 +747,9 @@
         ...rowSelectors,
         'table tbody tr',
         'div[class*="report"] table tbody tr',
-        'div[class*="backtesting"] table tbody tr'
+        'div[class*="backtesting"] table tbody tr',
+        '#bottom-area table tbody tr',
+        'div[id="Ratios"][class*="selected"] ~ div table tbody tr'
       ];
       const rows = document.querySelectorAll(allTableSelectors.join(', '));
       
@@ -829,7 +881,7 @@
         } else {
         }
         await DOMUtils.clickElement(toggle);
-        await DOMUtils.delay(1000);
+        await DOMUtils.delay(100, false);  // Minimal delay for UI interaction
       } else {
       }
     },
@@ -844,7 +896,7 @@
       const isCurrentlyEnabled = toggle.getAttribute('aria-checked') === 'true' || toggle.checked;
       if (isCurrentlyEnabled !== enabled) {
         await DOMUtils.clickElement(toggle);
-        await DOMUtils.delay(1000);
+        await DOMUtils.delay(100, false);  // Minimal delay for UI interaction
       }
     },
 
@@ -863,11 +915,11 @@
       const [startInput, endInput] = dateInputs;
       if (startDate) {
         DOMUtils.setInputValue(startInput, startDate);
-        await DOMUtils.delay(500);
+        await DOMUtils.delay(50, false);  // Minimal delay for UI interaction
       }
       if (endDate) {
         DOMUtils.setInputValue(endInput, endDate);
-        await DOMUtils.delay(500);
+        await DOMUtils.delay(50, false);  // Minimal delay for UI interaction
       }
       // Click generate button if available
       let generateBtn = container.querySelector(domSelectors.strategyTester.deepBacktest.dateRange.generateButton);
@@ -876,7 +928,7 @@
       }
       if (generateBtn) {
         await DOMUtils.clickElement(generateBtn);
-        await DOMUtils.delay(500);
+        await DOMUtils.delay(50, false);  // Minimal delay for UI interaction
         // Wait for deep backtest report to finish loading
         await StrategyManager.waitForBacktestComplete();
       }

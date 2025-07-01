@@ -117,6 +117,26 @@ function App() {
     ready: (!!selectedStrategy || hasRestoredParameters) && hasEnabledParameters
   };
 
+  const handleApplyCurrentValues = async (settings) => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'forwardToContent',
+        data: {
+          action: 'applySettings',
+          strategyIndex: selectedStrategy?.index || optimizationSettings.strategyIndex || 0,
+          settings: settings
+        }
+      });
+      
+      if (!response || !response.success) {
+        throw new Error(response?.error || 'Failed to apply settings');
+      }
+    } catch (error) {
+      console.error('Failed to apply current values:', error);
+      throw error;
+    }
+  };
+
   // Show loading screen while state is being restored
   if (!isStateLoaded) {
     return <LoadingScreen />;
@@ -232,6 +252,7 @@ function App() {
                   isLoading={isLoadingSettings}
                   onRefresh={refreshSettings}
                   onUpdateSettings={(settings) => updateOptimizationSettings({ parameters: settings })}
+                  onApplyCurrentValues={handleApplyCurrentValues}
                 />
               </div>
             )}

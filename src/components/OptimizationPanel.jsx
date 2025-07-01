@@ -314,6 +314,9 @@ function OptimizationPanel({ settings = DEFAULT_SETTINGS, state, progress, onUpd
             />
           </div>
         </div>
+        <p className="text-xs text-tv-gray-400 mt-2">
+          ⚡ Anti-detection delays are only applied between backtests, not during settings reading for improved performance.
+        </p>
       </div>
 
       {/* Advanced Settings */}

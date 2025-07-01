@@ -34,8 +34,8 @@
       "performanceActive": "[id='Performance Summary'][class*='selected'], [id='Performance'][class*='selected']",
       "trades": "[id='Trade Analysis'], [id='Trades Analysis']",
       "tradesActive": "[id='Trade Analysis'][class*='selected'], [id='Trades Analysis'][class*='selected']",
-      "ratios": "[id='Ratios']",
-      "ratiosActive": "[id='Ratios'][class*='selected']"
+      "ratios": "[id='Ratios'], [id='Risk/Performance Ratios']",
+      "ratiosActive": "[id='Ratios'][class*='selected'], [id='Risk/Performance Ratios'][class*='selected']"
     },
     "deepBacktest": {
       "switchGroup": ".backtesting.deep-history [class^='switchGroup'], #bottom-area div[class^='backtesting'] [class^='deepHistoryContainer']",

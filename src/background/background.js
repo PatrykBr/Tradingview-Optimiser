@@ -432,6 +432,13 @@ async function runOptimization(settings) {
         break;
       }
       
+      // Apply anti-detection delay between backtests
+      if (antiDetection && i > 1) {
+        const randomDelay = Math.random() * (antiDetection.maxDelay - antiDetection.minDelay) + antiDetection.minDelay;
+        await sendLog('debug', `Anti-detection delay: ${Math.round(randomDelay)}ms`);
+        await new Promise(resolve => setTimeout(resolve, randomDelay));
+      }
+      
       if (deepBacktest) {
         await sendToContent('setDateRange', { startDate, endDate });
       } else {
@@ -444,9 +451,44 @@ async function runOptimization(settings) {
         break;
       }
       
+      // Small delay to ensure UI is stable before reading metrics
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       const metricNames = [...new Set([metric, ...filters.map(f => f.metric)])];
       const metricsResp = await sendToContent('readAllMetrics', { metricNames });
-      if (!metricsResp.success) throw new Error('Failed to read metrics');
+      
+      // Enhanced error handling for metric reading
+      if (!metricsResp.success) {
+        await sendLog('error', `Failed to read metrics: ${metricsResp.error || 'Unknown error'}`);
+        
+        // Retry with a longer delay
+        await sendLog('info', 'Retrying metric reading after delay...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        const retryResp = await sendToContent('readAllMetrics', { metricNames });
+        if (!retryResp.success) {
+          await sendLog('error', `Failed to read metrics after retry: ${retryResp.error || 'Unknown error'}`);
+          
+          // Skip this iteration but continue optimization
+          const result = { 
+            iteration: i, 
+            settings: suggestedParams, 
+            value: null, 
+            metric, 
+            isValid: false,
+            isBest: false,
+            error: retryResp.error || 'Failed to read metrics'
+          };
+          
+          allResults.push(result);
+          await sendResult(result);
+          continue; // Skip to next iteration
+        }
+        
+        // Use retry response
+        metricsResp.metrics = retryResp.metrics;
+        metricsResp.success = true;
+      }
       
       // Check abort after reading metrics
       if (abortOptimization) {
@@ -533,8 +575,6 @@ async function runOptimization(settings) {
             };
           }
         }
-        
-
         
         // Emit result for UI
         const result = { 
