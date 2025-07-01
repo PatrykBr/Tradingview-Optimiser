@@ -11,7 +11,7 @@ const STORAGE_KEYS = {
 };
 
 export function useOptimization() {
-  const [optimizationState, setOptimizationState] = useState('idle'); // idle, running, stopped
+  const [optimizationState, setOptimizationState] = useState('idle');
   const [optimizationSettings, setOptimizationSettings] = useState({
     strategyIndex: 0,
     metric: 'netProfit',
@@ -31,35 +31,23 @@ export function useOptimization() {
   const [progress, setProgress] = useState({ current: 0, total: 100 });
   const [isStateLoaded, setIsStateLoaded] = useState(false);
 
-  // Helper function to save state to storage with error handling
+  // Storage utility functions
   const saveToStorage = useCallback((key, value) => {
-    try {
-      chrome.storage.local.set({ [key]: value }, () => {
-        if (chrome.runtime.lastError) {
-          console.error(`Error saving to storage (${key}):`, chrome.runtime.lastError);
-          // If quota exceeded, try to clear old logs/results
-          if (chrome.runtime.lastError.message?.includes('quota')) {
-            console.warn('Storage quota exceeded, clearing old data...');
-            // Clear logs older than 24 hours
-            if (key === STORAGE_KEYS.logs && Array.isArray(value)) {
-              const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
-              const recentLogs = value.filter(log => log.timestamp > oneDayAgo);
-              chrome.storage.local.set({ [key]: recentLogs });
-            }
-            // Keep only last 500 results
-            else if (key === STORAGE_KEYS.results && Array.isArray(value)) {
-              const recentResults = value.slice(-500);
-              chrome.storage.local.set({ [key]: recentResults });
-            }
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.storage.local.set({ [key]: value }, () => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else {
+            resolve();
           }
-        }
-      });
-    } catch (error) {
-      console.error(`Error in saveToStorage for ${key}:`, error);
-    }
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
   }, []);
 
-  // Helper function to load state from storage with error handling
   const loadFromStorage = useCallback((key) => {
     return new Promise((resolve) => {
       try {
@@ -75,6 +63,47 @@ export function useOptimization() {
         console.error(`Error in loadFromStorage for ${key}:`, error);
         resolve(undefined);
       }
+    });
+  }, []);
+
+  const removeFromStorage = useCallback((keys) => {
+    return new Promise((resolve) => {
+      chrome.storage.local.remove(keys, () => {
+        resolve();
+      });
+    });
+  }, []);
+
+  // Helper function to save state with quota handling
+  const saveWithQuotaHandling = useCallback(async (key, value) => {
+    try {
+      await saveToStorage(key, value);
+    } catch (error) {
+      if (error?.message?.includes('quota')) {
+        console.warn('Storage quota exceeded, clearing old data...');
+        if (key === STORAGE_KEYS.logs && Array.isArray(value)) {
+          const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+          const recentLogs = value.filter(log => log.timestamp > oneDayAgo);
+          await saveToStorage(key, recentLogs);
+        } else if (key === STORAGE_KEYS.results && Array.isArray(value)) {
+          const recentResults = value.slice(-500);
+          await saveToStorage(key, recentResults);
+        }
+      } else {
+        console.error(`Error saving to storage (${key}):`, error);
+      }
+    }
+  }, [saveToStorage]);
+
+  // Send message to content script via background
+  const sendToContent = useCallback(async (action, data = {}) => {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        action: 'forwardToContent',
+        data: { action, ...data }
+      }, (response) => {
+        resolve(response || {});
+      });
     });
   }, []);
 
@@ -106,13 +135,13 @@ export function useOptimization() {
         if (persistedProgress) setProgress(persistedProgress);
 
         // Add a log entry if we're resuming an ongoing optimization
-        if (persistedState === 'running' && persistedProgress && persistedProgress.current > 0) {
-          const resumeLogEntry = {
+        if (persistedState === 'running' && persistedProgress?.current > 0) {
+          const resumeLog = {
             timestamp: Date.now(),
             level: 'info',
             message: `Optimization resumed - continuing from iteration ${persistedProgress.current}/${persistedProgress.total}`
           };
-          setLogs(prev => [...(prev || []), resumeLogEntry]);
+          setLogs(prev => [...(prev || []), resumeLog]);
         }
 
         setIsStateLoaded(true);
@@ -123,50 +152,38 @@ export function useOptimization() {
     };
 
     loadPersistedState();
-  }, [loadFromStorage]);
+  }, []);
 
   // Persist state changes to storage
   useEffect(() => {
     if (!isStateLoaded) return;
-    saveToStorage(STORAGE_KEYS.state, optimizationState);
-  }, [optimizationState, isStateLoaded, saveToStorage]);
+    saveWithQuotaHandling(STORAGE_KEYS.state, optimizationState);
+  }, [optimizationState, isStateLoaded, saveWithQuotaHandling]);
 
   useEffect(() => {
     if (!isStateLoaded) return;
-    saveToStorage(STORAGE_KEYS.settings, optimizationSettings);
-  }, [optimizationSettings, isStateLoaded, saveToStorage]);
+    saveWithQuotaHandling(STORAGE_KEYS.settings, optimizationSettings);
+  }, [optimizationSettings, isStateLoaded, saveWithQuotaHandling]);
 
   useEffect(() => {
     if (!isStateLoaded) return;
-    saveToStorage(STORAGE_KEYS.filters, filters);
-  }, [filters, isStateLoaded, saveToStorage]);
+    saveWithQuotaHandling(STORAGE_KEYS.filters, filters);
+  }, [filters, isStateLoaded, saveWithQuotaHandling]);
 
   useEffect(() => {
     if (!isStateLoaded) return;
-    saveToStorage(STORAGE_KEYS.results, results);
-  }, [results, isStateLoaded, saveToStorage]);
+    saveWithQuotaHandling(STORAGE_KEYS.results, results);
+  }, [results, isStateLoaded, saveWithQuotaHandling]);
 
   useEffect(() => {
     if (!isStateLoaded) return;
-    saveToStorage(STORAGE_KEYS.logs, logs);
-  }, [logs, isStateLoaded, saveToStorage]);
+    saveWithQuotaHandling(STORAGE_KEYS.logs, logs);
+  }, [logs, isStateLoaded, saveWithQuotaHandling]);
 
   useEffect(() => {
     if (!isStateLoaded) return;
-    saveToStorage(STORAGE_KEYS.progress, progress);
-  }, [progress, isStateLoaded, saveToStorage]);
-
-  // Send message to content script via background
-  const sendToContent = useCallback(async (action, data = {}) => {
-    return new Promise((resolve) => {
-      chrome.runtime.sendMessage({
-        action: 'forwardToContent',
-        data: { action, ...data }
-      }, (response) => {
-        resolve(response);
-      });
-    });
-  }, []);
+    saveWithQuotaHandling(STORAGE_KEYS.progress, progress);
+  }, [progress, isStateLoaded, saveWithQuotaHandling]);
 
   // Add log entry
   const addLog = useCallback((level, message) => {
@@ -195,25 +212,8 @@ export function useOptimization() {
     addLog('info', `Removed filter`);
   }, [addLog]);
 
-  // Apply filters to check if result is valid
-  const applyFilters = useCallback(async (metrics) => {
-    for (const filter of filters) {
-      const value = metrics[filter.metric];
-      if (value === null || value === undefined) continue;
-      
-      if (filter.min !== null && value < filter.min) {
-        return false;
-      }
-      if (filter.max !== null && value > filter.max) {
-        return false;
-      }
-    }
-    return true;
-  }, [filters]);
-
   // Start optimization
   const startOptimization = useCallback(async () => {
-    // Clear previous state when starting new optimization
     if (optimizationState === 'running') return;
     
     // Clear previous results and logs when starting new optimization
@@ -260,7 +260,7 @@ export function useOptimization() {
     setOptimizationState('idle');
     
     // Clear from storage as well
-    chrome.storage.local.remove([
+    removeFromStorage([
       STORAGE_KEYS.results,
       STORAGE_KEYS.logs,
       STORAGE_KEYS.progress,
@@ -300,7 +300,7 @@ export function useOptimization() {
     } catch (error) {
       addLog('error', `Error applying best result: ${error.message}`);
     }
-  }, [addLog, sendToContent, optimizationSettings.strategyIndex]);
+  }, [addLog, optimizationSettings.strategyIndex]);
 
   // Export results to CSV format
   const exportToCSV = useCallback(() => {
@@ -313,8 +313,8 @@ export function useOptimization() {
       // Create CSV headers
       const headers = ['Iteration', 'Metric Value', 'Valid', 'Metric Type'];
       
-      // Add parameter headers
-      if (optimizationSettings.parameters && optimizationSettings.parameters.length > 0) {
+      // Add parameter headers if available
+      if (optimizationSettings.parameters?.length > 0) {
         const paramNames = optimizationSettings.parameters.map(p => p.name);
         headers.push(...paramNames);
       }
@@ -329,7 +329,7 @@ export function useOptimization() {
         ];
         
         // Add parameter values
-        if (optimizationSettings.parameters && optimizationSettings.parameters.length > 0) {
+        if (optimizationSettings.parameters?.length > 0) {
           const paramValues = optimizationSettings.parameters.map(p => 
             result.settings[p.name] !== undefined ? result.settings[p.name] : ''
           );

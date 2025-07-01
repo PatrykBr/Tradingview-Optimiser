@@ -15,32 +15,26 @@ const STORAGE_KEYS = {
   progress: `${STORAGE_KEY_PREFIX}progress`
 };
 
-/**
- * Save data to Chrome storage
- * @param {string} key - Storage key
- * @param {any} value - Value to store
- * @returns {Promise<void>}
- */
-function saveToStorage(key, value) {
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ [key]: value }, () => {
-      resolve();
+// Common storage utilities
+const StorageUtils = {
+  save(key, value) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ [key]: value }, resolve);
     });
-  });
-}
-
-/**
- * Load data from Chrome storage
- * @param {string} key - Storage key
- * @returns {Promise<any>} The stored value or undefined
- */
-function loadFromStorage(key) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([key], (result) => {
-      resolve(result[key]);
+  },
+  
+  load(key) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([key], (result) => resolve(result[key]));
     });
-  });
-}
+  },
+  
+  sendMessageSafe(message) {
+    chrome.runtime.sendMessage(message).catch(() => {
+      // Popup might be closed, that's ok
+    });
+  }
+};
 
 /**
  * Send log message to popup UI and storage
@@ -49,24 +43,14 @@ function loadFromStorage(key) {
  * @returns {Promise<void>}
  */
 async function sendLog(level, message) {
-  // Log to storage only, not console
-  
   // Send to popup if it's open
-  chrome.runtime.sendMessage({ action: 'optimizationLog', level, message }).catch(() => {
-    // Popup might be closed, that's ok
-  });
+  StorageUtils.sendMessageSafe({ action: 'optimizationLog', level, message });
   
-  // Also save to storage (synchronously to avoid race conditions)
+  // Also save to storage
   try {
-    const logs = await loadFromStorage(STORAGE_KEYS.logs);
-    const currentLogs = logs || [];
-    const logEntry = {
-      timestamp: Date.now(),
-      level,
-      message
-    };
-    const updatedLogs = [...currentLogs, logEntry];
-    await saveToStorage(STORAGE_KEYS.logs, updatedLogs);
+    const logs = await StorageUtils.load(STORAGE_KEYS.logs) || [];
+    const updatedLogs = [...logs, { timestamp: Date.now(), level, message }];
+    await StorageUtils.save(STORAGE_KEYS.logs, updatedLogs);
   } catch (error) {
     console.error('Failed to save log to storage:', error);
   }
@@ -79,16 +63,13 @@ async function sendLog(level, message) {
  */
 async function sendResult(result) {
   // Send to popup if it's open
-  chrome.runtime.sendMessage({ action: 'optimizationResult', result }).catch(() => {
-    // Popup might be closed, that's ok
-  });
+  StorageUtils.sendMessageSafe({ action: 'optimizationResult', result });
   
-  // Also save to storage (synchronously to avoid race conditions)
+  // Also save to storage
   try {
-    const results = await loadFromStorage(STORAGE_KEYS.results);
-    const currentResults = results || [];
-    const updatedResults = [...currentResults, result];
-    await saveToStorage(STORAGE_KEYS.results, updatedResults);
+    const results = await StorageUtils.load(STORAGE_KEYS.results) || [];
+    const updatedResults = [...results, result];
+    await StorageUtils.save(STORAGE_KEYS.results, updatedResults);
   } catch (error) {
     console.error('Failed to save result to storage:', error);
   }
@@ -103,12 +84,10 @@ function updateProgress(iteration, totalIterations) {
   const progress = { current: iteration, total: totalIterations };
   
   // Send to popup if it's open
-  chrome.runtime.sendMessage({ action: 'optimizationProgress', iteration, totalIterations }).catch(() => {
-    // Popup might be closed, that's ok
-  });
+  StorageUtils.sendMessageSafe({ action: 'optimizationProgress', iteration, totalIterations });
   
   // Save to storage
-  saveToStorage(STORAGE_KEYS.progress, progress);
+  StorageUtils.save(STORAGE_KEYS.progress, progress);
 }
 
 /**
@@ -117,13 +96,11 @@ function updateProgress(iteration, totalIterations) {
  */
 function updateOptimizationState(state) {
   currentOptimizationState = state;
-  saveToStorage(STORAGE_KEYS.state, state);
+  StorageUtils.save(STORAGE_KEYS.state, state);
   
   // Send to popup if it's open
   if (state === 'idle') {
-    chrome.runtime.sendMessage({ action: 'optimizationCompleted' }).catch(() => {
-      // Popup might be closed, that's ok
-    });
+    StorageUtils.sendMessageSafe({ action: 'optimizationCompleted' });
   }
 }
 
@@ -294,10 +271,10 @@ async function runOptimization(settings) {
   
   // Update state and clear previous results
   updateOptimizationState('running');
-  await saveToStorage(STORAGE_KEYS.settings, settings);
-  await saveToStorage(STORAGE_KEYS.filters, filters);
-  await saveToStorage(STORAGE_KEYS.results, []);
-  await saveToStorage(STORAGE_KEYS.logs, []);
+  await StorageUtils.save(STORAGE_KEYS.settings, settings);
+  await StorageUtils.save(STORAGE_KEYS.filters, filters);
+  await StorageUtils.save(STORAGE_KEYS.results, []);
+  await StorageUtils.save(STORAGE_KEYS.logs, []);
   updateProgress(0, iterations);
   
   try {

@@ -1,18 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import StrategySelector from '../components/StrategySelector';
 import SettingsPanel from '../components/SettingsPanel';
 import OptimizationPanel from '../components/OptimizationPanel';
 import FiltersPanel from '../components/FiltersPanel';
 import ResultsPanel from '../components/ResultsPanel';
 import LogsPanel from '../components/LogsPanel';
+import ConfigManager from '../components/ConfigManager';
+import LoadingScreen from '../components/LoadingScreen';
+import ErrorScreen from '../components/ErrorScreen';
 import { useOptimization } from '../hooks/useOptimization';
 import { useTradingView } from '../hooks/useTradingView';
 
 function App() {
   const [activeView, setActiveView] = useState('setup');
-  const [configs, setConfigs] = useState([]);
-  const [currentConfigName, setCurrentConfigName] = useState('');
-  const [newConfigName, setNewConfigName] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState(null);
 
@@ -47,29 +47,18 @@ function App() {
   } = useOptimization();
 
   // Calculate best result dynamically
-  const bestResult = React.useMemo(() => {
+  const bestResult = useMemo(() => {
     if (results.length === 0) return null;
     
     const validResults = results.filter(r => r.isValid);
     if (validResults.length === 0) return null;
     
-    // For metrics that should be maximized (like net profit, profit factor)
     const isMaximizeMetric = ['netProfit', 'grossProfit', 'profitFactor', 'sharpeRatio'].includes(optimizationSettings.metric);
     
-    let best = validResults[0];
-    for (const result of validResults) {
-      if (isMaximizeMetric) {
-        if (result.value > best.value) {
-          best = result;
-        }
-      } else {
-        if (result.value < best.value) {
-          best = result;
-        }
-      }
-    }
-    
-    return best;
+    return validResults.reduce((best, result) => {
+      const isBetter = isMaximizeMetric ? result.value > best.value : result.value < best.value;
+      return isBetter ? result : best;
+    }, validResults[0]);
   }, [results, optimizationSettings.metric]);
 
   // Auto-switch to appropriate view when state is loaded (only once)
@@ -87,53 +76,14 @@ function App() {
     }
   }, [isStateLoaded]); // Only depend on isStateLoaded to avoid switching during iterations
 
-  // Load configs for a strategy whenever it changes
+  // Listen for config load events from ConfigManager
   useEffect(() => {
-    if (selectedStrategy) {
-      const key = `configs_${selectedStrategy.index}`;
-      chrome.storage.local.get([key], (data) => {
-        const list = Array.isArray(data[key]) ? data[key] : [];
-        setConfigs(list);
-      });
-      setCurrentConfigName('');
-      setNewConfigName('');
-    }
-  }, [selectedStrategy]);
-
-  // Save a new or overwrite existing configuration
-  const saveConfig = () => {
-    if (!newConfigName.trim() || !selectedStrategy) return;
-    const key = `configs_${selectedStrategy.index}`;
-    chrome.storage.local.get([key], (data) => {
-      const existing = Array.isArray(data[key]) ? data[key] : [];
-      const newConfig = { name: newConfigName.trim(), settings: optimizationSettings };
-      const filtered = existing.filter(c => c.name !== newConfig.name);
-      const updated = [...filtered, newConfig];
-      chrome.storage.local.set({ [key]: updated });
-      setConfigs(updated);
-      setCurrentConfigName(newConfig.name);
-      setNewConfigName('');
-    });
-  };
-
-  // Load selected configuration into optimization settings
-  const loadConfig = (name) => {
-    const config = configs.find(c => c.name === name);
-    if (config) {
-      updateOptimizationSettings(config.settings);
-      setCurrentConfigName(name);
-    }
-  };
-
-  // Delete a configuration
-  const deleteConfig = (name) => {
-    if (!selectedStrategy) return;
-    const key = `configs_${selectedStrategy.index}`;
-    const updated = configs.filter(c => c.name !== name);
-    chrome.storage.local.set({ [key]: updated });
-    setConfigs(updated);
-    if (currentConfigName === name) setCurrentConfigName('');
-  };
+    const handleLoadConfig = (event) => {
+      updateOptimizationSettings(event.detail);
+    };
+    window.addEventListener('loadConfig', handleLoadConfig);
+    return () => window.removeEventListener('loadConfig', handleLoadConfig);
+  }, [updateOptimizationSettings]);
 
   // Check connection on mount
   useEffect(() => {
@@ -169,39 +119,15 @@ function App() {
 
   // Show loading screen while state is being restored
   if (!isStateLoaded) {
-    return (
-      <div className="w-96 h-[600px] bg-tv-gray-900 text-white flex items-center justify-center p-6">
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-tv-blue/20 flex items-center justify-center">
-            <div className="w-8 h-8 border-2 border-tv-blue border-t-transparent rounded-full animate-spin"></div>
-          </div>
-          <h2 className="text-lg font-semibold mb-2 text-white">Loading Extension</h2>
-          <p className="text-sm text-tv-gray-400">Restoring previous state...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (!isConnected) {
-    return (
-      <div className="w-96 h-[600px] bg-tv-gray-900 text-white flex items-center justify-center p-6">
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-tv-red/20 flex items-center justify-center">
-            <svg className="w-8 h-8 text-tv-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-          </div>
-          <h2 className="text-lg font-semibold mb-2 text-white">TradingView Required</h2>
-          <p className="text-sm text-tv-gray-400 mb-6 leading-relaxed">{connectionError}</p>
-          <button
-            onClick={checkConnection}
-            className="px-4 py-2 bg-tv-blue text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
-          >
-            Check Connection
-          </button>
-        </div>
-      </div>
-    );
+    return <ErrorScreen 
+      title="TradingView Required" 
+      message={connectionError} 
+      onRetry={checkConnection} 
+    />;
   }
 
   return (
@@ -287,51 +213,10 @@ function App() {
 
             {/* Configuration Management */}
             {selectedStrategy && (
-              <div className="bg-tv-gray-800 rounded p-4 mt-4">
-                <h3 className="text-lg font-semibold text-white mb-2">Saved Configurations</h3>
-                <div className="flex items-center mb-2">
-                  <select
-                    value={currentConfigName}
-                    onChange={(e) => setCurrentConfigName(e.target.value)}
-                    className="flex-1 bg-tv-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tv-blue"
-                  >
-                    <option value="">Select a config</option>
-                    {configs.map(c => (
-                      <option key={c.name} value={c.name}>{c.name}</option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => loadConfig(currentConfigName)}
-                    disabled={!currentConfigName}
-                    className="ml-2 px-3 py-2 bg-tv-blue text-white rounded disabled:opacity-50 cursor-pointer"
-                  >
-                    Load
-                  </button>
-                  <button
-                    onClick={() => deleteConfig(currentConfigName)}
-                    disabled={!currentConfigName}
-                    className="ml-2 px-3 py-2 bg-tv-red text-white rounded disabled:opacity-50 cursor-pointer"
-                  >
-                    Delete
-                  </button>
-                </div>
-                <div className="flex items-center">
-                  <input
-                    type="text"
-                    placeholder="New config name"
-                    value={newConfigName}
-                    onChange={(e) => setNewConfigName(e.target.value)}
-                    className="flex-1 bg-tv-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tv-blue"
-                  />
-                  <button
-                    onClick={saveConfig}
-                    disabled={!newConfigName.trim()}
-                    className="ml-2 px-3 py-2 bg-tv-green text-white rounded disabled:opacity-50 cursor-pointer"
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
+              <ConfigManager 
+                selectedStrategy={selectedStrategy} 
+                optimizationSettings={optimizationSettings} 
+              />
             )}
 
             {/* Strategy Parameters */}

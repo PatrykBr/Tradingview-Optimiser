@@ -12,23 +12,11 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, onApplyBe
       return `${value.toFixed(2)}%`;
     } else if (metric?.format === 'currency') {
       return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    } else {
-      return value.toFixed(2);
     }
+    return value.toFixed(2);
   };
 
-  const formatSettings = (settings) => {
-    return Object.entries(settings)
-      .map(([key, value]) => {
-        if (typeof value === 'boolean') {
-          return `${key}: ${value ? 'On' : 'Off'}`;
-        }
-        return `${key}: ${value}`;
-      })
-      .join(', ');
-  };
-
-  // Helper function to render parameter settings with fallback
+  // Helper function to render parameter settings
   const renderParameterSettings = (resultSettings) => {
     if (!resultSettings) {
       return <div className="text-tv-gray-400">No settings available</div>;
@@ -39,8 +27,6 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, onApplyBe
       return <div className="text-tv-gray-400">Settings object is empty</div>;
     }
     
-    // ALWAYS display all available settings from the result
-    // This ensures settings are shown regardless of current parameter states
     return settingsEntries.map(([key, value]) => (
       <div key={key} className="flex justify-between">
         <span className="text-tv-gray-300 truncate">{key}</span>
@@ -49,33 +35,24 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, onApplyBe
     ));
   };
 
-  // Determine the title and styling based on optimization state
-  const getBestResultTitle = () => {
-    if (isOptimizing) {
-      return "Best Result So Far";
-    } else {
-      return bestResult ? "Final Best Result" : "Best Result";
-    }
-  };
-
-  const getBestResultIndicator = () => {
-    if (isOptimizing && bestResult) {
-      return (
-        <div className="flex items-center space-x-2 mb-2">
-          <div className="w-2 h-2 bg-tv-orange rounded-full animate-pulse"></div>
-          <span className="text-xs text-tv-orange font-medium bg-tv-gray-800 px-2 py-1 rounded">Optimization in progress...</span>
-        </div>
-      );
-    }
-    return null;
-  };
+  const exportButtons = [
+    { icon: "M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", label: "Export CSV", onClick: onExportCSV },
+    { icon: "M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", label: "Export JSON", onClick: onExportJSON }
+  ];
 
   return (
     <div className="space-y-4">
       {bestResult && (
         <div className={`${isOptimizing ? 'bg-tv-blue bg-opacity-20 border-tv-blue' : 'bg-tv-green bg-opacity-20 border-tv-green'} border rounded-lg p-4 text-white`}>
-          {getBestResultIndicator()}
-          <h3 className="text-base font-semibold text-white mb-3">{getBestResultTitle()}</h3>
+          {isOptimizing && (
+            <div className="flex items-center space-x-2 mb-2">
+              <div className="w-2 h-2 bg-tv-orange rounded-full animate-pulse"></div>
+              <span className="text-xs text-tv-orange font-medium bg-tv-gray-800 px-2 py-1 rounded">Optimization in progress...</span>
+            </div>
+          )}
+          <h3 className="text-base font-semibold text-white mb-3">
+            {isOptimizing ? "Best Result So Far" : "Final Best Result"}
+          </h3>
           <div className="flex items-center space-x-6 mb-3">
             <div>
               <p className="text-xs text-tv-gray-300 uppercase">Metric</p>
@@ -95,7 +72,7 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, onApplyBe
         </div>
       )}
 
-      {/* Action Buttons - Show when optimization is finished and there are results */}
+      {/* Action Buttons */}
       {!isOptimizing && results.length > 0 && (
         <div className="bg-tv-gray-800 rounded-lg p-4">
           <h3 className="text-base font-semibold text-white mb-3">Actions</h3>
@@ -111,33 +88,25 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, onApplyBe
                 <span>Apply Best</span>
               </button>
             )}
-            <button
-              onClick={onExportCSV}
-              className="flex items-center space-x-2 px-4 py-2 bg-tv-blue text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Export CSV</span>
-            </button>
-            <button
-              onClick={onExportJSON}
-              className="flex items-center space-x-2 px-4 py-2 bg-tv-blue text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Export JSON</span>
-            </button>
+            {exportButtons.map((btn, idx) => (
+              <button
+                key={idx}
+                onClick={btn.onClick}
+                className="flex items-center space-x-2 px-4 py-2 bg-tv-blue text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={btn.icon} />
+                </svg>
+                <span>{btn.label}</span>
+              </button>
+            ))}
           </div>
         </div>
       )}
 
       <div className="bg-tv-gray-800 rounded p-4">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center space-x-3">
-            <h3 className="text-lg font-semibold">All Results</h3>
-          </div>
+          <h3 className="text-lg font-semibold">All Results</h3>
           <button
             onClick={onClear}
             disabled={results.length === 0 || isOptimizing}
@@ -163,7 +132,7 @@ function ResultsPanel({ results, bestResult, parameters = [], onClear, onApplyBe
                 </tr>
               </thead>
               <tbody>
-                {results.slice().reverse().map((result, index) => (
+                {results.slice().reverse().map((result) => (
                   <tr 
                     key={result.iteration} 
                     className={`border-b border-tv-gray-700 ${result.isBest ? 'bg-tv-green bg-opacity-10' : ''}`}

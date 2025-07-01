@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getAvailableMetrics } from '../utils/metrics';
 
-function OptimizationPanel({ settings = {
+const DEFAULT_SETTINGS = {
   strategyIndex: 0,
   metric: 'netProfit',
   iterations: 100,
@@ -13,7 +13,18 @@ function OptimizationPanel({ settings = {
     maxDelay: 2000
   },
   parameters: []
-}, state, progress, onUpdateSettings, onStart, onStop }) {
+};
+
+const getIterationRecommendation = (metric) => {
+  const recommendations = {
+    profitFactor: '200 iterations for profit factor',
+    sharpeRatio: '150 iterations for Sharpe ratio',
+    winRate: '100 iterations for win rate'
+  };
+  return recommendations[metric] || '100-200 iterations';
+};
+
+function OptimizationPanel({ settings = DEFAULT_SETTINGS, state, progress, onUpdateSettings, onStart, onStop }) {
   const [localSettings, setLocalSettings] = useState({
     metric: 'netProfit',
     iterations: 100,
@@ -223,12 +234,7 @@ function OptimizationPanel({ settings = {
                 Max possible combinations: {maxCombinations}
               </p>
               <small className="text-gray-400 text-xs mt-1 block">
-                💡 Recommended: {
-                  localSettings.metric === 'profitFactor' ? '200 iterations for profit factor' :
-                  localSettings.metric === 'sharpeRatio' ? '150 iterations for Sharpe ratio' :
-                  localSettings.metric === 'winRate' ? '100 iterations for win rate' :
-                  '100-200 iterations'
-                } (30% {localSettings.useSobol ? 'Sobol sequence' : 'Latin Hypercube'} + 70% Bayesian optimization)
+                💡 Recommended: {getIterationRecommendation(localSettings.metric)} (30% {localSettings.useSobol ? 'Sobol sequence' : 'Latin Hypercube'} + 70% Bayesian optimization)
               </small>
             </div>
           </div>

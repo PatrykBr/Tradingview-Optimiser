@@ -14,7 +14,7 @@ export function useTradingView() {
         action: 'forwardToContent',
         data: { action, ...data }
       }, (response) => {
-        resolve(response);
+        resolve(response || {});
       });
     });
   }, []);
@@ -40,7 +40,7 @@ export function useTradingView() {
     } finally {
       setIsLoadingStrategies(false);
     }
-  }, [sendToContent, selectedStrategy]);
+  }, [selectedStrategy]);
 
   const selectStrategy = useCallback(async (strategyIndex) => {
     const strategy = strategies.find(s => s.index === strategyIndex);
@@ -67,7 +67,7 @@ export function useTradingView() {
     } finally {
       setIsLoadingSettings(false);
     }
-  }, [sendToContent]);
+  }, []);
 
   const refreshSettings = useCallback(async () => {
     if (selectedStrategy) {

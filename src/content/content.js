@@ -81,39 +81,37 @@
       });
     },
 
-    // Click element with anti-detection delay
-    async clickElement(element) {
+    // Generic mouse event dispatcher
+    async dispatchMouseEvents(element, eventTypes, eventOptions = {}) {
       await this.delay();
-      ['mousedown','mouseup','click'].forEach(type => {
-        element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      eventTypes.forEach(type => {
+        element.dispatchEvent(new MouseEvent(type, { 
+          bubbles: true, 
+          cancelable: true, 
+          view: window,
+          ...eventOptions 
+        }));
       });
       await this.delay();
+    },
+
+    // Click element with anti-detection delay
+    async clickElement(element) {
+      return this.dispatchMouseEvents(element, ['mousedown', 'mouseup', 'click']);
     },
 
     // Right click element
     async rightClickElement(element) {
-      await this.delay();
-      const event = new MouseEvent('contextmenu', {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX: element.getBoundingClientRect().left + 10,
-        clientY: element.getBoundingClientRect().top + 10
+      const rect = element.getBoundingClientRect();
+      return this.dispatchMouseEvents(element, ['contextmenu'], {
+        clientX: rect.left + 10,
+        clientY: rect.top + 10
       });
-      element.dispatchEvent(event);
-      await this.delay();
     },
 
     // Hover element to reveal hidden buttons
     async hoverElement(element) {
-      // Pause before hover
-      await this.delay();
-      // Dispatch hover events
-      ['mouseover', 'mousemove', 'mouseenter'].forEach(type => {
-        element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-      });
-      // Pause after hover
-      await this.delay();
+      return this.dispatchMouseEvents(element, ['mouseover', 'mousemove', 'mouseenter']);
     },
 
     // Set input value with events
