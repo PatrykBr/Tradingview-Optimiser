@@ -9,16 +9,33 @@
 
   // DOM selectors - will be loaded from config
   let domSelectors = {};
+  let domSelectorsLoaded = false;
   
-  // Load DOM selectors from extension config
-  fetch(chrome.runtime.getURL('config/dom_selectors.json'))
-    .then(r => r.json())
-    .then(config => {
-      domSelectors = config;
-    })
-    .catch(error => {
-      console.error('[CT] Failed to load DOM selectors:', error);
-    });
+  // Load DOM selectors from extension config with retry
+  const loadDomSelectors = async () => {
+    const maxRetries = 3;
+    let lastError;
+    
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await fetch(chrome.runtime.getURL('config/dom_selectors.json'));
+        const config = await response.json();
+        domSelectors = config;
+        domSelectorsLoaded = true;
+        return;
+              } catch (error) {
+          lastError = error;
+          if (i < maxRetries - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+    }
+    
+    console.error('[CT] Failed to load DOM selectors after all retries:', lastError);
+    throw lastError;
+  };
+  
+  const domSelectorsPromise = loadDomSelectors();
 
   // Utility functions for DOM interaction
   const DOMUtils = {
@@ -175,6 +192,17 @@
   const StrategyManager = {
     // Detect all strategies on the chart
     async detectStrategies() {
+      // First check if the page is loaded enough to have strategies
+      try {
+        // Wait a bit for the chart to be loaded if it's not ready yet
+        const chartContainer = document.querySelector(domSelectors.chart.container);
+        if (!chartContainer) {
+          await DOMUtils.waitForElement(domSelectors.chart.container, 5000);
+        }
+      } catch (error) {
+        // Chart container not found, proceeding anyway
+      }
+      
       const strategies = [];
       const containers = document.querySelectorAll(domSelectors.strategy.container);
       
@@ -222,7 +250,8 @@
       
       // Click on inputs tab if exists
       const inputsTab = dialog.querySelector(domSelectors.settingsDialog.tabInputs);
-      if (inputsTab && !inputsTab.classList.contains('selected')) {
+      const isTabActive = !!dialog.querySelector(domSelectors.settingsDialog.tabInputsActive);
+      if (inputsTab && !isTabActive) {
         inputsTab.click();
         await DOMUtils.delay(50, false);  // Minimal delay, no anti-detection
       }
@@ -235,7 +264,7 @@
         // Identify input types first to determine label strategy
         const checkboxInput = row.querySelector(domSelectors.settingsDialog.checkboxInput);
         const selectInput = row.querySelector(domSelectors.settingsDialog.selectInput);
-        const inputElement = row.querySelector('input:not([type="checkbox"])');
+        const inputElement = row.querySelector(domSelectors.settingsDialog.numberInput);
         
         // Skip rows that don't have any input elements
         if (!checkboxInput && !selectInput && !inputElement) continue;
@@ -248,22 +277,20 @@
           options: []
         };
 
-        // For dropdown/select inputs, the label is usually in the previous row
-        if (selectInput) {
-          const prev = row.previousElementSibling;
-          if (prev && prev.matches('div.cell-tBgV1m0B.first-tBgV1m0B')) {
-            const prevLabel = prev.querySelector('div.inner-tBgV1m0B');
-            if (prevLabel && prevLabel.textContent.trim()) {
-              label = prevLabel;
-            }
+              // For dropdown/select inputs, the label is usually in the previous row
+      if (selectInput) {
+        const prev = row.previousElementSibling;
+        if (prev && prev.matches(domSelectors.settingsDialog.labelCell.firstCell)) {
+          const prevLabel = prev.querySelector(domSelectors.settingsDialog.labelCell.innerLabel);
+          if (prevLabel && prevLabel.textContent.trim()) {
+            label = prevLabel;
           }
-          // If no previous label found, try current row
-          if (!label) {
-            label = row.querySelector(domSelectors.settingsDialog.inputLabel) || 
-                   row.querySelector('label') || 
-                   row.querySelector('[class*="label"]') || 
-                   row.querySelector('span');
-          }
+        }
+        // If no previous label found, try current row
+        if (!label) {
+          label = row.querySelector(domSelectors.settingsDialog.inputLabel) || 
+                 row.querySelector(domSelectors.settingsDialog.labelCell.fallbackLabel);
+        }
           
           setting.type = 'select';
           setting.value = selectInput.textContent.trim();
@@ -273,13 +300,13 @@
         else {
           label = row.querySelector(domSelectors.settingsDialog.inputLabel);
           if (!label) {
-            label = row.querySelector('label') || row.querySelector('[class*="label"]') || row.querySelector('span');
+            label = row.querySelector(domSelectors.settingsDialog.labelCell.fallbackLabel);
           }
           // If label text is empty, fallback to preceding key cell label
           if (!label || !label.textContent.trim()) {
             const prev = row.previousElementSibling;
-            if (prev && prev.matches('div.cell-tBgV1m0B.first-tBgV1m0B')) {
-              const alt = prev.querySelector('div.inner-tBgV1m0B');
+            if (prev && prev.matches(domSelectors.settingsDialog.labelCell.firstCell)) {
+              const alt = prev.querySelector(domSelectors.settingsDialog.labelCell.innerLabel);
               if (alt) label = alt;
             }
           }
@@ -368,7 +395,8 @@
       
       // Click on inputs tab if exists
       const inputsTab = dialog.querySelector(domSelectors.settingsDialog.tabInputs);
-      if (inputsTab && !inputsTab.classList.contains('selected')) {
+      const isTabActive = !!dialog.querySelector(domSelectors.settingsDialog.tabInputsActive);
+      if (inputsTab && !isTabActive) {
         await DOMUtils.clickElement(inputsTab);
         await DOMUtils.delay(30, false);  // Ultra-minimal delay during settings application
       }
@@ -382,15 +410,15 @@
       for (const row of inputRows) {
         let label = row.querySelector(domSelectors.settingsDialog.inputLabel);
         if (!label) {
-          label = row.querySelector('label') || row.querySelector('[class*="label"]') || row.querySelector('span');
+          label = row.querySelector(domSelectors.settingsDialog.labelCell.fallbackLabel);
         }
         if (!label) continue;
 
         // Fallback: if label text is empty, use previous label cell
         if (!label.textContent.trim()) {
           const prev = row.previousElementSibling;
-          if (prev && prev.matches('div.cell-tBgV1m0B.first-tBgV1m0B')) {
-            const alt = prev.querySelector('div.inner-tBgV1m0B');
+          if (prev && prev.matches(domSelectors.settingsDialog.labelCell.firstCell)) {
+            const alt = prev.querySelector(domSelectors.settingsDialog.labelCell.innerLabel);
             if (alt) {
               label = alt;
             }
@@ -517,21 +545,28 @@
         
         // First try ID-based selectors (fastest)
         if (selectId) {
-          dropdownMenu = document.querySelector(`[id*="${selectId}"][role="listbox"]`) ||
-                        document.querySelector(`[id="${selectId}_listbox"]`) ||
-                        document.querySelector(`[id="${selectId}_menu"]`);
+          // Replace {selectId} placeholder in selector templates
+          const byIdSelectors = domSelectors.settingsDialog.dropdownMenu.byId
+            .split(', ')
+            .map(selector => selector.replace('{selectId}', selectId));
+          
+          for (const selector of byIdSelectors) {
+            dropdownMenu = document.querySelector(selector);
+            if (dropdownMenu) break;
+          }
         }
         
         // If not found, look for visible dropdown menus (limited scope)
         if (!dropdownMenu) {
           // Use more efficient approach - check only likely containers
           const containers = [
-            document.querySelector('[data-name="indicator-properties-dialog"]'),
+            document.querySelector(domSelectors.settingsDialog.container),
             document.body
           ].filter(Boolean);
           
           for (const container of containers) {
-            const menus = container.querySelectorAll('[role="listbox"], [data-name="popup-menu-container"]');
+            const menuSelectors = `${domSelectors.settingsDialog.dropdownMenu.listbox}, ${domSelectors.settingsDialog.dropdownMenu.popupContainer}`;
+            const menus = container.querySelectorAll(menuSelectors);
             for (const menu of menus) {
               // Quick visibility check without getComputedStyle
               if (menu.offsetWidth > 0 && menu.offsetHeight > 0) {
@@ -545,7 +580,7 @@
         
         let options = [];
         if (dropdownMenu) {
-          options = Array.from(dropdownMenu.querySelectorAll('[role="option"]'))
+          options = Array.from(dropdownMenu.querySelectorAll(domSelectors.settingsDialog.dropdownMenu.option))
             .map(opt => opt.textContent.trim());
         }
         
@@ -578,20 +613,27 @@
         
         // First try ID-based selectors (fastest)
         if (selectId) {
-          dropdownMenu = document.querySelector(`[id*="${selectId}"][role="listbox"]`) ||
-                        document.querySelector(`[id="${selectId}_listbox"]`) ||
-                        document.querySelector(`[id="${selectId}_menu"]`);
+          // Replace {selectId} placeholder in selector templates
+          const byIdSelectors = domSelectors.settingsDialog.dropdownMenu.byId
+            .split(', ')
+            .map(selector => selector.replace('{selectId}', selectId));
+          
+          for (const selector of byIdSelectors) {
+            dropdownMenu = document.querySelector(selector);
+            if (dropdownMenu) break;
+          }
         }
         
         // If not found, look for visible dropdown menus (limited scope)
         if (!dropdownMenu) {
           const containers = [
-            document.querySelector('[data-name="indicator-properties-dialog"]'),
+            document.querySelector(domSelectors.settingsDialog.container),
             document.body
           ].filter(Boolean);
           
           for (const container of containers) {
-            const menus = container.querySelectorAll('[role="listbox"], [data-name="popup-menu-container"]');
+            const menuSelectors = `${domSelectors.settingsDialog.dropdownMenu.listbox}, ${domSelectors.settingsDialog.dropdownMenu.popupContainer}`;
+            const menus = container.querySelectorAll(menuSelectors);
             for (const menu of menus) {
               // Quick visibility check
               if (menu.offsetWidth > 0 && menu.offsetHeight > 0) {
@@ -605,7 +647,7 @@
         
         // Find and click the target option
         if (dropdownMenu) {
-          const options = dropdownMenu.querySelectorAll('[role="option"]');
+          const options = dropdownMenu.querySelectorAll(domSelectors.settingsDialog.dropdownMenu.option);
           for (const option of options) {
             if (option.textContent.trim().toLowerCase() === targetValue.toLowerCase()) {
               await DOMUtils.clickElement(option);
@@ -692,7 +734,6 @@
               console.warn(`[CT] Tab ${metricConfig.tab} did not become active, continuing anyway`);
               // Try clicking again if it didn't work
               if (metricConfig.tab === 'ratios' && !document.querySelector(activeSelectors[metricConfig.tab])) {
-                console.log(`[CT] Retrying ratios tab click...`);
                 await DOMUtils.clickElement(tabButton);
                 await DOMUtils.delay(400, false);
               }
@@ -713,43 +754,29 @@
       } catch (error) {
         console.error(`[CT] No data rows found for metric ${metricName}`);
         // Try alternative selectors as fallback
-        const alternativeSelectors = [
-          'table tbody tr',
-          'div[class*="report"] table tbody tr',
-          'div[class*="backtesting"] table tbody tr',
-          // Add more specific selectors for ratios tab
-          '#bottom-area div[id="Ratios"][class*="selected"] ~ div table tbody tr',
-          '#bottom-area div[class*="tab-"] table tbody tr',
-          'div[class*="content-"] table tbody tr'
-        ];
+        const alternativeSelectors = domSelectors.tables.allRows;
         
         let foundRows = false;
-        for (const altSelector of alternativeSelectors) {
-          const altRows = document.querySelectorAll(altSelector);
-          if (altRows.length > 0) {
-            console.log(`[CT] Found rows using alternative selector: ${altSelector}`);
-            foundRows = true;
-            break;
+                  for (const altSelector of alternativeSelectors) {
+            const altRows = document.querySelectorAll(altSelector);
+            if (altRows.length > 0) {
+              foundRows = true;
+              break;
+            }
           }
-        }
         
-        if (!foundRows) {
-          // For ratios tab, wait a bit longer as it may load slower
-          if (metricConfig.tab === 'ratios') {
-            console.log(`[CT] Waiting longer for ratios tab data...`);
-            await DOMUtils.delay(500, false);
+                  if (!foundRows) {
+            // For ratios tab, wait a bit longer as it may load slower
+            if (metricConfig.tab === 'ratios') {
+              await DOMUtils.delay(500, false);
+            }
           }
-        }
       }
       
       // Re-query with broader selectors to catch all possible table rows
       const allTableSelectors = [
         ...rowSelectors,
-        'table tbody tr',
-        'div[class*="report"] table tbody tr',
-        'div[class*="backtesting"] table tbody tr',
-        '#bottom-area table tbody tr',
-        'div[id="Ratios"][class*="selected"] ~ div table tbody tr'
+        ...domSelectors.tables.allRows
       ];
       const rows = document.querySelectorAll(allTableSelectors.join(', '));
       
@@ -757,39 +784,9 @@
         throw new Error('No data rows found');
       }
       
-      // Debug: log all row labels to help identify issues
-      const allLabels = [];
       for (const row of rows) {
         // Try multiple selectors for labels
-        const labelSelectors = [
-          '.apply-overflow-tooltip',
-          'td:first-child',
-          'td:first-child span',
-          'td:first-child div'
-        ];
-        
-        let labelElem = null;
-        for (const labelSelector of labelSelectors) {
-          labelElem = row.querySelector(labelSelector);
-          if (labelElem && labelElem.textContent.trim()) {
-            break;
-          }
-        }
-        
-        if (labelElem) {
-          allLabels.push(labelElem.textContent.trim());
-        }
-      }
-
-      
-      for (const row of rows) {
-        // Try multiple selectors for labels
-        const labelSelectors = [
-          '.apply-overflow-tooltip',
-          'td:first-child',
-          'td:first-child span',
-          'td:first-child div'
-        ];
+        const labelSelectors = domSelectors.tables.labelSelectors;
         
         let labelElem = null;
         for (const labelSelector of labelSelectors) {
@@ -815,7 +812,7 @@
         }
       }
       
-      console.error(`[CT] Metric row not found: ${metricConfig.label}. Available labels: ${JSON.stringify(allLabels)}`);
+      console.error(`[CT] Metric row not found: ${metricConfig.label}`);
       throw new Error(`Metric row not found: ${metricConfig.label}`);
     },
 
@@ -877,12 +874,8 @@
       const isCurrentlyEnabled = toggle.getAttribute('aria-checked') === 'true' || toggle.checked;
       
       if (isCurrentlyEnabled !== enabled) {
-        if (enabled) {
-        } else {
-        }
         await DOMUtils.clickElement(toggle);
         await DOMUtils.delay(100, false);  // Minimal delay for UI interaction
-      } else {
       }
     },
 
@@ -907,8 +900,7 @@
       if (!container) {
         throw new Error('Date range container not found');
       }
-      // Select date inputs by their placeholder (YYYY-MM-DD) to be more robust
-      const dateInputs = Array.from(container.querySelectorAll('input[placeholder="YYYY-MM-DD"]'));
+      const dateInputs = Array.from(container.querySelectorAll(domSelectors.strategyTester.deepBacktest.dateRange.dateInput));
       if (dateInputs.length < 2) {
         throw new Error('Date range inputs not found');
       }
@@ -947,6 +939,16 @@
       abortCurrentOperation = true;
       sendResponse({ success: true });
       return;
+    }
+    
+    // Wait for DOM selectors to be loaded before processing any requests
+    if (!domSelectorsLoaded) {
+      try {
+        await domSelectorsPromise;
+      } catch (error) {
+        sendResponse({ success: false, error: 'Failed to load DOM selectors configuration' });
+        return;
+      }
     }
     
     // Reset abort flag for new operations

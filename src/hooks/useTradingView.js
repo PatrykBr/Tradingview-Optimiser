@@ -6,6 +6,7 @@ export function useTradingView() {
   const [strategySettings, setStrategySettings] = useState(null);
   const [isLoadingStrategies, setIsLoadingStrategies] = useState(false);
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
+  const [error, setError] = useState(null);
 
   // Send message to content script via background
   const sendToContent = useCallback(async (action, data = {}) => {
@@ -26,6 +27,7 @@ export function useTradingView() {
 
   const refreshStrategies = useCallback(async () => {
     setIsLoadingStrategies(true);
+    setError(null);
     try {
       const response = await sendToContent('detectStrategies');
       if (response.success) {
@@ -34,9 +36,17 @@ export function useTradingView() {
         if (response.strategies.length > 0 && !selectedStrategy) {
           selectStrategy(0);
         }
+      } else {
+        // Handle specific errors
+        if (response.error && response.error.includes('DOM selectors')) {
+          setError('TradingView page is still loading. Please wait a moment and try again.');
+        } else {
+          setError(response.error || 'Failed to detect strategies');
+        }
       }
     } catch (error) {
       console.error('Failed to detect strategies:', error);
+      setError('Unable to connect to TradingView. Please make sure you are on a TradingView chart page.');
     } finally {
       setIsLoadingStrategies(false);
     }
@@ -81,6 +91,7 @@ export function useTradingView() {
     strategySettings,
     isLoadingStrategies,
     isLoadingSettings,
+    error,
     selectStrategy,
     refreshStrategies,
     refreshSettings

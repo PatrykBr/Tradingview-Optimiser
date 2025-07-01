@@ -19,7 +19,18 @@
     "checkboxInput": "[data-name='indicator-properties-dialog'] input[type='checkbox']",
     "selectInput": "[data-name='indicator-properties-dialog'] [data-name='dropdown-menu'], [data-name='indicator-properties-dialog'] select, [data-name='indicator-properties-dialog'] [data-role='listbox'], [data-name='indicator-properties-dialog'] span[role='button'][aria-haspopup='listbox']",
     "okButton": "[data-name='indicator-properties-dialog'] button[name='submit']",
-    "cancelButton": "[data-name='indicator-properties-dialog'] button[name='cancel'], [data-name='indicator-properties-dialog'] [data-name='close'][data-role='button']"
+    "cancelButton": "[data-name='indicator-properties-dialog'] button[name='cancel'], [data-name='indicator-properties-dialog'] [data-name='close'][data-role='button']",
+    "dropdownMenu": {
+      "byId": "[id*='{selectId}'][role='listbox'], [id='{selectId}_listbox'], [id='{selectId}_menu']",
+      "popupContainer": "[data-name='popup-menu-container']",
+      "listbox": "[role='listbox']",
+      "option": "[role='option']"
+    },
+    "labelCell": {
+      "firstCell": "div.cell-tBgV1m0B.first-tBgV1m0B",
+      "innerLabel": "div.inner-tBgV1m0B",
+      "fallbackLabel": "label, [class*='label'], span"
+    }
   },
   "strategyTester": {
     "container": "[data-name='backtesting']",
@@ -46,7 +57,8 @@
         "container": ".backtesting.deep-history [class^='historyParams'], #bottom-area div[class^='backtesting'] [class^='historyParams']",
         "startDate": ".backtesting.deep-history [class^='historyParams'] [class^='container'] div:nth-child(1) [class^='pickerInput'] input, #bottom-area div[class^='backtesting'] [class^='historyParams'] [class^='container'] > div:nth-child(1) div[class^='pickerInput'] input",
         "endDate": ".backtesting.deep-history [class^='historyParams'] [class^='container'] div:nth-child(2) [class^='pickerInput'] input, #bottom-area div[class^='backtesting'] [class^='historyParams'] [class^='container'] > div:nth-child(2) div[class^='pickerInput'] input",
-        "generateButton": ".backtesting.deep-history [class^='historyParams'] button[class^='generateReportBtn']:not([aria-disabled='true']), #bottom-area div[class^='backtesting'] [class^='historyParams'] button[class^='generateReportBtn']:not([disabled])"
+        "generateButton": ".backtesting.deep-history [class^='historyParams'] button[class^='generateReportBtn']:not([aria-disabled='true']), #bottom-area div[class^='backtesting'] [class^='historyParams'] button[class^='generateReportBtn']:not([disabled])",
+        "dateInput": "input[placeholder='YYYY-MM-DD']"
       }
     },
     "report": {
@@ -75,6 +87,24 @@
   "dialogs": {
     "root": "#overlap-manager-root",
     "goproPopupCloseButton": "[data-dialog-name='gopro'][class^='dialog'] button[class*='close']"
+  },
+  "tables": {
+    "allRows": [
+      "table tbody tr",
+      "div[class*='report'] table tbody tr",
+      "div[class*='backtesting'] table tbody tr",
+      "#bottom-area table tbody tr",
+      "div[id='Ratios'][class*='selected'] ~ div table tbody tr",
+      "#bottom-area div[id='Ratios'][class*='selected'] ~ div table tbody tr",
+      "#bottom-area div[class*='tab-'] table tbody tr",
+      "div[class*='content-'] table tbody tr"
+    ],
+    "labelSelectors": [
+      ".apply-overflow-tooltip",
+      "td:first-child",
+      "td:first-child span",
+      "td:first-child div"
+    ]
   },
   "metrics": {
     "netProfit": {

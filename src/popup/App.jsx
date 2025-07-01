@@ -22,6 +22,7 @@ function App() {
     strategySettings,
     isLoadingStrategies,
     isLoadingSettings,
+    error: tradingViewError,
     selectStrategy,
     refreshStrategies,
     refreshSettings
@@ -222,6 +223,20 @@ function App() {
                 <div className={`w-2 h-2 rounded-full ${setupStatus.strategySelected ? 'bg-tv-green' : 'bg-tv-gray-600'}`}></div>
                 <h3 className="font-medium">Strategy Selection</h3>
               </div>
+              
+              {/* Show error message if TradingView is not ready */}
+              {tradingViewError && (
+                <div className="bg-red-900/20 border border-red-600/50 rounded-lg p-3 text-sm text-red-400">
+                  <p>{tradingViewError}</p>
+                  <button
+                    onClick={refreshStrategies}
+                    className="mt-2 text-xs text-red-300 hover:text-red-200 underline"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+              
               <StrategySelector
                 strategies={strategies}
                 selectedStrategy={selectedStrategy}
