@@ -305,12 +305,10 @@ async function runOptimization(settings) {
     await chrome.storage.local.set({ antiDetection });
     
     // Synchronize deep backtest state between extension and TradingView
-    await sendLog('debug', 'Synchronizing deep backtest settings...');
     await sendToContent('syncDeepBacktest', { enabled: deepBacktest });
     
     if (deepBacktest) {
       if (startDate || endDate) {
-        await sendLog('debug', `Setting date range: ${startDate} to ${endDate}`);
         await sendToContent('setDateRange', { startDate, endDate });
       }
     }
@@ -326,7 +324,6 @@ async function runOptimization(settings) {
     }
     
     const currentSettings = currentSettingsResp.settings;
-    await sendLog('debug', `Current settings: ${JSON.stringify(currentSettings)}`);
     
     // Create a mapping of current values for enabled parameters
     const currentParams = {};
@@ -346,19 +343,14 @@ async function runOptimization(settings) {
     
     // Test current settings first
     if (deepBacktest) {
-      await sendLog('debug', 'Checking date range for deep backtest...');
       if (startDate || endDate) {
-        await sendLog('debug', `Setting date range: ${startDate} to ${endDate}`);
         await sendToContent('setDateRange', { startDate, endDate });
       }
-      await sendLog('debug', 'Generating deep backtest report with current settings...');
     } else {
-      await sendLog('debug', 'Waiting for backtest to complete with current settings...');
       await sendToContent('waitForBacktestComplete');
     }
     
     // Read metrics for current settings
-    await sendLog('debug', 'Reading metrics for current settings...');
     const metricNames = [...new Set([metric, ...filters.map(f => f.metric)])];
     const currentMetricsResp = await sendToContent('readAllMetrics', { metricNames });
     if (!currentMetricsResp.success) throw new Error('Failed to read metrics for current settings');
@@ -373,9 +365,27 @@ async function runOptimization(settings) {
     await sendLog('info', `Created optimization session: ${currentSessionId}`);
     
     // Register the current settings as the first result
-    await sendLog('debug', 'Registering current settings with optimizer...');
     const currentRegistrationResult = await registerOptimizationResult(currentSessionId, currentParams, currentValues);
     const currentResultInfo = currentRegistrationResult.result_info || {};
+    
+    // Check baseline filter results
+    if (!currentResultInfo.is_valid) {
+      const filterFailures = [];
+      for (const filter of filters) {
+        const filterMetricValue = currentValues[filter.metric];
+        if (filterMetricValue !== null && filterMetricValue !== undefined) {
+          if (filter.min !== null && filterMetricValue < filter.min) {
+            filterFailures.push(`${filter.metric}=${filterMetricValue} < min=${filter.min}`);
+          }
+          if (filter.max !== null && filterMetricValue > filter.max) {
+            filterFailures.push(`${filter.metric}=${filterMetricValue} > max=${filter.max}`);
+          }
+        }
+      }
+      if (filterFailures.length > 0) {
+        await sendLog('info', `Baseline result filtered out - Failed filters: ${filterFailures.join(', ')}`);
+      }
+    }
     
     let bestResult = null;
     let allResults = [];
@@ -446,10 +456,8 @@ async function runOptimization(settings) {
       }
       
       if (deepBacktest) {
-        await sendLog('debug', 'Generating deep backtest report...');
         await sendToContent('setDateRange', { startDate, endDate });
       } else {
-        await sendLog('debug', 'Waiting for backtest to complete...');
         await sendToContent('waitForBacktestComplete');
       }
       
@@ -459,9 +467,7 @@ async function runOptimization(settings) {
         break;
       }
       
-      await sendLog('debug', 'Reading metrics...');
       const metricNames = [...new Set([metric, ...filters.map(f => f.metric)])];
-      await sendLog('debug', `Reading metrics: ${JSON.stringify(metricNames)}`);
       const metricsResp = await sendToContent('readAllMetrics', { metricNames });
       if (!metricsResp.success) throw new Error('Failed to read metrics');
       
@@ -472,43 +478,116 @@ async function runOptimization(settings) {
       }
       
       const values = metricsResp.metrics;
-      await sendLog('debug', `Metrics received: ${JSON.stringify(values)}`);
       const metricValue = values[metric];
       
-      // Register result with Bayesian optimizer
-      const registrationResult = await registerOptimizationResult(currentSessionId, suggestedParams, values);
-      await sendLog('debug', `Server response: ${JSON.stringify(registrationResult)}`);
-      const resultInfo = registrationResult.result_info || {};
-      const isValid = resultInfo.is_valid;
-      const isBest = resultInfo.is_best;
-      
-      if (isValid) {
-        validResultsCount++;
-        if (isBest) {
-          bestResult = { 
+      // Check if target metric is null
+      if (metricValue === null || metricValue === undefined) {
+        await sendLog('error', `Failed to read target metric '${metric}'. Retrying...`);
+        
+        // Retry once after a delay
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        const retryResp = await sendToContent('readAllMetrics', { metricNames });
+        if (retryResp.success && retryResp.metrics[metric] !== null) {
+          values[metric] = retryResp.metrics[metric];
+          // Update other metrics too if they were null
+          for (const key of Object.keys(values)) {
+            if (values[key] === null && retryResp.metrics[key] !== null) {
+              values[key] = retryResp.metrics[key];
+            }
+          }
+          await sendLog('info', `Retry successful. ${metric}: ${values[metric]}`);
+        } else {
+          await sendLog('error', `Failed to read target metric '${metric}' after retry. Skipping iteration ${i}.`);
+          
+          // Skip this iteration but continue optimization
+          const result = { 
             iteration: i, 
             settings: suggestedParams, 
-            value: metricValue, 
+            value: null, 
             metric, 
-            isValid: true 
+            isValid: false,
+            isBest: false,
+            error: 'Failed to read metrics'
           };
+          
+          allResults.push(result);
+          await sendResult(result);
+          continue; // Skip to next iteration
         }
       }
       
-      await sendLog('debug', `Result registered - Valid: ${isValid}, Best: ${isBest}, Total valid: ${resultInfo.total_valid_results}`);
-      
-      // Emit result for UI
-      const result = { 
-        iteration: i, 
-        settings: suggestedParams, 
-        value: metricValue, 
-        metric, 
-        isValid, 
-        isBest
-      };
-      
-      allResults.push(result);
-      await sendResult(result);
+      // Register result with Bayesian optimizer
+      try {
+        const registrationResult = await registerOptimizationResult(currentSessionId, suggestedParams, values);
+        const resultInfo = registrationResult.result_info || {};
+        const isValid = resultInfo.is_valid;
+        const isBest = resultInfo.is_best;
+        
+        // Check which filters failed
+        if (!isValid) {
+          // Log detailed filter failure information
+          const filterFailures = [];
+          for (const filter of filters) {
+            const filterMetricValue = values[filter.metric];
+            if (filterMetricValue !== null && filterMetricValue !== undefined) {
+              if (filter.min !== null && filterMetricValue < filter.min) {
+                filterFailures.push(`${filter.metric}=${filterMetricValue} < min=${filter.min}`);
+              }
+              if (filter.max !== null && filterMetricValue > filter.max) {
+                filterFailures.push(`${filter.metric}=${filterMetricValue} > max=${filter.max}`);
+              }
+            }
+          }
+          if (filterFailures.length > 0) {
+            await sendLog('info', `Result filtered out - Failed filters: ${filterFailures.join(', ')}`);
+          }
+        }
+        
+        if (isValid) {
+          validResultsCount++;
+          if (isBest) {
+            bestResult = { 
+              iteration: i, 
+              settings: suggestedParams, 
+              value: values[metric], 
+              metric, 
+              isValid: true 
+            };
+          }
+        }
+        
+
+        
+        // Emit result for UI
+        const result = { 
+          iteration: i, 
+          settings: suggestedParams, 
+          value: values[metric], 
+          metric, 
+          isValid, 
+          isBest
+        };
+        
+        allResults.push(result);
+        await sendResult(result);
+      } catch (error) {
+        await sendLog('error', `Failed to register result: ${error.message}`);
+        
+        // Still emit result for UI even if registration failed
+        const result = { 
+          iteration: i, 
+          settings: suggestedParams, 
+          value: values[metric], 
+          metric, 
+          isValid: false,
+          isBest: false,
+          error: error.message
+        };
+        
+        allResults.push(result);
+        await sendResult(result);
+      }
       
       // Memory management: keep only recent results in memory
       if (allResults.length > MAX_RESULTS_IN_MEMORY) {

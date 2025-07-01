@@ -142,8 +142,8 @@
           // Remove % and parse
           return parseFloat(text.replace('%', ''));
         case 'number':
-          // Parse as float
-          return parseFloat(text);
+          // Remove commas and parse as float
+          return parseFloat(text.replace(/,/g, ''));
         default:
           return text;
       }
@@ -625,6 +625,9 @@
         throw new Error(`Unknown metric: ${metricName}`);
       }
       
+      // First ensure we're not on Overview tab
+      await this.ensureNotOnOverviewTab();
+      
       // Click the appropriate tab if needed
       const tabSelectors = {
         performance: domSelectors.strategyTester.tabs.performance.split(', '),
@@ -642,39 +645,127 @@
 
         const isActive = document.querySelector(activeSelectors[metricConfig.tab]);
         if (!isActive) {
+
           const tabButton = await DOMUtils.waitForAnyElement(tabSelectors[metricConfig.tab]);
           if (tabButton) {
             await DOMUtils.clickElement(tabButton);
-            await DOMUtils.delay(1000);
+            await DOMUtils.delay(1500); // Increased delay for tab content to load
+            
+            // Wait for the tab to become active
+            try {
+              await DOMUtils.waitForElement(activeSelectors[metricConfig.tab], 3000);
+            } catch (error) {
+              console.warn(`[CT] Tab ${metricConfig.tab} did not become active, continuing anyway`);
+            }
           }
         }
       }
 
-      // Read the metric value by scanning rows for the metric label
+      // Wait for table rows to appear
       const rowSelectors = [
         domSelectors.strategyTester.report.row,
         domSelectors.strategyTester.deepReport.row
       ];
       const selector = rowSelectors.join(', ');
-      const rows = document.querySelectorAll(selector);
+      
+      try {
+        await DOMUtils.waitForElement(selector, 5000);
+      } catch (error) {
+        console.error(`[CT] No data rows found for metric ${metricName}`);
+        // Try alternative selectors as fallback
+        const alternativeSelectors = [
+          'table tbody tr',
+          'div[class*="report"] table tbody tr',
+          'div[class*="backtesting"] table tbody tr'
+        ];
+        
+        let foundRows = false;
+        for (const altSelector of alternativeSelectors) {
+          const altRows = document.querySelectorAll(altSelector);
+          if (altRows.length > 0) {
+
+            foundRows = true;
+            break;
+          }
+        }
+        
+        if (!foundRows) {
+          throw new Error('No data rows found');
+        }
+      }
+      
+      // Re-query with broader selectors to catch all possible table rows
+      const allTableSelectors = [
+        ...rowSelectors,
+        'table tbody tr',
+        'div[class*="report"] table tbody tr',
+        'div[class*="backtesting"] table tbody tr'
+      ];
+      const rows = document.querySelectorAll(allTableSelectors.join(', '));
+      
       if (rows.length === 0) {
         throw new Error('No data rows found');
       }
+      
+      // Debug: log all row labels to help identify issues
+      const allLabels = [];
       for (const row of rows) {
-        const labelElem = row.querySelector('.apply-overflow-tooltip');
+        // Try multiple selectors for labels
+        const labelSelectors = [
+          '.apply-overflow-tooltip',
+          'td:first-child',
+          'td:first-child span',
+          'td:first-child div'
+        ];
+        
+        let labelElem = null;
+        for (const labelSelector of labelSelectors) {
+          labelElem = row.querySelector(labelSelector);
+          if (labelElem && labelElem.textContent.trim()) {
+            break;
+          }
+        }
+        
+        if (labelElem) {
+          allLabels.push(labelElem.textContent.trim());
+        }
+      }
+
+      
+      for (const row of rows) {
+        // Try multiple selectors for labels
+        const labelSelectors = [
+          '.apply-overflow-tooltip',
+          'td:first-child',
+          'td:first-child span',
+          'td:first-child div'
+        ];
+        
+        let labelElem = null;
+        for (const labelSelector of labelSelectors) {
+          labelElem = row.querySelector(labelSelector);
+          if (labelElem && labelElem.textContent.trim()) {
+            break;
+          }
+        }
+        
         if (labelElem) {
           const actualLabel = labelElem.textContent.trim().toLowerCase();
           const expectedLabel = metricConfig.label.trim().toLowerCase();
           if (actualLabel === expectedLabel) {
             const cells = row.querySelectorAll('td');
             if (cells.length < 2) {
+              console.error(`[CT] Data cell not found for metric: ${metricConfig.label}`);
               throw new Error(`Data cell not found for metric: ${metricConfig.label}`);
             }
             const rawValue = cells[1].textContent.trim();
-            return DOMUtils.parseMetricValue(rawValue, metricConfig.parser);
+            const parsedValue = DOMUtils.parseMetricValue(rawValue, metricConfig.parser);
+            return parsedValue;
           }
         }
       }
+      
+      console.error(`[CT] Metric row not found: ${metricConfig.label}. Available labels: ${JSON.stringify(allLabels)}`);
       throw new Error(`Metric row not found: ${metricConfig.label}`);
     },
 
@@ -685,15 +776,41 @@
       
       const results = {};
       
+      // Group metrics by tab to minimize tab switching
+      const metricsByTab = {};
       for (const metricName of metricNames) {
-        try {
-          results[metricName] = await this.readMetric(metricName);
-        } catch (error) {
-          console.error(`Failed to read metric ${metricName}:`, error);
+        const metricConfig = domSelectors.metrics[metricName];
+        if (!metricConfig) {
+          console.error(`[CT] Unknown metric: ${metricName}`);
           results[metricName] = null;
+          continue;
+        }
+        
+        const tab = metricConfig.tab || 'performance';
+        if (!metricsByTab[tab]) {
+          metricsByTab[tab] = [];
+        }
+        metricsByTab[tab].push(metricName);
+      }
+      
+
+      
+      // Read metrics tab by tab
+      for (const [tab, tabMetrics] of Object.entries(metricsByTab)) {
+
+        
+        // Read all metrics from this tab
+        for (const metricName of tabMetrics) {
+          try {
+            results[metricName] = await this.readMetric(metricName);
+          } catch (error) {
+            console.error(`[CT] Failed to read metric ${metricName}:`, error.message);
+            results[metricName] = null;
+          }
         }
       }
       
+
       return results;
     }
   };
