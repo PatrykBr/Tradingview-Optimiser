@@ -479,11 +479,8 @@
         await DOMUtils.clickElement(okButton);
       }
 
-      // If not in deep backtest mode, wait for backtest to complete
-      const deepEnabled = !!document.querySelector(domSelectors.strategyTester.deepBacktest.toggleChecked);
-      if (!deepEnabled) {
-        await this.waitForBacktestComplete();
-      }
+      // Wait for backtest to complete
+      await this.waitForBacktestComplete();
     },
 
     // Wait for backtest to complete
@@ -517,14 +514,36 @@
         }
       }
       
+      // Check for update report snackbar and handle it
+      await this.checkAndHandleUpdateSnackbar();
+      
       // Wait for at least one result row (performance or deep report) to appear
       const rowSelectors = [
         domSelectors.strategyTester.report.row,
         domSelectors.strategyTester.deepReport.row
       ].join(', ');
       await DOMUtils.waitForElement(rowSelectors, 15000);  // Balanced timeout
+      
+      // Check again for update report snackbar after results load
+      await this.checkAndHandleUpdateSnackbar();
+      
       // Additional wait to ensure content is fully loaded
       await DOMUtils.delay(200, false);  // Small delay for UI interaction
+    },
+
+    // Check for and handle update report snackbar during backtest completion
+    async checkAndHandleUpdateSnackbar() {
+      try {
+        const updateButton = document.querySelector(domSelectors.strategyTester.dateRange.updateReportButton);
+        if (updateButton) {
+          console.log('[CT] Found update report snackbar during backtest wait, clicking update button');
+          await DOMUtils.clickElement(updateButton);
+          await DOMUtils.delay(1000, false); // Wait for update to process
+        }
+      } catch (error) {
+        // Silently handle errors as this is a background check
+        console.log('[CT] Error checking for update snackbar:', error.message);
+      }
     },
 
     // Helper method to find dropdown options for custom dropdowns
@@ -862,67 +881,126 @@
     }
   };
 
-  // Deep backtest functionality
-  const DeepBacktestManager = {
-    // Synchronize deep backtest state between extension and TradingView
-    async syncDeepBacktest(enabled) {
-      const toggle = document.querySelector(domSelectors.strategyTester.deepBacktest.toggle);
-      if (!toggle) {
-        throw new Error('Deep backtest toggle not found');
-      }
+  // Date range and report management functionality
+  const DateRangeManager = {
 
-      const isCurrentlyEnabled = toggle.getAttribute('aria-checked') === 'true' || toggle.checked;
-      
-      if (isCurrentlyEnabled !== enabled) {
-        await DOMUtils.clickElement(toggle);
-        await DOMUtils.delay(100, false);  // Minimal delay for UI interaction
-      }
-    },
-
-    // Toggle deep backtest
-    async toggleDeepBacktest(enabled) {
-      const toggle = document.querySelector(domSelectors.strategyTester.deepBacktest.toggle);
-      if (!toggle) {
-        throw new Error('Deep backtest toggle not found');
-      }
-
-      const isCurrentlyEnabled = toggle.getAttribute('aria-checked') === 'true' || toggle.checked;
-      if (isCurrentlyEnabled !== enabled) {
-        await DOMUtils.clickElement(toggle);
-        await DOMUtils.delay(100, false);  // Minimal delay for UI interaction
-      }
-    },
-
-    // Set date range for deep backtest
+    // Set date range for backtesting
     async setDateRange(startDate, endDate) {
-      // Locate date range container and inputs
-      const container = document.querySelector(domSelectors.strategyTester.deepBacktest.dateRange.container);
-      if (!container) {
-        throw new Error('Date range container not found');
-      }
-      const dateInputs = Array.from(container.querySelectorAll(domSelectors.strategyTester.deepBacktest.dateRange.dateInput));
-      if (dateInputs.length < 2) {
-        throw new Error('Date range inputs not found');
-      }
-      const [startInput, endInput] = dateInputs;
-      if (startDate) {
-        DOMUtils.setInputValue(startInput, startDate);
-        await DOMUtils.delay(50, false);  // Minimal delay for UI interaction
-      }
-      if (endDate) {
-        DOMUtils.setInputValue(endInput, endDate);
-        await DOMUtils.delay(50, false);  // Minimal delay for UI interaction
-      }
-      // Click generate button if available
-      let generateBtn = container.querySelector(domSelectors.strategyTester.deepBacktest.dateRange.generateButton);
-      if (!generateBtn) {
-        generateBtn = document.querySelector(domSelectors.strategyTester.deepBacktest.dateRange.generateButton);
-      }
-      if (generateBtn) {
-        await DOMUtils.clickElement(generateBtn);
-        await DOMUtils.delay(50, false);  // Minimal delay for UI interaction
-        // Wait for deep backtest report to finish loading
+      try {
+        console.log('[CT] Setting date range:', { startDate, endDate });
+        
+        // Step 1: Find and click the date range button to open dropdown
+        const dateRangeButton = document.querySelector(domSelectors.strategyTester.dateRange.button);
+        if (!dateRangeButton) {
+          throw new Error('Date range button not found');
+        }
+        
+        console.log('[CT] Found date range button, clicking...');
+        await DOMUtils.clickElement(dateRangeButton);
+        await DOMUtils.delay(500, false); // Wait for dropdown to open
+        
+        // Step 2: Find and click "Custom date range..." option
+        const customDateOption = await DOMUtils.waitForElement(
+          domSelectors.strategyTester.dateRange.customDateRangeOption, 
+          5000
+        );
+        if (!customDateOption) {
+          throw new Error('Custom date range option not found');
+        }
+        
+        console.log('[CT] Found custom date range option, clicking...');
+        await DOMUtils.clickElement(customDateOption);
+        await DOMUtils.delay(500, false); // Wait for dialog to open
+        
+        // Step 3: Wait for custom date dialog to appear and fill in dates
+        const dateDialog = await DOMUtils.waitForElement(
+          domSelectors.strategyTester.dateRange.customDateDialog, 
+          5000
+        );
+        if (!dateDialog) {
+          throw new Error('Custom date dialog not found');
+        }
+        
+        console.log('[CT] Found date dialog, filling in dates...');
+        
+        // Fill in start date
+        if (startDate) {
+          const startDateInput = dateDialog.querySelector(domSelectors.strategyTester.dateRange.startDateInput);
+          if (startDateInput) {
+            console.log('[CT] Setting start date to:', startDate);
+            DOMUtils.setInputValue(startDateInput, startDate);
+            await DOMUtils.delay(200, false);
+          } else {
+            console.error('[CT] Start date input not found using selector:', domSelectors.strategyTester.dateRange.startDateInput);
+            const allInputs = dateDialog.querySelectorAll('input[placeholder="YYYY-MM-DD"]');
+            console.warn('[CT] Available date inputs in dialog:', allInputs.length);
+            throw new Error('Start date input not found - DOM selector may need updating');
+          }
+        }
+        
+        // Fill in end date
+        if (endDate) {
+          const endDateInput = dateDialog.querySelector(domSelectors.strategyTester.dateRange.endDateInput);
+          if (endDateInput) {
+            console.log('[CT] Setting end date to:', endDate);
+            DOMUtils.setInputValue(endDateInput, endDate);
+            await DOMUtils.delay(200, false);
+          } else {
+            console.error('[CT] End date input not found using selector:', domSelectors.strategyTester.dateRange.endDateInput);
+            const allInputs = dateDialog.querySelectorAll('input[placeholder="YYYY-MM-DD"]');
+            console.warn('[CT] Available date inputs in dialog:', allInputs.length);
+            throw new Error('End date input not found - DOM selector may need updating');
+          }
+        }
+        
+        // Step 4: Click the Select button to apply the date range
+        const selectButton = dateDialog.querySelector(domSelectors.strategyTester.dateRange.selectButton);
+        if (selectButton && !selectButton.disabled && selectButton.getAttribute('aria-disabled') !== 'true') {
+          console.log('[CT] Clicking Select button...');
+          await DOMUtils.clickElement(selectButton);
+          await DOMUtils.delay(1000, false); // Wait for dialog to close and changes to apply
+        }
+        
+        // Step 5: Check for snackbar with "Update report" button and click it if present
+        await this.handleUpdateReportSnackbar();
+        
+        // Step 6: Wait for backtest to complete
         await StrategyManager.waitForBacktestComplete();
+        
+        console.log('[CT] Date range set successfully');
+        
+      } catch (error) {
+        console.error('Error in setDateRange:', error);
+        
+        // Try to close any open dialogs by pressing Escape
+        const escEvent = new KeyboardEvent('keydown', {
+          key: 'Escape',
+          code: 'Escape',
+          keyCode: 27,
+          bubbles: true
+        });
+        document.dispatchEvent(escEvent);
+        await DOMUtils.delay(100, false);
+        
+        throw error;
+      }
+    },
+
+    // Handle the update report snackbar that appears after changing date range
+    async handleUpdateReportSnackbar() {
+      try {
+        // Wait a bit for the snackbar to appear
+        await DOMUtils.delay(1000, false);
+        
+        // Check if snackbar with update report button is present
+        const updateButton = document.querySelector(domSelectors.strategyTester.dateRange.updateReportButton);
+        if (updateButton) {
+          console.log('[CT] Found update report snackbar, clicking update button');
+          await DOMUtils.clickElement(updateButton);
+          await DOMUtils.delay(500, false); // Wait for update to start
+        }
+      } catch (error) {
+        console.log('[CT] No update report snackbar found or error clicking:', error.message);
       }
     }
   };
@@ -982,23 +1060,18 @@
           sendResponse({ success: true, metrics });
           break;
 
-        case 'toggleDeepBacktest':
-          await DeepBacktestManager.toggleDeepBacktest(request.enabled);
-          sendResponse({ success: true });
-          break;
-
-        case 'syncDeepBacktest':
-          await DeepBacktestManager.syncDeepBacktest(request.enabled);
-          sendResponse({ success: true });
-          break;
-
         case 'setDateRange':
-          await DeepBacktestManager.setDateRange(request.startDate, request.endDate);
+          await DateRangeManager.setDateRange(request.startDate, request.endDate);
           sendResponse({ success: true });
           break;
 
         case 'waitForBacktestComplete':
           await StrategyManager.waitForBacktestComplete();
+          sendResponse({ success: true });
+          break;
+
+        case 'handleUpdateReportSnackbar':
+          await DateRangeManager.handleUpdateReportSnackbar();
           sendResponse({ success: true });
           break;
 

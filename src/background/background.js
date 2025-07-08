@@ -281,13 +281,9 @@ async function runOptimization(settings) {
     await sendLog('info', `Starting Bayesian optimization with ${useSobol ? 'Sobol sequence' : 'LHS'} initial sampling...`);
     await chrome.storage.local.set({ antiDetection });
     
-    // Synchronize deep backtest state between extension and TradingView
-    await sendToContent('syncDeepBacktest', { enabled: deepBacktest });
-    
-    if (deepBacktest) {
-      if (startDate || endDate) {
-        await sendToContent('setDateRange', { startDate, endDate });
-      }
+    // Set date range if provided
+    if (startDate || endDate) {
+      await sendToContent('setDateRange', { startDate, endDate });
     }
     
     const enabledParams = parameters.filter(p => p.enabled);
@@ -318,14 +314,8 @@ async function runOptimization(settings) {
     await sendLog('info', 'Testing current settings as baseline (iteration 0)...');
     updateProgress(0, iterations); // Fixed: use actual iterations count
     
-    // Test current settings first
-    if (deepBacktest) {
-      if (startDate || endDate) {
-        await sendToContent('setDateRange', { startDate, endDate });
-      }
-    } else {
-      await sendToContent('waitForBacktestComplete');
-    }
+    // Test current settings first - wait for backtest to complete
+    await sendToContent('waitForBacktestComplete');
     
     // Read metrics for current settings
     const metricNames = [...new Set([metric, ...filters.map(f => f.metric)])];
@@ -439,11 +429,8 @@ async function runOptimization(settings) {
         await new Promise(resolve => setTimeout(resolve, randomDelay));
       }
       
-      if (deepBacktest) {
-        await sendToContent('setDateRange', { startDate, endDate });
-      } else {
-        await sendToContent('waitForBacktestComplete');
-      }
+      // Wait for backtest to complete
+      await sendToContent('waitForBacktestComplete');
       
       // Check abort after backtest
       if (abortOptimization) {

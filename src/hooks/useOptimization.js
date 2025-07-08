@@ -195,6 +195,20 @@ export function useOptimization() {
     setLogs(prev => [...prev, logEntry]);
   }, []);
 
+  // Handle update report snackbar
+  const handleUpdateReportSnackbar = useCallback(async () => {
+    try {
+      const response = await sendToContent('handleUpdateReportSnackbar');
+      if (response.success) {
+        addLog('info', 'Update report snackbar handled successfully');
+      } else {
+        addLog('warning', `Failed to handle update report snackbar: ${response.error}`);
+      }
+    } catch (error) {
+      addLog('error', `Error handling update report snackbar: ${error.message}`);
+    }
+  }, [sendToContent, addLog]);
+
   // Update optimization settings
   const updateOptimizationSettings = useCallback((updates) => {
     setOptimizationSettings(prev => ({ ...prev, ...updates }));
@@ -414,6 +428,7 @@ export function useOptimization() {
     applyBestResult,
     exportToCSV,
     exportToJSON,
+    handleUpdateReportSnackbar,
     progress,
     isStateLoaded
   };

@@ -48,18 +48,20 @@
       "ratios": "[id='Ratios'], [id='Risk/Performance Ratios']",
       "ratiosActive": "[id='Ratios'][class*='selected'], [id='Risk/Performance Ratios'][class*='selected']"
     },
-    "deepBacktest": {
-      "switchGroup": ".backtesting.deep-history [class^='switchGroup'], #bottom-area div[class^='backtesting'] [class^='deepHistoryContainer']",
-      "toggle": ".backtesting.deep-history [class^='switchGroup'] [class^='switcher'] input, #bottom-area div[class^='backtesting'] [class^='switcher'] input",
-      "toggleChecked": ".backtesting.deep-history [class^='switchGroup'] [class^='switcher'] input[aria-checked='true']",
-      "toggleUnchecked": ".backtesting.deep-history [class^='switchGroup'] [class^='switcher'] input:not([aria-checked='true'])",
-      "dateRange": {
-        "container": ".backtesting.deep-history [class^='historyParams'], #bottom-area div[class^='backtesting'] [class^='historyParams']",
-        "startDate": ".backtesting.deep-history [class^='historyParams'] [class^='container'] div:nth-child(1) [class^='pickerInput'] input, #bottom-area div[class^='backtesting'] [class^='historyParams'] [class^='container'] > div:nth-child(1) div[class^='pickerInput'] input",
-        "endDate": ".backtesting.deep-history [class^='historyParams'] [class^='container'] div:nth-child(2) [class^='pickerInput'] input, #bottom-area div[class^='backtesting'] [class^='historyParams'] [class^='container'] > div:nth-child(2) div[class^='pickerInput'] input",
-        "generateButton": ".backtesting.deep-history [class^='historyParams'] button[class^='generateReportBtn']:not([aria-disabled='true']), #bottom-area div[class^='backtesting'] [class^='historyParams'] button[class^='generateReportBtn']:not([disabled])",
-        "dateInput": "input[placeholder='YYYY-MM-DD']"
-      }
+    "snackbar": {
+      "container": "#snackbar-container",
+      "updateReportButton": "[data-qa-id='backtesting-updated-report-snackbar'] button[data-overflow-tooltip-text='Update report']"
+    },
+    "dateRange": {
+      "button": "button[aria-haspopup='menu'][class*='lightButton'][class*='withStartSlot'][class*='withEndSlot']",
+      "dropdown": "[role='menu'][class*='positioner']",
+      "customDateRangeOption": "[role='menuitemcheckbox'][aria-label='Custom date range…'][data-is-popover-item-button='true']",
+      "customDateDialog": "[data-dialog-name='Backtesting dates']",
+      "startDateInput": "[data-dialog-name='Backtesting dates'] .startDatePicker-XcWDAol2 input[placeholder='YYYY-MM-DD']",
+      "endDateInput": "[data-dialog-name='Backtesting dates'] .dateInput-OagbhAs2:not(.startDatePicker-XcWDAol2) input[placeholder='YYYY-MM-DD']",
+      "selectButton": "[data-dialog-name='Backtesting dates'] button[name='submit'][data-name='submit-button']",
+      "cancelButton": "[data-dialog-name='Backtesting dates'] button[name='cancel']",
+      "updateReportButton": "[data-qa-id='backtesting-updated-report-snackbar'] button[data-overflow-tooltip-text='Update report']"
     },
     "report": {
       "observeArea": "[class='backtesting deep-history'] div[class^='wrapper'], #bottom-area div[class^='backtesting'] div[class^='widgetContainer']",
