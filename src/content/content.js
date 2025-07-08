@@ -485,6 +485,8 @@
 
     // Wait for backtest to complete
     async waitForBacktestComplete() {
+      console.log('[CT] Waiting for backtest to complete...');
+      
       // Ensure strategy tester tab is open
       if (!document.querySelector(domSelectors.strategyTester.containerActive)) {
         const panelToggle = document.querySelector(domSelectors.strategyTester.container);
@@ -517,18 +519,33 @@
       // Check for update report snackbar and handle it
       await this.checkAndHandleUpdateSnackbar();
       
-      // Wait for at least one result row (performance or deep report) to appear
-      const rowSelectors = [
-        domSelectors.strategyTester.report.row,
-        domSelectors.strategyTester.deepReport.row
-      ].join(', ');
-      await DOMUtils.waitForElement(rowSelectors, 15000);  // Balanced timeout
+      // Wait for the success snackbar to appear, indicating the report has been generated
+      console.log('[CT] Waiting for success snackbar to confirm report generation...');
+      try {
+        await DOMUtils.waitForElement(domSelectors.strategyTester.snackbar.successMessage, 30000);
+        console.log('[CT] Success snackbar detected - report has been generated');
+        
+        // Minimal wait to ensure DOM updates are complete
+        await DOMUtils.delay(200, false);
+        
+      } catch (error) {
+        console.warn('[CT] Success snackbar not detected within timeout, proceeding with fallback checks');
+        
+        // Fallback: Wait for at least one result row to appear
+        const rowSelectors = [
+          domSelectors.strategyTester.report.row,
+          domSelectors.strategyTester.deepReport.row
+        ].join(', ');
+        await DOMUtils.waitForElement(rowSelectors, 15000);
+        
+        // Longer wait for fallback since we're not sure about timing
+        await DOMUtils.delay(500, false);
+      }
       
-      // Check again for update report snackbar after results load
+      // Final check for update report snackbar
       await this.checkAndHandleUpdateSnackbar();
       
-      // Additional wait to ensure content is fully loaded
-      await DOMUtils.delay(200, false);  // Small delay for UI interaction
+      console.log('[CT] Backtest completion confirmed');
     },
 
     // Check for and handle update report snackbar during backtest completion

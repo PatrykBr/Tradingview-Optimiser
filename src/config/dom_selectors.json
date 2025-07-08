@@ -50,7 +50,8 @@
     },
     "snackbar": {
       "container": "#snackbar-container",
-      "updateReportButton": "[data-qa-id='backtesting-updated-report-snackbar'] button[data-overflow-tooltip-text='Update report']"
+      "updateReportButton": "[data-qa-id='backtesting-updated-report-snackbar'] button[data-overflow-tooltip-text='Update report']",
+      "successMessage": "[data-qa-id='backtesting-success-report-snackbar']"
     },
     "dateRange": {
       "button": "button[aria-haspopup='menu'][class*='lightButton'][class*='withStartSlot'][class*='withEndSlot']",

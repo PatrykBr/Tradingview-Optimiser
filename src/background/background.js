@@ -282,8 +282,8 @@ async function runOptimization(settings) {
     await chrome.storage.local.set({ antiDetection });
     
     // Set date range if provided
-    if (startDate || endDate) {
-      await sendToContent('setDateRange', { startDate, endDate });
+      if (startDate || endDate) {
+        await sendToContent('setDateRange', { startDate, endDate });
     }
     
     const enabledParams = parameters.filter(p => p.enabled);
@@ -315,7 +315,7 @@ async function runOptimization(settings) {
     updateProgress(0, iterations); // Fixed: use actual iterations count
     
     // Test current settings first - wait for backtest to complete
-    await sendToContent('waitForBacktestComplete');
+      await sendToContent('waitForBacktestComplete');
     
     // Read metrics for current settings
     const metricNames = [...new Set([metric, ...filters.map(f => f.metric)])];
@@ -430,7 +430,7 @@ async function runOptimization(settings) {
       }
       
       // Wait for backtest to complete
-      await sendToContent('waitForBacktestComplete');
+        await sendToContent('waitForBacktestComplete');
       
       // Check abort after backtest
       if (abortOptimization) {
