@@ -139,7 +139,7 @@ jobs:
         zip -r ../tradingview-optimizer-firefox-v${{ steps.version.outputs.version }}.zip firefox/
         
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ steps.version.outputs.version }}
         name: Release v${{ steps.version.outputs.version }}
