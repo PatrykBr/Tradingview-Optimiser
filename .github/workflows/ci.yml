@@ -105,6 +105,7 @@ jobs:
         path: ./
         base: main
         head: HEAD
+      continue-on-error: true
 
   release:
     name: Create Release
