@@ -1,0 +1,73 @@
+version: 2
+updates:
+  # Enable version updates for npm
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "@me"
+    assignees:
+      - "@me"
+    commit-message:
+      prefix: "npm"
+      include: "scope"
+    groups:
+      react-ecosystem:
+        patterns:
+          - "react*"
+          - "@types/react*"
+      webpack-ecosystem:
+        patterns:
+          - "webpack*"
+          - "*-loader"
+          - "babel*"
+      dev-dependencies:
+        dependency-type: "development"
+        
+  # Enable version updates for pip
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "@me"
+    assignees:
+      - "@me"
+    commit-message:
+      prefix: "pip"
+      include: "scope"
+    groups:
+      ml-dependencies:
+        patterns:
+          - "numpy*"
+          - "scipy*"
+          - "scikit-learn*"
+          - "bayesian-optimization*"
+      flask-ecosystem:
+        patterns:
+          - "flask*"
+          - "werkzeug*"
+          - "jinja2*"
+          
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "@me"
+    assignees:
+      - "@me"
+    commit-message:
+      prefix: "actions"
+      include: "scope"
