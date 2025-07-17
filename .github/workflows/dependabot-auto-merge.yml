@@ -21,7 +21,7 @@ jobs:
         
     - name: Auto-approve Dependabot PRs
       if: steps.dependabot-check.outputs.is_dependabot == 'true'
-      uses: actions/github-script@v6
+      uses: actions/github-script@v7
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
@@ -34,7 +34,7 @@ jobs:
           
     - name: Auto-merge Dependabot PRs
       if: steps.dependabot-check.outputs.is_dependabot == 'true'
-      uses: actions/github-script@v6
+      uses: actions/github-script@v7
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
