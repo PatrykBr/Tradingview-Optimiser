@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DOM Element Reader</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <h1>DOM Element Reader</h1>
+      <p>Extract trading data from web pages</p>
+    </header>
+
+    <div class="popup-controls">
+      <button id="extractBtn" class="btn btn-primary">
+        <span>🔍</span> Extract Data
+      </button>
+      <button id="clearBtn" class="btn btn-secondary">
+        <span>🗑️</span> Clear Data
+      </button>
+      <button id="refreshBtn" class="btn btn-warning">
+        <span>🔄</span> Refresh Page
+      </button>
+    </div>
+
+    <div class="tab-controls">
+      <h3>Navigate to Tab:</h3>
+      <div class="tab-buttons">
+        <button id="overviewBtn" class="btn btn-tab">
+          <span>📊</span> Overview
+        </button>
+        <button id="performanceBtn" class="btn btn-tab">
+          <span>📈</span> Performance
+        </button>
+        <button id="tradesBtn" class="btn btn-tab">
+          <span>📋</span> Trades Analysis
+        </button>
+        <button id="ratiosBtn" class="btn btn-tab">
+          <span>⚖️</span> Risk/Performance Ratios
+        </button>
+      </div>
+    </div>
+
+    <div class="filter-controls">
+      <h3>Data Filter:</h3>
+      <div class="filter-buttons">
+        <button id="allBtn" class="btn btn-filter">
+          <span>📊</span> All
+        </button>
+        <button id="longBtn" class="btn btn-filter">
+          <span>📈</span> Long
+        </button>
+        <button id="shortBtn" class="btn btn-filter">
+          <span>📉</span> Short
+        </button>
+      </div>
+    </div>
+
+    <div class="strategy-controls">
+      <h3>Strategy Settings:</h3>
+      <div class="strategy-buttons">
+        <button id="extractStrategiesBtn" class="btn btn-strategy">
+          <span>⚙️</span> Extract Strategies
+        </button>
+        <div id="strategyList" class="strategy-list hidden">
+          <!-- Strategy buttons will be populated here -->
+        </div>
+      </div>
+    </div>
+
+    <div class="date-range-controls">
+      <h3>Backtest Date Range:</h3>
+      <div class="date-range-settings">
+        <label class="toggle-label">
+          <input type="checkbox" id="dateRangeEnabled" class="toggle-input">
+          <span class="toggle-slider"></span>
+          Use Custom Date Range
+        </label>
+        
+        <div class="date-inputs" id="dateInputs">
+          <div class="date-input-group">
+            <label for="startDate">Start Date:</label>
+            <input type="date" id="startDate" class="date-input" disabled>
+          </div>
+          <div class="date-input-group">
+            <label for="endDate">End Date:</label>
+            <input type="date" id="endDate" class="date-input" disabled>
+          </div>
+          <button id="applyDateRange" class="btn btn-primary" disabled>
+            <span>📅</span> Apply Date Range
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="status" class="status info">Ready to extract data (all columns)</div>
+
+    <div class="popup-content">
+      <div id="dataContainer" class="data-container">
+        <div class="no-data">Click "Extract Data" to begin</div>
+      </div>
+    </div>
+
+    <footer class="popup-footer">
+      <small>Check console for detailed logs</small>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

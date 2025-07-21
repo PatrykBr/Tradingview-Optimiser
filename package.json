@@ -1,0 +1,23 @@
+{
+  "name": "dom-element-reader",
+  "version": "1.0.0",
+  "description": "Chrome/Firefox extension to read DOM elements",
+  "main": "index.js",
+  "scripts": {
+    "build": "webpack --mode=production",
+    "build:firefox": "webpack --mode=production --env firefox",
+    "build:all": "npm run build && npm run build:firefox",
+    "dev": "webpack --mode=development --watch",
+    "dev:firefox": "webpack --mode=development --watch --env firefox",
+    "clean": "rm -rf dist dist-firefox"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.254",
+    "@types/webextension-polyfill": "^0.10.7",
+    "copy-webpack-plugin": "^11.0.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
