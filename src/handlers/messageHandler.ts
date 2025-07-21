@@ -2,20 +2,17 @@ import { MESSAGES } from '../config';
 import type { MessageRequest, MessageResponse } from '../types';
 import { TabDataExtractor } from '../extractors/tabData';
 import { StrategyExtractor } from '../extractors/strategy';
-import { TabNavigator } from './tabNavigator';
 import { DateRangeHandler } from './dateRangeHandler';
 import { sendMessage } from '../utils';
 
 export class MessageHandler {
   private tabDataExtractor: TabDataExtractor;
   private strategyExtractor: StrategyExtractor;
-  private tabNavigator: TabNavigator;
   private dateRangeHandler: DateRangeHandler;
 
   constructor() {
     this.tabDataExtractor = new TabDataExtractor();
     this.strategyExtractor = new StrategyExtractor();
-    this.tabNavigator = new TabNavigator();
     this.dateRangeHandler = new DateRangeHandler();
   }
 
@@ -32,14 +29,8 @@ export class MessageHandler {
       case MESSAGES.openStrategySettings:
         return await this.handleOpenStrategySettings(request);
       
-      case MESSAGES.clickTab:
-        return this.handleClickTab(request);
-      
       case MESSAGES.changeDateRange:
         return await this.handleChangeDateRange(request);
-      
-      case MESSAGES.ping:
-        return { success: true, message: 'Ready' };
       
       default:
         return response;
@@ -78,15 +69,27 @@ export class MessageHandler {
       const strategySettings = await this.strategyExtractor.openSettings(request.strategyIndex);
       
       if (strategySettings) {
+        // Get existing strategies and update the specific one
+        const existingStrategies = this.strategyExtractor.extract();
+        
+        if (existingStrategies[request.strategyIndex]) {
+          existingStrategies[request.strategyIndex] = strategySettings;
+          
+          // Save the updated strategies back to storage
+          const { sendMessage } = await import('../utils');
+          const { MESSAGES } = await import('../config');
+          sendMessage({ action: MESSAGES.saveStrategies, strategies: existingStrategies });
+        }
+        
         return {
           success: true,
-          strategies: [strategySettings],
-          message: `Extracted settings for: ${strategySettings.name}`
+          strategies: existingStrategies,
+          message: `Extracted settings for: ${strategySettings.name} (${strategySettings.settings.length} parameters)`
         };
       } else {
         return {
           success: false,
-          message: 'Failed to extract strategy settings'
+          message: 'Failed to extract strategy settings - dialog may not have opened'
         };
       }
     } catch (error) {
@@ -95,21 +98,6 @@ export class MessageHandler {
         error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
-  }
-
-  private handleClickTab(request: MessageRequest): MessageResponse {
-    if (!request.tabId) {
-      return { success: false, message: 'No tab ID provided' };
-    }
-
-    const success = this.tabNavigator.click(request.tabId);
-    
-    return {
-      success: success,
-      message: success ? 
-        `Switched to ${request.tabId} tab` : 
-        `Failed to switch to ${request.tabId} tab`
-    };
   }
 
   private async handleChangeDateRange(request: MessageRequest): Promise<MessageResponse> {

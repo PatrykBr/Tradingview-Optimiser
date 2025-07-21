@@ -1,6 +1,9 @@
 export { MessageHandler } from './messageHandler';
-export { TabNavigator } from './tabNavigator';
 export { StrategyPopupHandler } from './strategyPopup';
-export { TabDataPopupHandler } from './tabDataPopup';
 export { DateRangeHandler } from './dateRangeHandler';
-export { DateRangePopupHandler } from './dateRangePopup';
+
+// New tab-based handlers for the 3-tab architecture
+export { SetupTabHandler } from './setupTab';
+export { OptimiseTabHandler } from './optimiseTab';
+export { ResultsTabHandler } from './resultsTab';
+export { TabController } from './tabController';

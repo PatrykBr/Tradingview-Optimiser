@@ -14,18 +14,12 @@ export class DateRangeHandler {
   async changeDateRange(enabled: boolean, startDate?: string, endDate?: string): Promise<{ success: boolean, alreadySet?: boolean }> {
     try {
       const mainButton = await this.waitForElement(SELECTORS.dateRange.mainButton) as HTMLButtonElement;
-      if (!mainButton) {
-        throw new Error('Could not find date range button');
-      }
+      if (!mainButton) throw new Error('Could not find date range button');
 
       mainButton.click();
       await this.sleep(500);
 
-      if (!enabled) {
-        return this.selectRangeFromChart();
-      }
-
-      return this.selectCustomDateRange(startDate, endDate);
+      return enabled ? this.selectCustomDateRange(startDate, endDate) : this.selectRangeFromChart();
     } catch (error) {
       console.error('Error changing date range:', error);
       return { success: false };
@@ -34,9 +28,7 @@ export class DateRangeHandler {
 
   private async selectRangeFromChart(): Promise<{ success: boolean }> {
     const rangeFromChart = await this.waitForElement(SELECTORS.dateRange.rangeFromChart) as HTMLElement;
-    if (!rangeFromChart) {
-      throw new Error('Could not find "Range from chart" option');
-    }
+    if (!rangeFromChart) throw new Error('Could not find "Range from chart" option');
     
     rangeFromChart.click();
     return { success: true };

@@ -3,108 +3,176 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DOM Element Reader</title>
+  <title>TradingView Strategy Optimiser</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="popup-container">
     <header class="popup-header">
-      <h1>DOM Element Reader</h1>
-      <p>Extract trading data from web pages</p>
+      <h1>TradingView Strategy Optimiser</h1>
+      <p>Optimise strategy parameters using Bayesian optimisation</p>
     </header>
 
-    <div class="popup-controls">
-      <button id="extractBtn" class="btn btn-primary">
-        <span>🔍</span> Extract Data
+    <!-- Tab Navigation -->
+    <nav class="tab-nav">
+      <button id="setupTab" class="tab-btn active" data-tab="setup">
+        <span>⚙️</span> Setup
       </button>
-      <button id="clearBtn" class="btn btn-secondary">
-        <span>🗑️</span> Clear Data
+      <button id="optimiseTab" class="tab-btn" data-tab="optimise">
+        <span>🎯</span> Optimise
       </button>
-      <button id="refreshBtn" class="btn btn-warning">
-        <span>🔄</span> Refresh Page
+      <button id="resultsTab" class="tab-btn" data-tab="results">
+        <span>📊</span> Results
       </button>
-    </div>
+    </nav>
 
-    <div class="tab-controls">
-      <h3>Navigate to Tab:</h3>
-      <div class="tab-buttons">
-        <button id="overviewBtn" class="btn btn-tab">
-          <span>📊</span> Overview
-        </button>
-        <button id="performanceBtn" class="btn btn-tab">
-          <span>📈</span> Performance
-        </button>
-        <button id="tradesBtn" class="btn btn-tab">
-          <span>📋</span> Trades Analysis
-        </button>
-        <button id="ratiosBtn" class="btn btn-tab">
-          <span>⚖️</span> Risk/Performance Ratios
-        </button>
+    <!-- Tab Contents -->
+    <div class="tab-content">
+      <!-- Setup Tab -->
+      <div id="setupTabContent" class="tab-pane active">
+        <div class="setup-section">
+          <h3>Strategy Selection:</h3>
+          <div class="strategy-selection">
+            <div class="dropdown-container">
+              <select id="strategyDropdown" class="strategy-dropdown">
+                <option value="">Loading strategies...</option>
+              </select>
+              <button id="refreshStrategiesBtn" class="btn btn-secondary refresh-btn">
+                <span>🔄</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="strategy-settings-section hidden" id="strategySettingsSection">
+          <h3>Strategy Settings:</h3>
+          <div id="strategySettings" class="strategy-settings">
+            <!-- Strategy settings will be populated here -->
+          </div>
+        </div>
       </div>
-    </div>
 
-    <div class="filter-controls">
-      <h3>Data Filter:</h3>
-      <div class="filter-buttons">
-        <button id="allBtn" class="btn btn-filter">
-          <span>📊</span> All
-        </button>
-        <button id="longBtn" class="btn btn-filter">
-          <span>📈</span> Long
-        </button>
-        <button id="shortBtn" class="btn btn-filter">
-          <span>📉</span> Short
-        </button>
+      <!-- Optimise Tab -->
+      <div id="optimiseTabContent" class="tab-pane hidden">
+        <div class="optimise-section">
+          <h3>Optimisation Configuration:</h3>
+          
+          <div class="config-group">
+            <label for="metricDropdown">Optimisation Metric:</label>
+            <select id="metricDropdown" class="metric-dropdown">
+              <option value="">Select metric to optimise...</option>
+            </select>
+          </div>
+
+          <div class="config-group">
+            <label for="iterationsInput">Number of Iterations:</label>
+            <input type="number" id="iterationsInput" class="iterations-input" min="1" max="1000" placeholder="e.g., 100">
+          </div>
+
+          <div class="config-group">
+            <label class="toggle-label">
+              <span>Use Custom Date Range</span>
+              <div class="toggle-container">
+                <input type="checkbox" id="dateRangeEnabled" class="toggle-input">
+                <span class="toggle-slider"></span>
+              </div>
+            </label>
+            
+            <div class="date-inputs hidden" id="dateInputs">
+              <div class="date-input-group">
+                <label for="startDate">Start Date:</label>
+                <input type="date" id="startDate" class="date-input">
+              </div>
+              <div class="date-input-group">
+                <label for="endDate">End Date:</label>
+                <input type="date" id="endDate" class="date-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="config-group">
+            <h4>Anti-Detection Delays:</h4>
+            <div class="delay-inputs">
+              <div class="delay-input-group">
+                <label for="minDelay">Min Delay (ms):</label>
+                <input type="number" id="minDelay" class="delay-input" min="0" value="100" placeholder="e.g., 100">
+              </div>
+              <div class="delay-input-group">
+                <label for="maxDelay">Max Delay (ms):</label>
+                <input type="number" id="maxDelay" class="delay-input" min="0" value="500" placeholder="e.g., 500">
+              </div>
+            </div>
+          </div>
+
+          <div class="config-group">
+            <h4>Add Filter:</h4>
+            <div class="filter-add-section">
+              <select id="filterMetricDropdown" class="filter-metric-dropdown">
+                <option value="">Select metric to filter...</option>
+              </select>
+              <div class="filter-value-inputs">
+                <input type="number" id="filterMinValue" class="filter-value-input" placeholder="Min value (optional)">
+                <input type="number" id="filterMaxValue" class="filter-value-input" placeholder="Max value (optional)">
+              </div>
+              <button id="addFilterBtn" class="btn btn-secondary">
+                <span>➕</span> Add Filter
+              </button>
+            </div>
+          </div>
+
+          <div class="active-filters-section">
+            <h4>Active Filters:</h4>
+            <div id="activeFilters" class="active-filters">
+              <div class="no-filters">No filters applied</div>
+            </div>
+          </div>
+
+          <div class="optimisation-actions">
+            <button id="startOptimisationBtn" class="btn btn-primary btn-large" disabled>
+              <span>🚀</span> Start Optimisation
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <div class="strategy-controls">
-      <h3>Strategy Settings:</h3>
-      <div class="strategy-buttons">
-        <button id="extractStrategiesBtn" class="btn btn-strategy">
-          <span>⚙️</span> Extract Strategies
-        </button>
-        <div id="strategyList" class="strategy-list hidden">
-          <!-- Strategy buttons will be populated here -->
+      <!-- Results Tab -->
+      <div id="resultsTabContent" class="tab-pane hidden">
+        <div class="results-section">
+          <div class="best-results-section">
+            <h3>Current/Final Best Results:</h3>
+            <div id="bestResults" class="best-results">
+              <div class="no-results">No optimisation results yet</div>
+            </div>
+          </div>
+
+          <div class="action-buttons-section hidden" id="actionButtonsSection">
+            <div class="action-buttons">
+              <button id="applyBestBtn" class="btn btn-primary">
+                <span>✅</span> Apply Best
+              </button>
+              <button id="exportCsvBtn" class="btn btn-secondary">
+                <span>📄</span> Export CSV
+              </button>
+              <button id="exportJsonBtn" class="btn btn-secondary">
+                <span>📋</span> Export JSON
+              </button>
+            </div>
+          </div>
+
+          <div class="all-results-section">
+            <h3>All Results:</h3>
+            <div id="allResults" class="all-results">
+              <div class="no-results">No optimisation results yet</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="date-range-controls">
-      <h3>Backtest Date Range:</h3>
-      <div class="date-range-settings">
-        <label class="toggle-label">
-          <input type="checkbox" id="dateRangeEnabled" class="toggle-input">
-          <span class="toggle-slider"></span>
-          Use Custom Date Range
-        </label>
-        
-        <div class="date-inputs" id="dateInputs">
-          <div class="date-input-group">
-            <label for="startDate">Start Date:</label>
-            <input type="date" id="startDate" class="date-input" disabled>
-          </div>
-          <div class="date-input-group">
-            <label for="endDate">End Date:</label>
-            <input type="date" id="endDate" class="date-input" disabled>
-          </div>
-          <button id="applyDateRange" class="btn btn-primary" disabled>
-            <span>📅</span> Apply Date Range
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div id="status" class="status info">Ready to extract data (all columns)</div>
-
-    <div class="popup-content">
-      <div id="dataContainer" class="data-container">
-        <div class="no-data">Click "Extract Data" to begin</div>
-      </div>
-    </div>
+    <div id="status" class="status info">Ready - Please select the Setup tab to begin</div>
 
     <footer class="popup-footer">
-      <small>Check console for detailed logs</small>
+      <small>TradingView Strategy Optimiser v1.0</small>
     </footer>
   </div>
 

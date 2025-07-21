@@ -61,24 +61,8 @@ export const MESSAGES = {
   extractData: 'extractData',
   saveData: 'saveData',
   saveStrategies: 'saveStrategies',
-  ping: 'ping',
-  clickTab: 'clickTab',
   extractStrategies: 'extractStrategies',
   openStrategySettings: 'openStrategySettings',
   changeDateRange: 'changeDateRange',
   saveDateRangeSettings: 'saveDateRangeSettings'
-} as const;
-
-export const TAB_SELECTORS = {
-  overview: 'button[id="Overview"]',
-  performance: 'button[id="Performance"]', 
-  trades: 'button[id="Trades Analysis"]',
-  ratios: 'button[id="Ratios"]'
-} as const;
-
-export const STATUS_MESSAGES = {
-  extracting: 'Extracting...',
-  noData: 'No data found',
-  cleared: 'Data cleared',
-  refreshed: 'Page refreshed'
 } as const;

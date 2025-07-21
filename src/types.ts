@@ -29,7 +29,6 @@ export interface MessageRequest {
   data?: ExtractedItem[];
   strategies?: StrategySettings[];
   dateRangeSettings?: DateRangeSettings;
-  tabId?: string;
   filter?: 'all' | 'long' | 'short' | 'none';
   strategyIndex?: number;
 }
@@ -41,8 +40,4 @@ export interface MessageResponse {
   dateRangeSettings?: DateRangeSettings;
   message?: string;
   error?: string;
-}
-
-export interface StorageResult {
-  [key: string]: ExtractedItem[] | StrategySettings[] | DateRangeSettings | undefined;
 }

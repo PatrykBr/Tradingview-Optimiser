@@ -1,6 +1,6 @@
-import { MESSAGES, STATUS_MESSAGES } from '../config';
+import { MESSAGES } from '../config';
 import type { StrategySettings, MessageResponse } from '../types';
-import { tabs, sendMessage, getElement, escapeHtml, setStatus, handleError, getActiveTab } from '../utils';
+import { tabs, sendMessage, setStatus, getActiveTab } from '../utils';
 
 export class StrategyPopupHandler {
 
@@ -15,17 +15,13 @@ export class StrategyPopupHandler {
       }) as MessageResponse;
       
       if (response?.strategies && response.strategies.length > 0) {
-        this.displayStrategies(response.strategies);
         sendMessage({ action: MESSAGES.saveStrategies, strategies: response.strategies });
         setStatus(`Found ${response.strategies.length} strategies`);
-        
-        this.showStrategyList(response.strategies);
       } else {
         setStatus('No strategies found');
-        this.hideStrategyList();
       }
     } catch (error: unknown) {
-      setStatus(`Error: ${handleError(error)}`);
+      setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -41,56 +37,13 @@ export class StrategyPopupHandler {
       }) as MessageResponse;
       
       if (response?.strategies && response.strategies.length > 0) {
-        this.displayStrategies(response.strategies);
         sendMessage({ action: MESSAGES.saveStrategies, strategies: response.strategies });
         setStatus(response.message || 'Strategy settings extracted');
       } else {
         setStatus('Failed to extract strategy settings');
       }
     } catch (error: unknown) {
-      setStatus(`Error: ${handleError(error)}`);
+      setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
-
-  displayStrategies(strategies: StrategySettings[]): void {
-    const container = getElement('dataContainer');
-    
-    container.innerHTML = strategies.map(strategy => `
-      <div class="strategy-settings">
-        <div class="strategy-name">${escapeHtml(strategy.name)}</div>
-        ${strategy.settings.map(setting => `
-          <div class="strategy-setting">
-            <span class="setting-label">${escapeHtml(setting.label)}:</span>
-            <span class="setting-value">${escapeHtml(setting.value)}</span>
-          </div>
-        `).join('')}
-        <div class="data-tab-type">Extracted: ${new Date(strategy.timestamp).toLocaleString()}</div>
-      </div>
-    `).join('');
-  }
-
-  private showStrategyList(strategies: StrategySettings[]): void {
-    const strategyList = getElement('strategyList');
-    strategyList.classList.remove('hidden');
-    
-    strategyList.innerHTML = strategies.map((strategy, index) => `
-      <button class="btn-strategy-item" data-strategy-index="${index}">
-        📋 ${escapeHtml(strategy.name)} Settings
-      </button>
-    `).join('');
-    
-    // Add event listeners for strategy buttons
-    strategyList.querySelectorAll('.btn-strategy-item').forEach(button => {
-      button.addEventListener('click', async (e) => {
-        const target = e.target as HTMLElement;
-        const strategyIndex = parseInt(target.getAttribute('data-strategy-index') || '0');
-        await this.openStrategySettings(strategyIndex);
-      });
-    });
-  }
-
-  private hideStrategyList(): void {
-    const strategyList = getElement('strategyList');
-    strategyList.classList.add('hidden');
   }
 }

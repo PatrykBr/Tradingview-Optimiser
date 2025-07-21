@@ -21,65 +21,40 @@ export const storage = getBrowser().storage;
 export const tabs = getBrowser().tabs;
 
 export const sendMessage = (message: any): Promise<any> => {
+  console.log('Sending message:', message);
   return new Promise((resolve, reject) => {
     try {
       runtime.sendMessage(message, (response: any) => {
-        if (runtime.lastError) {
-          reject(runtime.lastError);
-        } else {
-          resolve(response);
-        }
+        console.log('Message response:', response);
+        runtime.lastError ? reject(runtime.lastError) : resolve(response);
       });
     } catch (error) {
+      console.error('Send message error:', error);
       reject(error);
     }
   });
 };
 
-export const storageGet = (keys: string | string[]): Promise<any> => {
-  return new Promise((resolve, reject) => {
-    storage.local.get(keys, (result: any) => {
-      if (runtime.lastError) {
-        reject(runtime.lastError);
-      } else {
-        resolve(result);
-      }
-    });
+export const storageGet = (keys: string | string[]): Promise<any> => 
+  new Promise((resolve, reject) => {
+    storage.local.get(keys, (result: any) => 
+      runtime.lastError ? reject(runtime.lastError) : resolve(result)
+    );
   });
-};
 
-export const storageSet = (items: Record<string, any>): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    storage.local.set(items, () => {
-      if (runtime.lastError) {
-        reject(runtime.lastError);
-      } else {
-        resolve();
-      }
-    });
+export const storageSet = (items: Record<string, any>): Promise<void> => 
+  new Promise((resolve, reject) => {
+    storage.local.set(items, () => 
+      runtime.lastError ? reject(runtime.lastError) : resolve()
+    );
   });
-};
 
 export { getBrowser };
 
-export const getElement = (id: string): HTMLElement => {
-  const element = document.getElementById(id);
-  if (!element) throw new Error(`Element with id "${id}" not found`);
-  return element;
-};
-
-export const escapeHtml = (text: string): string => {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-};
-
 export const setStatus = (message: string): void => {
-  getElement('status').textContent = message;
+  const statusElement = document.getElementById('status');
+  if (statusElement) statusElement.textContent = message;
 };
-
-export const handleError = (error: unknown): string => 
-  error instanceof Error ? error.message : 'Unknown error';
 
 export const getActiveTab = async () => {
   const [tab] = await tabs.query({ active: true, currentWindow: true });
