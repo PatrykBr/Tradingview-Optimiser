@@ -45,9 +45,51 @@
         </div>
 
         <div class="strategy-settings-section hidden" id="strategySettingsSection">
-          <h3>Strategy Settings:</h3>
-          <div id="strategySettings" class="strategy-settings">
-            <!-- Strategy settings will be populated here -->
+          <div class="saved-configs-section" id="savedConfigsSection">
+            <h3>Saved Configurations:</h3>
+            <div class="saved-configs-controls">
+              <select id="savedConfigsDropdown" class="saved-configs-dropdown">
+                <option value="">Select a saved configuration...</option>
+              </select>
+              <div class="saved-configs-buttons">
+                <button id="loadConfigBtn" class="btn btn-secondary" disabled>
+                  <span>📂</span> Load
+                </button>
+                <button id="deleteConfigBtn" class="btn btn-danger" disabled>
+                  <span>🗑️</span> Delete
+                </button>
+              </div>
+            </div>
+            
+            <div class="save-new-config-section">
+              <h4>Save New Configuration:</h4>
+              <div class="config-inputs">
+                <div class="config-input-group">
+                  <label for="configName">Configuration Name:</label>
+                  <input type="text" id="configName" class="config-input" placeholder="Enter configuration name...">
+                </div>
+                <div class="config-input-group">
+                  <label for="configDescription">Description (optional):</label>
+                  <input type="text" id="configDescription" class="config-input" placeholder="Enter description...">
+                </div>
+              </div>
+              <div class="config-actions">
+                <button id="saveAsNewConfigBtn" class="btn btn-secondary" disabled>
+                  <span>💾</span> Save as New Configuration
+                </button>
+                <button id="saveOptimisationConfig" class="btn btn-primary" disabled>
+                  <span>✅</span> Apply Configuration
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div class="optimisation-params-section" id="optimisationParamsSection">
+            <h3>Optimisation Parameters:</h3>
+            <p class="section-description">Select which parameters to optimise and set their value ranges:</p>
+            <div id="optimisationParams" class="optimisation-params">
+              <!-- Optimisation parameters will be populated here -->
+            </div>
           </div>
         </div>
       </div>

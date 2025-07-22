@@ -1,5 +1,5 @@
 import { MESSAGES, STORAGE_KEYS } from './config';
-import type { ExtractedItem, MessageRequest, MessageResponse, StrategySettings, DateRangeSettings } from './types';
+import type { ExtractedItem, MessageRequest, MessageResponse, StrategySettings, DateRangeSettings, OptimisationConfig, SavedOptimisationConfig } from './types';
 import { runtime, storageSet } from './utils';
 
 runtime.onMessage.addListener((
@@ -29,6 +29,26 @@ runtime.onMessage.addListener((
     return true;
   } else if (request.action === MESSAGES.saveDateRangeSettings && request.dateRangeSettings) {
     storageSet({ [STORAGE_KEYS.dateRangeSettings]: request.dateRangeSettings })
+      .then(() => {
+        sendResponse({ success: true });
+      })
+      .catch((error: unknown) => {
+        const errorMessage = error instanceof Error ? error.message : 'Storage error';
+        sendResponse({ success: false, error: errorMessage });
+      });
+    return true;
+  } else if (request.action === MESSAGES.saveOptimisationConfig && request.optimisationConfig) {
+    storageSet({ [STORAGE_KEYS.optimisationConfig]: request.optimisationConfig })
+      .then(() => {
+        sendResponse({ success: true });
+      })
+      .catch((error: unknown) => {
+        const errorMessage = error instanceof Error ? error.message : 'Storage error';
+        sendResponse({ success: false, error: errorMessage });
+      });
+    return true;
+  } else if (request.action === MESSAGES.saveSavedOptimisationConfigs && request.savedOptimisationConfigs) {
+    storageSet({ [STORAGE_KEYS.savedOptimisationConfigs]: request.savedOptimisationConfigs })
       .then(() => {
         sendResponse({ success: true });
       })

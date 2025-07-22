@@ -17,6 +17,30 @@ export interface StrategySettings {
   timestamp: string;
 }
 
+export interface OptimisationParameter {
+  label: string;
+  currentValue: string;
+  minValue: number;
+  maxValue: number;
+  enabled: boolean;
+  tooltip?: string;
+}
+
+export interface OptimisationConfig {
+  strategyName: string;
+  parameters: OptimisationParameter[];
+  timestamp: string;
+}
+
+export interface SavedOptimisationConfig {
+  id: string;
+  name: string;
+  strategyName: string;
+  parameters: OptimisationParameter[];
+  timestamp: string;
+  description?: string;
+}
+
 export interface DateRangeSettings {
   enabled: boolean;
   startDate: string;
@@ -29,6 +53,8 @@ export interface MessageRequest {
   data?: ExtractedItem[];
   strategies?: StrategySettings[];
   dateRangeSettings?: DateRangeSettings;
+  optimisationConfig?: OptimisationConfig;
+  savedOptimisationConfigs?: SavedOptimisationConfig[];
   filter?: 'all' | 'long' | 'short' | 'none';
   strategyIndex?: number;
 }
@@ -38,6 +64,8 @@ export interface MessageResponse {
   data?: ExtractedItem[];
   strategies?: StrategySettings[];
   dateRangeSettings?: DateRangeSettings;
+  optimisationConfig?: OptimisationConfig;
+  savedOptimisationConfigs?: SavedOptimisationConfig[];
   message?: string;
   error?: string;
 }

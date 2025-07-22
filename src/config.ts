@@ -54,7 +54,9 @@ export const SELECTORS = {
 export const STORAGE_KEYS = {
   extractedData: 'extractedData',
   strategies: 'strategies',
-  dateRangeSettings: 'dateRangeSettings'
+  dateRangeSettings: 'dateRangeSettings',
+  optimisationConfig: 'optimisationConfig',
+  savedOptimisationConfigs: 'savedOptimisationConfigs'
 } as const;
 
 export const MESSAGES = {
@@ -64,5 +66,7 @@ export const MESSAGES = {
   extractStrategies: 'extractStrategies',
   openStrategySettings: 'openStrategySettings',
   changeDateRange: 'changeDateRange',
-  saveDateRangeSettings: 'saveDateRangeSettings'
+  saveDateRangeSettings: 'saveDateRangeSettings',
+  saveOptimisationConfig: 'saveOptimisationConfig',
+  saveSavedOptimisationConfigs: 'saveSavedOptimisationConfigs'
 } as const;
