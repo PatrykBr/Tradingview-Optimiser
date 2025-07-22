@@ -1,23 +1,37 @@
 {
-  "name": "dom-element-reader",
-  "version": "1.0.0",
-  "description": "Chrome/Firefox extension to read DOM elements",
-  "main": "index.js",
-  "scripts": {
-    "build": "webpack --mode=production",
-    "build:firefox": "webpack --mode=production --env firefox",
-    "build:all": "npm run build && npm run build:firefox",
-    "dev": "webpack --mode=development --watch",
-    "dev:firefox": "webpack --mode=development --watch --env firefox",
-    "clean": "rm -rf dist dist-firefox"
-  },
-  "devDependencies": {
-    "@types/chrome": "^0.0.254",
-    "@types/webextension-polyfill": "^0.10.7",
-    "copy-webpack-plugin": "^11.0.0",
-    "ts-loader": "^9.5.1",
-    "typescript": "^5.3.3",
-    "webpack": "^5.89.0",
-    "webpack-cli": "^5.1.4"
-  }
+    "name": "tradingview-strategy-optimiser",
+    "version": "1.0.0",
+    "description": "TradingView Strategy Optimiser - React-based Chrome/Firefox extension",
+    "main": "index.js",
+    "scripts": {
+        "build": "webpack --mode=production",
+        "build:firefox": "webpack --mode=production --env firefox",
+        "build:all": "npm run build && npm run build:firefox",
+        "dev": "webpack --mode=development --watch",
+        "dev:firefox": "webpack --mode=development --watch --env firefox",
+        "clean": "rm -rf dist dist-firefox"
+    },
+    "dependencies": {
+        "react": "^19.1.0",
+        "react-dom": "^19.1.0"
+    },
+    "devDependencies": {
+        "@tailwindcss/postcss": "^4.1.11",
+        "@types/chrome": "^0.1.1",
+        "@types/react": "^19.1.0",
+        "@types/react-dom": "^19.1.0",
+        "autoprefixer": "^10.4.20",
+        "copy-webpack-plugin": "^13.0.0",
+        "css-loader": "^7.1.2",
+        "postcss": "^8.4.49",
+        "postcss-loader": "^8.1.1",
+        "prettier": "^3.6.2",
+        "prettier-plugin-tailwindcss": "^0.6.14",
+        "style-loader": "^4.0.0",
+        "tailwindcss": "^4.1.11",
+        "ts-loader": "^9.5.1",
+        "typescript": "^5.7.2",
+        "webpack": "^5.97.1",
+        "webpack-cli": "^6.0.1"
+    }
 }

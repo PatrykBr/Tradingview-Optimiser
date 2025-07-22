@@ -1,39 +1,35 @@
 {
-  "manifest_version": 2,
-  "name": "DOM Element Reader",
-  "version": "1.0.0",
-  "description": "Extension to read and output specific DOM elements",
-  
-  "permissions": [
-    "activeTab",
-    "storage",
-    "<all_urls>"
-  ],
-  
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_end"
-    }
-  ],
-  
-  "browser_action": {
-    "default_popup": "popup.html",
-    "default_title": "DOM Element Reader"
-  },
-  
-  "background": {
-    "scripts": ["background.js"],
-    "persistent": false
-  },
-  
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "dom-element-reader@example.com",
-      "strict_min_version": "57.0"
-    }
-  },
-  
-  "content_security_policy": "script-src 'self'; object-src 'self'"
+    "manifest_version": 2,
+    "name": "DOM Element Reader",
+    "version": "1.0.0",
+    "description": "Extension to read and output specific DOM elements",
+
+    "permissions": ["activeTab", "storage", "<all_urls>"],
+
+    "content_scripts": [
+        {
+            "matches": ["<all_urls>"],
+            "js": ["content.js"],
+            "run_at": "document_end"
+        }
+    ],
+
+    "browser_action": {
+        "default_popup": "popup.html",
+        "default_title": "DOM Element Reader"
+    },
+
+    "background": {
+        "scripts": ["background.js"],
+        "persistent": false
+    },
+
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "dom-element-reader@example.com",
+            "strict_min_version": "57.0"
+        }
+    },
+
+    "content_security_policy": "script-src 'self'; object-src 'self'"
 }

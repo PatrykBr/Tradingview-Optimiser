@@ -5,16 +5,17 @@ import { runtime } from './utils';
 const messageHandler = new MessageHandler();
 
 runtime.onMessage.addListener((request: MessageRequest, _: any, sendResponse: any) => {
-  messageHandler.handle(request).then(response => {
-    sendResponse(response);
-  }).catch(error => {
-    sendResponse({ 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
-    });
-  });
-  
-  return true;
-});
+    messageHandler
+        .handle(request)
+        .then(response => {
+            sendResponse(response);
+        })
+        .catch(error => {
+            sendResponse({
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+        });
 
-console.log('DOM Reader loaded');
+    return true;
+});
