@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '../ui';
 import {
     OptimisationConfigCard,
@@ -7,6 +7,7 @@ import {
     ResultFiltersCard,
     CurrentConfigCard
 } from '../optimise';
+import { getDefaultDateRange, sendToActiveTab } from '../../utils';
 import type { OptimisationConfig, OptimisationSettings, Filter } from '../../types';
 
 interface OptimiseTabProps {
@@ -26,6 +27,48 @@ export const OptimiseTab: React.FC<OptimiseTabProps> = ({ config, onStartOptimis
     const [newFilterMetric, setNewFilterMetric] = useState<string>('');
     const [newFilterMin, setNewFilterMin] = useState<string>('');
     const [newFilterMax, setNewFilterMax] = useState<string>('');
+
+    // Send date range update to TradingView
+    const updateDateRange = (enabled: boolean, start = '', end = '') => {
+        sendToActiveTab({
+            action: 'changeDateRange',
+            dateRangeSettings: {
+                enabled,
+                startDate: start,
+                endDate: end,
+                timestamp: new Date().toISOString()
+            }
+        }).catch(console.error);
+    };
+
+    // Handle custom date range toggle
+    const handleToggleCustomRange = (enabled: boolean) => {
+        setUseCustomDateRange(enabled);
+
+        if (enabled && (!startDate || !endDate)) {
+            const defaultDates = getDefaultDateRange();
+            setStartDate(defaultDates.startDate);
+            setEndDate(defaultDates.endDate);
+            updateDateRange(true, defaultDates.startDate, defaultDates.endDate);
+        } else if (enabled) {
+            updateDateRange(true, startDate, endDate);
+        } else {
+            updateDateRange(false);
+        }
+    };
+
+    // Handle date changes (only on blur)
+    const handleStartDateBlur = (newStartDate: string) => {
+        if (useCustomDateRange && newStartDate && endDate) {
+            updateDateRange(true, newStartDate, endDate);
+        }
+    };
+
+    const handleEndDateBlur = (newEndDate: string) => {
+        if (useCustomDateRange && startDate && newEndDate) {
+            updateDateRange(true, startDate, newEndDate);
+        }
+    };
 
     const handleAddFilter = () => {
         if (!newFilterMetric) return;
@@ -92,9 +135,11 @@ export const OptimiseTab: React.FC<OptimiseTabProps> = ({ config, onStartOptimis
                 useCustomDateRange={useCustomDateRange}
                 startDate={startDate}
                 endDate={endDate}
-                onToggleCustomRange={setUseCustomDateRange}
+                onToggleCustomRange={handleToggleCustomRange}
                 onStartDateChange={setStartDate}
                 onEndDateChange={setEndDate}
+                onStartDateBlur={handleStartDateBlur}
+                onEndDateBlur={handleEndDateBlur}
             />
 
             <AntiDetectionCard

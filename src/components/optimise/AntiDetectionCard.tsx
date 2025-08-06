@@ -22,7 +22,7 @@ export const AntiDetectionCard: React.FC<AntiDetectionProps> = ({
                     type='number'
                     min={0}
                     value={minDelay}
-                    onChange={e => onMinDelayChange(parseInt(e.target.value) || 100)}
+                    onChange={e => onMinDelayChange(parseInt(e.target.value))}
                     placeholder='e.g., 100'
                 />
                 <Input
@@ -30,7 +30,7 @@ export const AntiDetectionCard: React.FC<AntiDetectionProps> = ({
                     type='number'
                     min={0}
                     value={maxDelay}
-                    onChange={e => onMaxDelayChange(parseInt(e.target.value) || 500)}
+                    onChange={e => onMaxDelayChange(parseInt(e.target.value))}
                     placeholder='e.g., 500'
                 />
             </div>

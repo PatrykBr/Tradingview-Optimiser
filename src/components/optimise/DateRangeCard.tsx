@@ -8,6 +8,8 @@ interface DateRangeProps {
     onToggleCustomRange: (enabled: boolean) => void;
     onStartDateChange: (date: string) => void;
     onEndDateChange: (date: string) => void;
+    onStartDateBlur?: (date: string) => void;
+    onEndDateBlur?: (date: string) => void;
 }
 
 export const DateRangeCard: React.FC<DateRangeProps> = ({
@@ -16,7 +18,9 @@ export const DateRangeCard: React.FC<DateRangeProps> = ({
     endDate,
     onToggleCustomRange,
     onStartDateChange,
-    onEndDateChange
+    onEndDateChange,
+    onStartDateBlur,
+    onEndDateBlur
 }) => {
     return (
         <Card title='Date Range Settings'>
@@ -38,12 +42,14 @@ export const DateRangeCard: React.FC<DateRangeProps> = ({
                             type='date'
                             value={startDate}
                             onChange={e => onStartDateChange(e.target.value)}
+                            onBlur={e => onStartDateBlur?.(e.target.value)}
                         />
                         <Input
                             label='End Date'
                             type='date'
                             value={endDate}
                             onChange={e => onEndDateChange(e.target.value)}
+                            onBlur={e => onEndDateBlur?.(e.target.value)}
                         />
                     </div>
                 )}

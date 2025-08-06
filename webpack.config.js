@@ -1,8 +1,10 @@
 const path = require('path');
 const CopyPlugin = require('copy-webpack-plugin');
+const webpack = require('webpack');
 
 module.exports = env => {
-    const isFirefox = env?.firefox;
+    // Default to Chrome build if no environment specified
+    const isFirefox = env && env.firefox === true;
     const isDev = process.env.NODE_ENV === 'development';
 
     return {
@@ -33,6 +35,9 @@ module.exports = env => {
             clean: true
         },
         plugins: [
+            new webpack.DefinePlugin({
+                'process.env.BROWSER': JSON.stringify(isFirefox ? 'firefox' : 'chrome')
+            }),
             new CopyPlugin({
                 patterns: [
                     {

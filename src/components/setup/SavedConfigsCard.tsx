@@ -17,13 +17,16 @@ export const SavedConfigsCard: React.FC<SavedConfigsProps> = ({
     onLoadConfig,
     onDeleteConfig
 }) => {
-    const savedConfigOptions = [
-        { value: '', label: 'Select a saved configuration...' },
-        ...savedConfigs.map(config => ({
-            value: config.id,
-            label: config.name
-        }))
-    ];
+    const savedConfigOptions =
+        savedConfigs.length > 0
+            ? [
+                  { value: '', label: 'Select a saved configuration...' },
+                  ...savedConfigs.map(config => ({
+                      value: config.id,
+                      label: config.name
+                  }))
+              ]
+            : [{ value: '', label: 'No saved configurations for this strategy' }];
 
     return (
         <Card title='Saved Configurations'>
@@ -32,6 +35,7 @@ export const SavedConfigsCard: React.FC<SavedConfigsProps> = ({
                     options={savedConfigOptions}
                     value={selectedSavedConfig}
                     onChange={e => onSelectedConfigChange(e.target.value)}
+                    disabled={savedConfigs.length === 0}
                 />
                 <div className='flex gap-2'>
                     <Button variant='error' onClick={onDeleteConfig} disabled={!selectedSavedConfig}>

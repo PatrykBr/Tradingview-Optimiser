@@ -24,7 +24,7 @@ export const ResultsTab: React.FC<ResultsTabProps> = ({
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
     const sortedResults = [...results].sort((a, b) => {
-        let aValue: any, bValue: any;
+        let aValue: string | number, bValue: string | number;
 
         if (sortBy === 'iteration') {
             aValue = a.iteration;

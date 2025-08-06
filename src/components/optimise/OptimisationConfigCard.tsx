@@ -33,7 +33,7 @@ export const OptimisationConfigCard: React.FC<OptimisationConfigProps> = ({
                     min={1}
                     max={1000}
                     value={iterations}
-                    onChange={e => onIterationsChange(parseInt(e.target.value) || 100)}
+                    onChange={e => onIterationsChange(parseInt(e.target.value))}
                     placeholder='e.g., 100'
                 />
             </div>

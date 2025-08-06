@@ -7,6 +7,7 @@ interface StrategySelectionProps {
     isLoading: boolean;
     onStrategyChange: (strategy: string) => void;
     onRefreshStrategies: () => void;
+    onLoadSettings?: () => void;
 }
 
 export const StrategySelectionCard: React.FC<StrategySelectionProps> = ({
@@ -14,7 +15,8 @@ export const StrategySelectionCard: React.FC<StrategySelectionProps> = ({
     selectedStrategy,
     isLoading,
     onStrategyChange,
-    onRefreshStrategies
+    onRefreshStrategies,
+    onLoadSettings
 }) => {
     const strategyOptions = [
         { value: '', label: isLoading ? 'Loading strategies...' : 'Select a strategy...' },
@@ -38,6 +40,11 @@ export const StrategySelectionCard: React.FC<StrategySelectionProps> = ({
                 <Button variant='secondary' onClick={onRefreshStrategies} className='shrink-0'>
                     🔄
                 </Button>
+                {selectedStrategy && onLoadSettings && (
+                    <Button variant='primary' onClick={onLoadSettings} className='shrink-0'>
+                        ⚙️
+                    </Button>
+                )}
             </div>
         </Card>
     );

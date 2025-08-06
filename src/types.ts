@@ -41,14 +41,6 @@ export interface SavedOptimisationConfig {
     description?: string;
 }
 
-export interface DateRangeSettings {
-    enabled: boolean;
-    startDate: string;
-    endDate: string;
-    timestamp: string;
-}
-
-// Optimisation-related types
 export interface OptimisationSettings {
     metric: string;
     iterations: number;
@@ -64,13 +56,6 @@ export interface OptimisationSettings {
     }>;
 }
 
-export interface Filter {
-    id: string;
-    metric: string;
-    minValue?: number;
-    maxValue?: number;
-}
-
 export interface OptimisationResult {
     id: string;
     parameters: Record<string, number>;
@@ -79,13 +64,29 @@ export interface OptimisationResult {
     iteration: number;
 }
 
+// Additional types still needed by other components
+export interface DateRangeSettings {
+    enabled: boolean;
+    startDate: string;
+    endDate: string;
+    timestamp: string;
+}
+
+export interface Filter {
+    id: string;
+    metric: string;
+    minValue?: number;
+    maxValue?: number;
+}
+
+// Simplified message types - only essential properties
 export interface MessageRequest {
     action: string;
     data?: ExtractedItem[];
     strategies?: StrategySettings[];
     dateRangeSettings?: DateRangeSettings;
-    optimisationConfig?: OptimisationConfig;
     savedOptimisationConfigs?: SavedOptimisationConfig[];
+    optimisationConfig?: OptimisationConfig;
     filter?: 'all' | 'long' | 'short' | 'none';
     strategyIndex?: number;
 }
@@ -95,8 +96,8 @@ export interface MessageResponse {
     data?: ExtractedItem[];
     strategies?: StrategySettings[];
     dateRangeSettings?: DateRangeSettings;
-    optimisationConfig?: OptimisationConfig;
     savedOptimisationConfigs?: SavedOptimisationConfig[];
+    optimisationConfig?: OptimisationConfig;
     message?: string;
     error?: string;
 }

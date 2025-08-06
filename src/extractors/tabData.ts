@@ -23,7 +23,10 @@ export class TabDataExtractor {
             .map((cell, index) => {
                 const getText = (selector: string) => cell.querySelector(selector)?.textContent?.trim();
 
-                const title = getText(SELECTORS.overview.title) || `Item ${index + 1}`;
+                const titleText = getText(SELECTORS.overview.title);
+                if (!titleText) return null; // Skip items without titles
+
+                const title = titleText;
                 const value = getText(SELECTORS.overview.value);
 
                 if (!value) return null;
@@ -67,7 +70,10 @@ export class TabDataExtractor {
             const valueElements = row.querySelectorAll(SELECTORS.table.valueCell);
 
             if (metricElement && valueElements.length > 0) {
-                const title = metricElement.textContent?.trim() || `Metric ${index + 1}`;
+                const titleText = metricElement.textContent?.trim();
+                if (!titleText) return; // Skip metrics without titles
+
+                const title = titleText;
 
                 const columnNames = ['All', 'Long', 'Short'];
                 const filterIndices = {

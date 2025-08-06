@@ -17,6 +17,10 @@ export class MessageHandler {
     }
 
     async handle(request: MessageRequest): Promise<MessageResponse> {
+        if (!request || !request.action) {
+            return { success: false, message: 'Invalid request - missing action' };
+        }
+
         const response: MessageResponse = { success: false };
 
         switch (request.action) {
@@ -38,7 +42,11 @@ export class MessageHandler {
     }
 
     private handleExtractData(request: MessageRequest): MessageResponse {
-        const filter = request.filter || 'all';
+        if (!request.filter) {
+            return { success: false, message: 'Filter parameter is required for data extraction' };
+        }
+
+        const filter = request.filter;
         this.tabDataExtractor = new TabDataExtractor(filter);
         const data = this.tabDataExtractor.extract();
 
@@ -69,11 +77,19 @@ export class MessageHandler {
             const strategySettings = await this.strategyExtractor.openSettings(request.strategyIndex);
 
             if (strategySettings) {
-                // Get existing strategies and update the specific one
-                const existingStrategies = this.strategyExtractor.extract();
+                // Get existing strategies from storage, not from DOM extraction
+                const { storageGet } = await import('../utils');
+                const { STORAGE_KEYS } = await import('../config');
+                const storageResult = await storageGet(STORAGE_KEYS.strategies);
+                const existingStrategies = storageResult[STORAGE_KEYS.strategies];
 
-                if (existingStrategies[request.strategyIndex]) {
-                    existingStrategies[request.strategyIndex] = strategySettings;
+                // Update the specific strategy with new settings
+                if (Array.isArray(existingStrategies) && existingStrategies[request.strategyIndex]) {
+                    existingStrategies[request.strategyIndex] = {
+                        ...existingStrategies[request.strategyIndex],
+                        ...strategySettings,
+                        timestamp: strategySettings.timestamp
+                    };
 
                     // Save the updated strategies back to storage
                     const { sendMessage } = await import('../utils');
@@ -83,7 +99,7 @@ export class MessageHandler {
 
                 return {
                     success: true,
-                    strategies: existingStrategies,
+                    strategies: [strategySettings], // Return only the updated strategy
                     message: `Extracted settings for: ${strategySettings.name} (${strategySettings.settings.length} parameters)`
                 };
             } else {

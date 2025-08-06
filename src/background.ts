@@ -11,7 +11,11 @@ import type {
 import { runtime, storageSet } from './utils';
 
 runtime.onMessage.addListener(
-    (request: MessageRequest, sender: any, sendResponse: (response: MessageResponse) => void): boolean | void => {
+    (
+        request: MessageRequest,
+        _sender: chrome.runtime.MessageSender,
+        sendResponse: (response: MessageResponse) => void
+    ): boolean | void => {
         if (request.action === MESSAGES.saveData && request.data) {
             storageSet({ [STORAGE_KEYS.extractedData]: request.data })
                 .then(() => {
@@ -62,8 +66,8 @@ runtime.onMessage.addListener(
                     sendResponse({ success: false, error: errorMessage });
                 });
             return true;
-        } else {
-            sendResponse({ success: false, error: 'Invalid action or missing data' });
         }
+
+        return false; // Don't respond to other messages - let them go to content script
     }
 );

@@ -2,9 +2,11 @@ import React from 'react';
 import { Input, Card } from '../ui';
 import type { OptimisationParameter } from '../../types';
 
+type ParameterValue = string | number | boolean;
+
 interface OptimisationParametersProps {
     parameters: OptimisationParameter[];
-    onParameterChange: (index: number, field: keyof OptimisationParameter, value: any) => void;
+    onParameterChange: (index: number, field: keyof OptimisationParameter, value: ParameterValue) => void;
 }
 
 export const OptimisationParametersCard: React.FC<OptimisationParametersProps> = ({

@@ -7,27 +7,26 @@ export class DateRangeHandler {
     /**
      * Change the backtest date range
      * @param enabled Whether to use custom date range or "Range from chart"
-     * @param startDate Start date in YYYY-MM-DD format (optional, defaults to 1 year ago)
-     * @param endDate End date in YYYY-MM-DD format (optional, defaults to today)
+     * @param startDate Start date in YYYY-MM-DD format (required when enabled=true)
+     * @param endDate End date in YYYY-MM-DD format (required when enabled=true)
      * @returns Object with success status and additional info
      */
     async changeDateRange(
         enabled: boolean,
-        startDate?: string,
-        endDate?: string
+        startDate: string,
+        endDate: string
     ): Promise<{ success: boolean; alreadySet?: boolean }> {
-        try {
-            const mainButton = (await this.waitForElement(SELECTORS.dateRange.mainButton)) as HTMLButtonElement;
-            if (!mainButton) throw new Error('Could not find date range button');
+        const mainButton = (await this.waitForElement(SELECTORS.dateRange.mainButton)) as HTMLButtonElement;
+        if (!mainButton) throw new Error('Could not find date range button');
 
-            mainButton.click();
-            await this.sleep(500);
+        mainButton.click();
+        await this.sleep(500);
 
-            return enabled ? this.selectCustomDateRange(startDate, endDate) : this.selectRangeFromChart();
-        } catch (error) {
-            console.error('Error changing date range:', error);
-            return { success: false };
-        }
+        const result = enabled
+            ? await this.selectCustomDateRange(startDate, endDate)
+            : await this.selectRangeFromChart();
+
+        return result;
     }
 
     private async selectRangeFromChart(): Promise<{ success: boolean }> {
@@ -39,8 +38,8 @@ export class DateRangeHandler {
     }
 
     private async selectCustomDateRange(
-        startDate?: string,
-        endDate?: string
+        startDate: string,
+        endDate: string
     ): Promise<{ success: boolean; alreadySet?: boolean }> {
         const customDateRange = (await this.waitForElement(SELECTORS.dateRange.customDateRange)) as HTMLElement;
         if (!customDateRange) {
@@ -62,14 +61,14 @@ export class DateRangeHandler {
         return this.submitDateRange();
     }
 
-    private getDateRange(startDate?: string, endDate?: string): { finalStartDate: string; finalEndDate: string } {
+    private getDateRange(startDate: string, endDate: string): { finalStartDate: string; finalEndDate: string } {
         const today = new Date();
         const oneYearAgo = new Date(today);
         oneYearAgo.setFullYear(today.getFullYear() - 1);
 
         return {
-            finalStartDate: startDate || this.formatDate(oneYearAgo),
-            finalEndDate: endDate || this.formatDate(today)
+            finalStartDate: startDate,
+            finalEndDate: endDate
         };
     }
 
