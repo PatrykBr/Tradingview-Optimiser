@@ -11,7 +11,7 @@
     "build:all": "npm run build:chrome && npm run build:firefox"
   },
   "dependencies": {
-    "@tailwindcss/postcss": "^4.1.7",
+    "@tailwindcss/postcss": "^4.1.14",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
