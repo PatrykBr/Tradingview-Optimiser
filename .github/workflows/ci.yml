@@ -75,14 +75,14 @@ jobs:
       run: npm run build:firefox
       
     - name: Upload Chrome build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: chrome-extension
         path: dist/chrome/
         retention-days: 30
         
     - name: Upload Firefox build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: firefox-extension
         path: dist/firefox/
