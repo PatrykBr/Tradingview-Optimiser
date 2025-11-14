@@ -16,6 +16,7 @@ A browser extension that optimizes TradingView strategy parameters using Bayesia
 ## Installation
 
 ### Browser Extension
+
 1. Download the latest release
 2. Extract the ZIP file
 3. Open Chrome/Firefox and go to extensions
@@ -23,6 +24,7 @@ A browser extension that optimizes TradingView strategy parameters using Bayesia
 5. Click "Load unpacked" and select the extracted folder
 
 ### Python Backend
+
 ```bash
 pip install -r requirements.txt
 python start_server.py

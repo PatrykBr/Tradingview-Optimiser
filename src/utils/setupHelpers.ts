@@ -1,44 +1,41 @@
 import type { OptimisationParameter, StrategySettings } from '../types';
 import { storageHelpers, sendToActiveTab } from '../utils';
-import { MESSAGES } from '../config';
+import { MESSAGES, UI_TEXT } from '../config';
 
 /**
  * Load strategies from storage
+ * Returns empty array if no strategies found
  */
 export const loadStrategiesFromStorage = async (): Promise<StrategySettings[]> => {
     try {
         return await storageHelpers.getStrategies();
-    } catch (error) {
-        console.log('No strategies in storage, will need to extract from TradingView');
+    } catch {
         return [];
     }
 };
 
 /**
  * Extract strategies from TradingView page
+ * Returns empty array if extraction fails
  */
 export const extractStrategiesFromTradingView = async (): Promise<StrategySettings[]> => {
     try {
         const response = await sendToActiveTab({ action: MESSAGES.extractStrategies });
         if (response?.strategies) {
-            console.log(`Extracted ${response.strategies.length} strategies from TradingView`);
             await storageHelpers.saveStrategies(response.strategies);
             return response.strategies;
         }
-    } catch (error) {
-        console.error('Failed to extract strategies from TradingView:', error);
+    } catch {
+        // Silently handle extraction failure
     }
     return [];
 };
 
 /**
  * Load strategy settings for a specific strategy
+ * @throws Error if extraction fails or no settings found
  */
-export const loadStrategySettings = async (
-    strategyIndex: number,
-    logPrefix = 'Loading'
-): Promise<StrategySettings['settings']> => {
-    console.log(`${logPrefix} strategy settings for strategy at index ${strategyIndex}`);
+export const loadStrategySettings = async (strategyIndex: number): Promise<StrategySettings['settings']> => {
     const response = await sendToActiveTab({ action: MESSAGES.openStrategySettings, strategyIndex });
 
     if (!response.success) {
@@ -49,11 +46,6 @@ export const loadStrategySettings = async (
     if (!strategy?.settings) {
         throw new Error('No strategy settings found');
     }
-
-    console.log('Strategy settings loaded successfully:', {
-        strategyName: strategy.name,
-        parameterCount: strategy.settings.length || 0
-    });
 
     return strategy.settings;
 };
@@ -85,19 +77,12 @@ export const mergeParametersWithSavedConfig = (
         savedParamMap.set(param.label, param);
     });
 
-    console.log(
-        `Merging ${allStrategySettings.length} strategy parameters with ${savedParameters.length} saved parameters`
-    );
-
     // Create full parameter list from strategy settings
     const mergedParams = allStrategySettings.map(setting => {
         const savedParam = savedParamMap.get(setting.label);
 
         if (savedParam) {
             // Use saved configuration (enabled with custom min/max values)
-            console.log(
-                `Applying saved config for parameter "${setting.label}": enabled=${savedParam.enabled}, min=${savedParam.minValue}, max=${savedParam.maxValue}`
-            );
             return {
                 ...savedParam,
                 currentValue: setting.value, // Always use current strategy value
@@ -116,33 +101,5 @@ export const mergeParametersWithSavedConfig = (
         }
     });
 
-    const enabledCount = mergedParams.filter(p => p.enabled).length;
-    const strategyParamNames = new Set(allStrategySettings.map(s => s.label));
-    const missingSavedParams = savedParameters.filter(p => !strategyParamNames.has(p.label));
-
-    if (missingSavedParams.length > 0) {
-        console.warn(
-            `Warning: ${missingSavedParams.length} saved parameters not found in current strategy:`,
-            missingSavedParams.map(p => p.label)
-        );
-    }
-
-    console.log(`Merge complete: ${mergedParams.length} total parameters, ${enabledCount} enabled`);
-
     return mergedParams;
 };
-
-/**
- * Finds strategy index by name
- */
-export const findStrategyIndex = (strategies: StrategySettings[], strategyName: string): number =>
-    strategies.findIndex(s => s.name === strategyName);
-
-/**
- * Creates configuration object
- */
-export const createConfig = (strategyName: string, parameters: OptimisationParameter[]) => ({
-    strategyName,
-    parameters: parameters.filter(p => p.enabled),
-    timestamp: new Date().toISOString()
-});

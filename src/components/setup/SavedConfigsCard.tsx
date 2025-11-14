@@ -1,4 +1,4 @@
-import React from 'react';
+import { memo, useMemo } from 'react';
 import { Button, Select, Card } from '../ui';
 import type { SavedOptimisationConfig } from '../../types';
 
@@ -6,27 +6,28 @@ interface SavedConfigsProps {
     savedConfigs: SavedOptimisationConfig[];
     selectedSavedConfig: string;
     onSelectedConfigChange: (configId: string) => void;
-    onLoadConfig: () => void;
     onDeleteConfig: () => void;
 }
 
-export const SavedConfigsCard: React.FC<SavedConfigsProps> = ({
+export const SavedConfigsCard = memo(function SavedConfigsCard({
     savedConfigs,
     selectedSavedConfig,
     onSelectedConfigChange,
-    onLoadConfig,
     onDeleteConfig
-}) => {
-    const savedConfigOptions =
-        savedConfigs.length > 0
-            ? [
-                  { value: '', label: 'Select a saved configuration...' },
-                  ...savedConfigs.map(config => ({
-                      value: config.id,
-                      label: config.name
-                  }))
-              ]
-            : [{ value: '', label: 'No saved configurations for this strategy' }];
+}: SavedConfigsProps) {
+    const savedConfigOptions = useMemo(
+        () =>
+            savedConfigs.length > 0
+                ? [
+                      { value: '', label: 'Select a saved configuration...' },
+                      ...savedConfigs.map(config => ({
+                          value: config.id,
+                          label: config.name
+                      }))
+                  ]
+                : [{ value: '', label: 'No saved configurations for this strategy' }],
+        [savedConfigs]
+    );
 
     return (
         <Card title='Saved Configurations'>
@@ -37,15 +38,10 @@ export const SavedConfigsCard: React.FC<SavedConfigsProps> = ({
                     onChange={e => onSelectedConfigChange(e.target.value)}
                     disabled={savedConfigs.length === 0}
                 />
-                <div className='flex gap-2'>
-                    <Button variant='error' onClick={onDeleteConfig} disabled={!selectedSavedConfig}>
-                        🗑️ Delete
-                    </Button>
-                    <Button variant='secondary' onClick={onLoadConfig} disabled={!selectedSavedConfig}>
-                        📂 Load
-                    </Button>
-                </div>
+                <Button variant='error' onClick={onDeleteConfig} disabled={!selectedSavedConfig} className='w-full'>
+                    🗑️ Delete Configuration
+                </Button>
             </div>
         </Card>
     );
-};
+});

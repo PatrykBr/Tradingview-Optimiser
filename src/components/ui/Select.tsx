@@ -1,12 +1,17 @@
-import React from 'react';
+import { memo } from 'react';
+import type { SelectHTMLAttributes } from 'react';
 
-interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
-    label?: string;
-    error?: string;
-    options: Array<{ value: string; label: string; disabled?: boolean }>;
+interface SelectOption {
+    value: string;
+    label: string;
 }
 
-export const Select: React.FC<SelectProps> = ({ label, error, options, className = '', ...props }) => {
+interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+    options: SelectOption[];
+    label?: string;
+}
+
+export const Select = memo(function Select({ options, label, className = '', ...props }: SelectProps) {
     return (
         <div className='space-y-1'>
             {label && (
@@ -14,18 +19,13 @@ export const Select: React.FC<SelectProps> = ({ label, error, options, className
                     {label}
                 </label>
             )}
-            <select className={`select ${error ? 'border-red-500' : ''} ${className}`} {...props}>
+            <select className={`select ${className}`} {...props}>
                 {options.map(option => (
-                    <option key={option.value} value={option.value} disabled={option.disabled}>
+                    <option key={option.value} value={option.value}>
                         {option.label}
                     </option>
                 ))}
             </select>
-            {error && (
-                <p className='text-sm' style={{ color: 'var(--color-popup-error)' }}>
-                    {error}
-                </p>
-            )}
         </div>
     );
-};
+});

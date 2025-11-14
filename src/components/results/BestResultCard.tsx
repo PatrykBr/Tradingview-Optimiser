@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card } from '../ui';
 import type { OptimisationResult } from '../../types';
 
@@ -6,7 +5,7 @@ interface BestResultProps {
     bestResult: OptimisationResult;
 }
 
-export const BestResultCard: React.FC<BestResultProps> = ({ bestResult }) => {
+export function BestResultCard({ bestResult }: BestResultProps) {
     const formatValue = (value: number): string => {
         if (Math.abs(value) < 1000) {
             return value.toFixed(2);
@@ -47,4 +46,4 @@ export const BestResultCard: React.FC<BestResultProps> = ({ bestResult }) => {
             </div>
         </Card>
     );
-};
+}

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Input, Card } from '../ui';
 
 interface AntiDetectionProps {
@@ -8,12 +7,7 @@ interface AntiDetectionProps {
     onMaxDelayChange: (delay: number) => void;
 }
 
-export const AntiDetectionCard: React.FC<AntiDetectionProps> = ({
-    minDelay,
-    maxDelay,
-    onMinDelayChange,
-    onMaxDelayChange
-}) => {
+export function AntiDetectionCard({ minDelay, maxDelay, onMinDelayChange, onMaxDelayChange }: AntiDetectionProps) {
     return (
         <Card title='Anti-Detection Delays'>
             <div className='grid grid-cols-2 gap-4'>
@@ -36,4 +30,4 @@ export const AntiDetectionCard: React.FC<AntiDetectionProps> = ({
             </div>
         </Card>
     );
-};
+}

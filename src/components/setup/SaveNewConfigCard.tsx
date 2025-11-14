@@ -1,4 +1,3 @@
-import React from 'react';
 import { Button, Input, Card } from '../ui';
 
 interface SaveNewConfigProps {
@@ -10,14 +9,14 @@ interface SaveNewConfigProps {
     onSaveConfig: () => void;
 }
 
-export const SaveNewConfigCard: React.FC<SaveNewConfigProps> = ({
+export function SaveNewConfigCard({
     configName,
     configDescription,
     hasSelectedStrategy,
     onConfigNameChange,
     onConfigDescriptionChange,
     onSaveConfig
-}) => {
+}: SaveNewConfigProps) {
     return (
         <Card title='Save New Configuration'>
             <div className='space-y-4'>
@@ -39,4 +38,4 @@ export const SaveNewConfigCard: React.FC<SaveNewConfigProps> = ({
             </div>
         </Card>
     );
-};
+}

@@ -1,9 +1,10 @@
-import { SELECTORS } from '../config';
+import { SELECTORS, TIMING, UI_TEXT } from '../config';
 
+/**
+ * Handles date range changes in TradingView's backtesting interface
+ * Interacts with TradingView's date range picker to set custom or chart-based ranges
+ */
 export class DateRangeHandler {
-    private static readonly WAIT_TIMEOUT = 5000;
-    private static readonly RETRY_INTERVAL = 100;
-
     /**
      * Change the backtest date range
      * @param enabled Whether to use custom date range or "Range from chart"
@@ -17,10 +18,10 @@ export class DateRangeHandler {
         endDate: string
     ): Promise<{ success: boolean; alreadySet?: boolean }> {
         const mainButton = (await this.waitForElement(SELECTORS.dateRange.mainButton)) as HTMLButtonElement;
-        if (!mainButton) throw new Error('Could not find date range button');
+        if (!mainButton) throw new Error(UI_TEXT.errors.dateRangeButtonNotFound);
 
         mainButton.click();
-        await this.sleep(500);
+        await this.sleep(TIMING.MENU_OPEN_DELAY);
 
         const result = enabled
             ? await this.selectCustomDateRange(startDate, endDate)
@@ -31,7 +32,7 @@ export class DateRangeHandler {
 
     private async selectRangeFromChart(): Promise<{ success: boolean }> {
         const rangeFromChart = (await this.waitForElement(SELECTORS.dateRange.rangeFromChart)) as HTMLElement;
-        if (!rangeFromChart) throw new Error('Could not find "Range from chart" option');
+        if (!rangeFromChart) throw new Error(UI_TEXT.errors.rangeFromChartNotFound);
 
         rangeFromChart.click();
         return { success: true };
@@ -43,44 +44,31 @@ export class DateRangeHandler {
     ): Promise<{ success: boolean; alreadySet?: boolean }> {
         const customDateRange = (await this.waitForElement(SELECTORS.dateRange.customDateRange)) as HTMLElement;
         if (!customDateRange) {
-            throw new Error('Could not find "Custom date range" option');
+            throw new Error(UI_TEXT.errors.customDateRangeNotFound);
         }
 
         customDateRange.click();
-        await this.sleep(500);
+        await this.sleep(TIMING.MENU_OPEN_DELAY);
 
         const dialog = await this.waitForElement(SELECTORS.dateRange.dialog);
         if (!dialog) {
-            throw new Error('Could not find date range dialog');
+            throw new Error(UI_TEXT.errors.dateRangeDialogNotFound);
         }
 
-        const { finalStartDate, finalEndDate } = this.getDateRange(startDate, endDate);
-
-        await this.setDateInputs(finalStartDate, finalEndDate);
+        await this.setDateInputs(startDate, endDate);
 
         return this.submitDateRange();
-    }
-
-    private getDateRange(startDate: string, endDate: string): { finalStartDate: string; finalEndDate: string } {
-        const today = new Date();
-        const oneYearAgo = new Date(today);
-        oneYearAgo.setFullYear(today.getFullYear() - 1);
-
-        return {
-            finalStartDate: startDate,
-            finalEndDate: endDate
-        };
     }
 
     private async setDateInputs(startDate: string, endDate: string): Promise<void> {
         const startDateInput = (await this.waitForElement(SELECTORS.dateRange.startDateInput)) as HTMLInputElement;
         if (!startDateInput) {
-            throw new Error('Could not find start date input');
+            throw new Error(UI_TEXT.errors.startDateInputNotFound);
         }
 
         const endDateInput = (await this.waitForElement(SELECTORS.dateRange.endDateInput)) as HTMLInputElement;
         if (!endDateInput) {
-            throw new Error('Could not find end date input');
+            throw new Error(UI_TEXT.errors.endDateInputNotFound);
         }
 
         await this.setInputValue(startDateInput, startDate);
@@ -90,7 +78,7 @@ export class DateRangeHandler {
     private async submitDateRange(): Promise<{ success: boolean; alreadySet?: boolean }> {
         const selectButton = (await this.waitForElement(SELECTORS.dateRange.selectButton)) as HTMLButtonElement;
         if (!selectButton) {
-            throw new Error('Could not find Select button');
+            throw new Error(UI_TEXT.errors.selectButtonNotFound);
         }
 
         const isDisabled =
@@ -100,25 +88,19 @@ export class DateRangeHandler {
             return this.handleDisabledSelectButton();
         }
 
-        await this.sleep(500);
+        await this.sleep(TIMING.MENU_OPEN_DELAY);
         selectButton.click();
         return { success: true };
     }
 
     private async handleDisabledSelectButton(): Promise<{ success: boolean; alreadySet: boolean }> {
         const cancelButton = (await this.waitForElement(SELECTORS.dateRange.cancelButton)) as HTMLButtonElement;
-        if (cancelButton) {
-            cancelButton.click();
-            return { success: true, alreadySet: true };
+        if (!cancelButton) {
+            throw new Error('Select button is disabled and Cancel button not found');
         }
 
-        const closeButton = (await this.waitForElement(SELECTORS.dateRange.closeButton)) as HTMLButtonElement;
-        if (closeButton) {
-            closeButton.click();
-            return { success: true, alreadySet: true };
-        }
-
-        throw new Error('Select button is disabled and could not find Cancel/Close button');
+        cancelButton.click();
+        return { success: true, alreadySet: true };
     }
 
     /**
@@ -140,17 +122,7 @@ export class DateRangeHandler {
         input.dispatchEvent(changeEvent);
 
         // Add a small delay to ensure the UI processes the change
-        await this.sleep(100);
-    }
-
-    /**
-     * Format a date to YYYY-MM-DD format
-     */
-    private formatDate(date: Date): string {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
+        await this.sleep(TIMING.INPUT_CHANGE_DELAY);
     }
 
     /**
@@ -159,12 +131,12 @@ export class DateRangeHandler {
     private async waitForElement(selector: string): Promise<Element | null> {
         const startTime = Date.now();
 
-        while (Date.now() - startTime < DateRangeHandler.WAIT_TIMEOUT) {
+        while (Date.now() - startTime < TIMING.ELEMENT_WAIT_TIMEOUT) {
             const element = document.querySelector(selector);
             if (element) {
                 return element;
             }
-            await this.sleep(DateRangeHandler.RETRY_INTERVAL);
+            await this.sleep(TIMING.ELEMENT_RETRY_INTERVAL);
         }
 
         return null;

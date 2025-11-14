@@ -1,11 +1,11 @@
-import React from 'react';
+import { memo } from 'react';
+import type { InputHTMLAttributes } from 'react';
 
-interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
     label?: string;
-    error?: string;
 }
 
-export const Input: React.FC<InputProps> = ({ label, error, className = '', ...props }) => {
+export const Input = memo(function Input({ label, className = '', ...props }: InputProps) {
     return (
         <div className='space-y-1'>
             {label && (
@@ -13,12 +13,7 @@ export const Input: React.FC<InputProps> = ({ label, error, className = '', ...p
                     {label}
                 </label>
             )}
-            <input className={`input ${error ? 'border-red-500' : ''} ${className}`} {...props} />
-            {error && (
-                <p className='text-sm' style={{ color: 'var(--color-popup-error)' }}>
-                    {error}
-                </p>
-            )}
+            <input className={`input ${className}`} {...props} />
         </div>
     );
-};
+});

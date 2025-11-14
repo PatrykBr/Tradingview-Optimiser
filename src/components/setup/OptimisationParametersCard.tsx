@@ -1,18 +1,12 @@
-import React from 'react';
 import { Input, Card } from '../ui';
-import type { OptimisationParameter } from '../../types';
-
-type ParameterValue = string | number | boolean;
+import type { OptimisationParameter, ParameterValue } from '../../types';
 
 interface OptimisationParametersProps {
     parameters: OptimisationParameter[];
     onParameterChange: (index: number, field: keyof OptimisationParameter, value: ParameterValue) => void;
 }
 
-export const OptimisationParametersCard: React.FC<OptimisationParametersProps> = ({
-    parameters,
-    onParameterChange
-}) => {
+export function OptimisationParametersCard({ parameters, onParameterChange }: OptimisationParametersProps) {
     return (
         <Card title='Optimisation Parameters'>
             <p className='text-popup-text-secondary mb-4'>
@@ -62,4 +56,4 @@ export const OptimisationParametersCard: React.FC<OptimisationParametersProps> =
             </div>
         </Card>
     );
-};
+}

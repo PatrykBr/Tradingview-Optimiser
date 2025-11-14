@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card } from '../ui';
 import type { OptimisationConfig } from '../../types';
 
@@ -6,7 +5,7 @@ interface CurrentConfigProps {
     config: OptimisationConfig;
 }
 
-export const CurrentConfigCard: React.FC<CurrentConfigProps> = ({ config }) => {
+export function CurrentConfigCard({ config }: CurrentConfigProps) {
     return (
         <Card title='Current Configuration'>
             <div className='space-y-2'>
@@ -26,4 +25,4 @@ export const CurrentConfigCard: React.FC<CurrentConfigProps> = ({ config }) => {
             </div>
         </Card>
     );
-};
+}

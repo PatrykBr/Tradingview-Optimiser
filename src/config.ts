@@ -27,10 +27,11 @@ export const SELECTORS = {
     settingsDialog: {
         container: '[data-dialog-name]',
         title: '.title-BZKENkhT .ellipsis-BZKENkhT',
-        inputLabels: '.cell-tBgV1m0B.first-tBgV1m0B .inner-tBgV1m0B',
-        inputValues: '.cell-tBgV1m0B:not(.first-tBgV1m0B) .inner-tBgV1m0B input',
+        inputLabels: '.cell-RLntasnw.first-RLntasnw .inner-RLntasnw',
+        inputValues: '.cell-RLntasnw:not(.first-RLntasnw) .inner-RLntasnw input',
         closeButton: 'button[data-name="close"]',
-        cancelButton: 'button[name="cancel"]'
+        cancelButton: 'button[name="cancel"]',
+        okButton: 'button[name="submit"]'
     },
     dateRange: {
         // Main date range button that opens the menu
@@ -79,3 +80,45 @@ export const AVAILABLE_METRICS = [
     { value: 'sharpeRatio', label: 'Sharpe Ratio' },
     { value: 'winRate', label: 'Win Rate' }
 ] as const;
+
+// Timing constants for DOM interactions (TradingView UI delays)
+export const TIMING = {
+    // Wait time for elements to appear in DOM
+    ELEMENT_WAIT_TIMEOUT: 5000,
+    ELEMENT_RETRY_INTERVAL: 100,
+
+    // Delays for UI interactions
+    MENU_OPEN_DELAY: 500,
+    DIALOG_OPEN_DELAY: 300,
+    INPUT_CHANGE_DELAY: 100,
+    DIALOG_CLOSE_DELAY: 300
+} as const;
+
+// UI text constants
+export const UI_TEXT = {
+    errors: {
+        noActiveTab: 'No active tab found',
+        noStrategies: 'No strategies found in storage - please extract strategies first',
+        strategyContainerNotFound: 'Strategy container not found - ensure you are on a TradingView chart page',
+        invalidStrategyIndex: (index: number, total: number) =>
+            `Invalid strategy index: ${index}. Found ${total} strategies`,
+        settingsButtonNotFound: (index: number) => `Settings button not found for strategy at index ${index}`,
+        dialogNotAppear: 'Settings dialog did not appear - try again or check TradingView page status',
+        dialogNoTitle: 'Strategy dialog has no title - DOM structure may have changed',
+        dateRangeButtonNotFound: 'Could not find date range button',
+        rangeFromChartNotFound: 'Could not find "Range from chart" option',
+        customDateRangeNotFound: 'Could not find "Custom date range" option',
+        dateRangeDialogNotFound: 'Could not find date range dialog',
+        startDateInputNotFound: 'Could not find start date input',
+        endDateInputNotFound: 'Could not find end date input',
+        selectButtonNotFound: 'Could not find Select button'
+    },
+    success: {
+        strategiesExtracted: (count: number) => `Found ${count} strategies`,
+        settingsExtracted: (name: string, count: number) => `Extracted settings for: ${name} (${count} parameters)`,
+        dateRangeSet: (start: string, end: string) => `Date range set to ${start} - ${end}`,
+        dateRangeSetToChart: 'Date range set to chart range',
+        dateRangeAlreadySet: (start: string, end: string) => `Date range was already set to ${start} - ${end}`,
+        dateRangeAlreadyChart: 'Date range was already set to chart range'
+    }
+} as const;

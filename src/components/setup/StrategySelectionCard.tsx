@@ -1,4 +1,4 @@
-import React from 'react';
+import { memo, useMemo } from 'react';
 import { Button, Select, Card } from '../ui';
 
 interface StrategySelectionProps {
@@ -7,24 +7,25 @@ interface StrategySelectionProps {
     isLoading: boolean;
     onStrategyChange: (strategy: string) => void;
     onRefreshStrategies: () => void;
-    onLoadSettings?: () => void;
 }
 
-export const StrategySelectionCard: React.FC<StrategySelectionProps> = ({
+export const StrategySelectionCard = memo(function StrategySelectionCard({
     strategies,
     selectedStrategy,
     isLoading,
     onStrategyChange,
-    onRefreshStrategies,
-    onLoadSettings
-}) => {
-    const strategyOptions = [
-        { value: '', label: isLoading ? 'Loading strategies...' : 'Select a strategy...' },
-        ...strategies.map((strategy, index) => ({
-            value: index.toString(),
-            label: strategy.name
-        }))
-    ];
+    onRefreshStrategies
+}: StrategySelectionProps) {
+    const strategyOptions = useMemo(
+        () => [
+            { value: '', label: isLoading ? 'Loading strategies...' : 'Select a strategy...' },
+            ...strategies.map((strategy, index) => ({
+                value: index.toString(),
+                label: strategy.name
+            }))
+        ],
+        [strategies, isLoading]
+    );
 
     return (
         <Card title='Strategy Selection'>
@@ -38,14 +39,9 @@ export const StrategySelectionCard: React.FC<StrategySelectionProps> = ({
                     />
                 </div>
                 <Button variant='secondary' onClick={onRefreshStrategies} className='shrink-0'>
-                    🔄
+                    🔄 Refresh
                 </Button>
-                {selectedStrategy && onLoadSettings && (
-                    <Button variant='primary' onClick={onLoadSettings} className='shrink-0'>
-                        ⚙️
-                    </Button>
-                )}
             </div>
         </Card>
     );
-};
+});

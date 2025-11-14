@@ -17,7 +17,15 @@ module.exports = env => {
             rules: [
                 {
                     test: /\.tsx?$/,
-                    use: 'ts-loader',
+                    use: {
+                        loader: 'ts-loader',
+                        options: {
+                            transpileOnly: true,
+                            compilerOptions: {
+                                noEmit: false
+                            }
+                        }
+                    },
                     exclude: /node_modules/
                 },
                 {
@@ -27,12 +35,23 @@ module.exports = env => {
             ]
         },
         resolve: {
-            extensions: ['.tsx', '.ts', '.js']
+            extensions: ['.tsx', '.ts', '.js'],
+            extensionAlias: {
+                '.js': ['.js', '.ts', '.tsx']
+            }
         },
         output: {
             filename: '[name].js',
             path: path.resolve(__dirname, isFirefox ? 'dist-firefox' : 'dist'),
-            clean: true
+            clean: true,
+            environment: {
+                arrowFunction: true,
+                const: true,
+                destructuring: true,
+                forOf: true,
+                optionalChaining: true,
+                module: true
+            }
         },
         plugins: [
             new webpack.DefinePlugin({
@@ -48,6 +67,21 @@ module.exports = env => {
                 ]
             })
         ],
-        devtool: isDev ? 'source-map' : false
+        optimization: {
+            minimize: !isDev,
+            moduleIds: 'deterministic',
+            runtimeChunk: false,
+            splitChunks: false
+        },
+        devtool: isDev ? 'source-map' : false,
+        cache: {
+            type: 'filesystem',
+            cacheDirectory: path.resolve(__dirname, '.webpack-cache')
+        },
+        performance: {
+            hints: isDev ? false : 'warning',
+            maxEntrypointSize: 512000,
+            maxAssetSize: 512000
+        }
     };
 };

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Button, Card } from '../ui';
 
 interface ActionsCardProps {
@@ -10,14 +9,14 @@ interface ActionsCardProps {
     onExportJSON: () => void;
 }
 
-export const ActionsCard: React.FC<ActionsCardProps> = ({
+export function ActionsCard({
     hasResults,
     hasBestResult,
     isOptimising,
     onApplyBest,
     onExportCSV,
     onExportJSON
-}) => {
+}: ActionsCardProps) {
     if (!hasResults) return null;
 
     return (
@@ -35,4 +34,4 @@ export const ActionsCard: React.FC<ActionsCardProps> = ({
             </div>
         </Card>
     );
-};
+}

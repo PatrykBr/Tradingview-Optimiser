@@ -1,4 +1,4 @@
-import React from 'react';
+import { memo, useMemo } from 'react';
 import { Select, Input, Card } from '../ui';
 import { AVAILABLE_METRICS } from '../../config';
 
@@ -9,13 +9,16 @@ interface OptimisationConfigProps {
     onIterationsChange: (iterations: number) => void;
 }
 
-export const OptimisationConfigCard: React.FC<OptimisationConfigProps> = ({
+export const OptimisationConfigCard = memo(function OptimisationConfigCard({
     metric,
     iterations,
     onMetricChange,
     onIterationsChange
-}) => {
-    const metricOptions = [{ value: '', label: 'Select metric to optimise...' }, ...AVAILABLE_METRICS];
+}: OptimisationConfigProps) {
+    const metricOptions = useMemo(
+        () => [{ value: '', label: 'Select metric to optimise...' }, ...AVAILABLE_METRICS],
+        []
+    );
 
     return (
         <Card title='Optimisation Configuration'>
@@ -39,4 +42,4 @@ export const OptimisationConfigCard: React.FC<OptimisationConfigProps> = ({
             </div>
         </Card>
     );
-};
+});

@@ -1,10 +1,14 @@
-import { MESSAGES } from '../config';
+import { MESSAGES, STORAGE_KEYS, UI_TEXT } from '../config';
 import type { MessageRequest, MessageResponse } from '../types';
 import { TabDataExtractor } from '../extractors/tabData';
 import { StrategyExtractor } from '../extractors/strategy';
 import { DateRangeHandler } from './dateRangeHandler';
-import { sendMessage } from '../utils';
+import { sendMessage, storageGet } from '../utils';
 
+/**
+ * Central message handler for content script
+ * Routes messages to appropriate extractors and handlers
+ */
 export class MessageHandler {
     private tabDataExtractor: TabDataExtractor;
     private strategyExtractor: StrategyExtractor;
@@ -16,6 +20,11 @@ export class MessageHandler {
         this.dateRangeHandler = new DateRangeHandler();
     }
 
+    /**
+     * Handle incoming messages and route to appropriate handler
+     * @param request - The message request to process
+     * @returns Response indicating success/failure and any data
+     */
     async handle(request: MessageRequest): Promise<MessageResponse> {
         if (!request || !request.action) {
             return { success: false, message: 'Invalid request - missing action' };
@@ -64,7 +73,7 @@ export class MessageHandler {
         return {
             success: true,
             strategies: strategies,
-            message: `Found ${strategies.length} strategies`
+            message: UI_TEXT.success.strategiesExtracted(strategies.length)
         };
     }
 
@@ -76,38 +85,27 @@ export class MessageHandler {
         try {
             const strategySettings = await this.strategyExtractor.openSettings(request.strategyIndex);
 
-            if (strategySettings) {
-                // Get existing strategies from storage, not from DOM extraction
-                const { storageGet } = await import('../utils');
-                const { STORAGE_KEYS } = await import('../config');
-                const storageResult = await storageGet(STORAGE_KEYS.strategies);
-                const existingStrategies = storageResult[STORAGE_KEYS.strategies];
+            // Get existing strategies from storage
+            const storageResult = await storageGet(STORAGE_KEYS.strategies);
+            const existingStrategies = storageResult[STORAGE_KEYS.strategies];
 
-                // Update the specific strategy with new settings
-                if (Array.isArray(existingStrategies) && existingStrategies[request.strategyIndex]) {
-                    existingStrategies[request.strategyIndex] = {
-                        ...existingStrategies[request.strategyIndex],
-                        ...strategySettings,
-                        timestamp: strategySettings.timestamp
-                    };
-
-                    // Save the updated strategies back to storage
-                    const { sendMessage } = await import('../utils');
-                    const { MESSAGES } = await import('../config');
-                    sendMessage({ action: MESSAGES.saveStrategies, strategies: existingStrategies });
-                }
-
-                return {
-                    success: true,
-                    strategies: [strategySettings], // Return only the updated strategy
-                    message: `Extracted settings for: ${strategySettings.name} (${strategySettings.settings.length} parameters)`
+            // Update the specific strategy with new settings
+            if (Array.isArray(existingStrategies) && existingStrategies[request.strategyIndex]) {
+                existingStrategies[request.strategyIndex] = {
+                    ...existingStrategies[request.strategyIndex],
+                    ...strategySettings,
+                    timestamp: strategySettings.timestamp
                 };
-            } else {
-                return {
-                    success: false,
-                    message: 'Failed to extract strategy settings - dialog may not have opened'
-                };
+
+                // Save the updated strategies back to storage
+                sendMessage({ action: MESSAGES.saveStrategies, strategies: existingStrategies });
             }
+
+            return {
+                success: true,
+                strategies: [strategySettings],
+                message: UI_TEXT.success.settingsExtracted(strategySettings.name, strategySettings.settings.length)
+            };
         } catch (error) {
             return {
                 success: false,
@@ -136,10 +134,12 @@ export class MessageHandler {
                 let message: string;
                 if (result.alreadySet) {
                     message = enabled
-                        ? `Date range was already set to ${startDate} - ${endDate}`
-                        : 'Date range was already set to chart range';
+                        ? UI_TEXT.success.dateRangeAlreadySet(startDate, endDate)
+                        : UI_TEXT.success.dateRangeAlreadyChart;
                 } else {
-                    message = enabled ? `Date range set to ${startDate} - ${endDate}` : 'Date range set to chart range';
+                    message = enabled
+                        ? UI_TEXT.success.dateRangeSet(startDate, endDate)
+                        : UI_TEXT.success.dateRangeSetToChart;
                 }
 
                 return {
@@ -154,7 +154,6 @@ export class MessageHandler {
                 };
             }
         } catch (error) {
-            console.error('Error in handleChangeDateRange:', error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Unknown error occurred'

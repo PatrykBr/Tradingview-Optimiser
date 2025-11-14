@@ -1,4 +1,4 @@
-import React from 'react';
+import { memo } from 'react';
 import { Input, Card } from '../ui';
 
 interface DateRangeProps {
@@ -12,7 +12,7 @@ interface DateRangeProps {
     onEndDateBlur?: (date: string) => void;
 }
 
-export const DateRangeCard: React.FC<DateRangeProps> = ({
+export const DateRangeCard = memo(function DateRangeCard({
     useCustomDateRange,
     startDate,
     endDate,
@@ -21,7 +21,7 @@ export const DateRangeCard: React.FC<DateRangeProps> = ({
     onEndDateChange,
     onStartDateBlur,
     onEndDateBlur
-}) => {
+}: DateRangeProps) {
     return (
         <Card title='Date Range Settings'>
             <div className='space-y-4'>
@@ -56,4 +56,4 @@ export const DateRangeCard: React.FC<DateRangeProps> = ({
             </div>
         </Card>
     );
-};
+});

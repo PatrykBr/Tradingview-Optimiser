@@ -1,4 +1,3 @@
-import React from 'react';
 import type { OptimisationResult } from '../../types';
 
 interface ResultsTableProps {
@@ -9,7 +8,7 @@ interface ResultsTableProps {
     onSort: (column: string) => void;
 }
 
-export const ResultsTable: React.FC<ResultsTableProps> = ({ results, bestResult, sortBy, sortDirection, onSort }) => {
+export function ResultsTable({ results, bestResult, sortBy, sortDirection, onSort }: ResultsTableProps) {
     const formatValue = (value: number): string => {
         if (Math.abs(value) < 1000) {
             return value.toFixed(2);
@@ -93,4 +92,4 @@ export const ResultsTable: React.FC<ResultsTableProps> = ({ results, bestResult,
             </table>
         </div>
     );
-};
+}

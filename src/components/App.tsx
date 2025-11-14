@@ -1,80 +1,128 @@
-import React, { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { TabNavigation, Status } from './ui';
 import { SetupTab, OptimiseTab, ResultsTab } from './tabs';
 import type { OptimisationConfig, OptimisationResult, OptimisationSettings } from '../types';
+import { useStatus } from '../hooks/useStatus';
 
 const TABS = [
     { id: 'setup', label: 'Setup', icon: '⚙️' },
     { id: 'optimise', label: 'Optimise', icon: '🎯' },
     { id: 'results', label: 'Results', icon: '📊' }
-];
+] as const;
 
-export const App: React.FC = () => {
+export function App() {
     const [activeTab, setActiveTab] = useState<string>('setup');
     const [currentConfig, setCurrentConfig] = useState<OptimisationConfig | null>(null);
     const [optimisationResults, setOptimisationResults] = useState<OptimisationResult[]>([]);
     const [bestResult, setBestResult] = useState<OptimisationResult | null>(null);
-    const [isOptimising, setIsOptimising] = useState<boolean>(false);
-    const [statusMessage, setStatusMessage] = useState<string>('Ready - Please select the Setup tab to begin');
-    const [statusType, setStatusType] = useState<'info' | 'success' | 'warning' | 'error'>('info');
+    const [isOptimising, setIsOptimising] = useState(false);
+    const {
+        message: statusMessage,
+        type: statusType,
+        updateStatus
+    } = useStatus('Ready - Please select the Setup tab to begin');
 
-    const updateStatus = (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
-        setStatusMessage(message);
-        setStatusType(type);
-    };
+    const handleConfigChange = useCallback(
+        (config: OptimisationConfig | null) => {
+            setCurrentConfig(config);
+            if (config) {
+                updateStatus(
+                    `Configuration updated for ${config.strategyName} with ${config.parameters.length} parameters`,
+                    'success'
+                );
+            }
+        },
+        [updateStatus]
+    );
 
-    const handleConfigChange = (config: OptimisationConfig | null) => {
-        setCurrentConfig(config);
-        if (config)
-            updateStatus(
-                `Configuration updated for ${config.strategyName} with ${config.parameters.length} parameters`,
-                'success'
-            );
-    };
+    const handleStartOptimisation = useCallback(
+        async (settings: OptimisationSettings) => {
+            if (!currentConfig) {
+                updateStatus('No configuration available for optimisation', 'error');
+                return;
+            }
 
-    const handleStartOptimisation = async (settings: OptimisationSettings) => {
-        if (!currentConfig) return updateStatus('No configuration available for optimisation', 'error');
+            setIsOptimising(true);
+            setOptimisationResults([]);
+            setBestResult(null);
+            updateStatus(`Starting optimisation for ${currentConfig.strategyName}...`, 'info');
 
-        setIsOptimising(true);
-        setOptimisationResults([]);
-        setBestResult(null);
-        updateStatus(`Starting optimisation for ${currentConfig.strategyName}...`, 'info');
+            try {
+                // TODO: Implement optimisation via Python backend
+                updateStatus('Connect to Python backend to start optimisation', 'warning');
+            } catch (error) {
+                updateStatus(
+                    `Optimisation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                    'error'
+                );
+            } finally {
+                setIsOptimising(false);
+            }
+        },
+        [currentConfig, updateStatus]
+    );
 
-        try {
-            updateStatus('Optimisation logic not yet implemented', 'warning');
-        } catch (error) {
-            updateStatus(`Optimisation failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-        } finally {
-            setIsOptimising(false);
+    const handleApplyBest = useCallback(() => {
+        if (!bestResult) {
+            updateStatus('No best result available to apply', 'warning');
+            return;
         }
-    };
+        // TODO: Implement applying best parameters via content script
+        updateStatus('Apply best parameters feature pending implementation', 'warning');
+    }, [bestResult, updateStatus]);
 
-    const handlers = {
-        applyBest: () => bestResult && updateStatus('Best parameters applied to strategy', 'success'),
-        exportCSV: () =>
-            optimisationResults.length
-                ? updateStatus('Results exported to CSV', 'success')
-                : updateStatus('No results to export', 'warning'),
-        exportJSON: () =>
-            optimisationResults.length
-                ? updateStatus('Results exported to JSON', 'success')
-                : updateStatus('No results to export', 'warning')
-    };
+    const handleExportCSV = useCallback(() => {
+        if (optimisationResults.length === 0) {
+            updateStatus('No results to export', 'warning');
+            return;
+        }
+        // TODO: Implement CSV export
+        updateStatus('CSV export feature pending implementation', 'warning');
+    }, [optimisationResults.length, updateStatus]);
 
-    const tabs = {
-        setup: <SetupTab onConfigChange={handleConfigChange} />,
-        optimise: <OptimiseTab config={currentConfig} onStartOptimisation={handleStartOptimisation} />,
-        results: (
-            <ResultsTab
-                results={optimisationResults}
-                bestResult={bestResult}
-                isOptimising={isOptimising}
-                onApplyBest={handlers.applyBest}
-                onExportCSV={handlers.exportCSV}
-                onExportJSON={handlers.exportJSON}
-            />
-        )
-    };
+    const handleExportJSON = useCallback(() => {
+        if (optimisationResults.length === 0) {
+            updateStatus('No results to export', 'warning');
+            return;
+        }
+        // TODO: Implement JSON export
+        updateStatus('JSON export feature pending implementation', 'warning');
+    }, [optimisationResults.length, updateStatus]);
+
+    const tabs = useMemo(
+        () => ({
+            setup: <SetupTab onConfigChange={handleConfigChange} onStatusChange={updateStatus} />,
+            optimise: (
+                <OptimiseTab
+                    config={currentConfig}
+                    onStartOptimisation={handleStartOptimisation}
+                    onStatusChange={updateStatus}
+                />
+            ),
+            results: (
+                <ResultsTab
+                    results={optimisationResults}
+                    bestResult={bestResult}
+                    isOptimising={isOptimising}
+                    onApplyBest={handleApplyBest}
+                    onExportCSV={handleExportCSV}
+                    onExportJSON={handleExportJSON}
+                />
+            )
+        }),
+        [
+            handleConfigChange,
+            updateStatus,
+            currentConfig,
+            handleStartOptimisation,
+            optimisationResults,
+            bestResult,
+            isOptimising,
+            handleApplyBest,
+            handleExportCSV,
+            handleExportJSON
+        ]
+    );
 
     return (
         <div
@@ -97,4 +145,4 @@ export const App: React.FC = () => {
             </div>
         </div>
     );
-};
+}

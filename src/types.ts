@@ -79,6 +79,10 @@ export interface Filter {
     maxValue?: number;
 }
 
+// Utility types
+export type ParameterValue = string | number | boolean;
+export type StatusType = 'info' | 'success' | 'warning' | 'error';
+
 // Simplified message types - only essential properties
 export interface MessageRequest {
     action: string;

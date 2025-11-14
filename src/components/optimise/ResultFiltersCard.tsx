@@ -1,4 +1,3 @@
-import React from 'react';
 import { Button, Input, Select, Card } from '../ui';
 import { AVAILABLE_METRICS } from '../../config';
 import type { Filter } from '../../types';
@@ -16,7 +15,7 @@ interface ResultFiltersProps {
     onRemoveFilter: (filterId: string) => void;
 }
 
-export const ResultFiltersCard: React.FC<ResultFiltersProps> = ({
+export function ResultFiltersCard({
     filters,
     newFilterMetric,
     newFilterMin,
@@ -27,7 +26,7 @@ export const ResultFiltersCard: React.FC<ResultFiltersProps> = ({
     onNewFilterMaxChange,
     onAddFilter,
     onRemoveFilter
-}) => {
+}: ResultFiltersProps) {
     const filterMetricOptions = [
         { value: '', label: 'Select metric to filter...' },
         ...AVAILABLE_METRICS.filter(m => m.value !== selectedMetric)
@@ -84,4 +83,4 @@ export const ResultFiltersCard: React.FC<ResultFiltersProps> = ({
             {filters.length === 0 && <div className='text-popup-text-secondary italic'>No filters applied</div>}
         </Card>
     );
-};
+}

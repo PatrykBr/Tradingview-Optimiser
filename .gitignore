@@ -72,3 +72,4 @@ temp/
 
 # Web extension specific
 web-ext-artifacts/
+.webpack-cache/

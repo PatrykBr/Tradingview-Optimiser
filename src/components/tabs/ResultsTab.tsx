@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Card } from '../ui';
 import { BestResultCard, ActionsCard, ResultsTable } from '../results';
 import type { OptimisationResult } from '../../types';
@@ -12,14 +12,14 @@ interface ResultsTabProps {
     onExportJSON: () => void;
 }
 
-export const ResultsTab: React.FC<ResultsTabProps> = ({
+export function ResultsTab({
     results,
     bestResult,
     isOptimising,
     onApplyBest,
     onExportCSV,
     onExportJSON
-}) => {
+}: ResultsTabProps) {
     const [sortBy, setSortBy] = useState<string>('iteration');
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
@@ -89,4 +89,4 @@ export const ResultsTab: React.FC<ResultsTabProps> = ({
             </Card>
         </div>
     );
-};
+}
