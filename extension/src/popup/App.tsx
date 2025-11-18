@@ -3,6 +3,7 @@ import "./index.css";
 import TabsNav from "./components/TabsNav";
 import StrategyTab from "./components/StrategyTab";
 import SettingsTab from "./components/SettingsTab";
+import LiveResultsTab from "./components/LiveResultsTab";
 
 type TabId = "parameters" | "settings" | "results";
 
@@ -26,7 +27,7 @@ function App() {
       <main className="h-[420px] overflow-y-auto px-5 pt-4 pb-6">
         {activeTab === "parameters" && <StrategyTab />}
         {activeTab === "settings" && <SettingsTab />}
-        {activeTab === "results" && <div className="text-sm text-slate-400">Results tab coming soon...</div>}
+        {activeTab === "results" && <LiveResultsTab />}
       </main>
     </div>
   );
