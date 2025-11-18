@@ -1,0 +1,16 @@
+[project]
+name = "tv-optimiser-backend"
+version = "0.1.0"
+description = "TradingView strategy optimisation backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.121.3",
+    "uvicorn[standard]>=0.38.0",
+    "optuna>=4.6.0",
+    "pydantic>=2.12.4",
+]
+
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
