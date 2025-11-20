@@ -9,10 +9,23 @@
   },
   "permissions": [
     "storage",
-    "activeTab"
+    "scripting",
+    "activeTab",
+    "tabs"
   ],
   "host_permissions": [
     "https://*.tradingview.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.tradingview.com/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle"
+    }
   ]
 }
 

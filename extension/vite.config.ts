@@ -8,6 +8,7 @@ export default defineConfig({
     react(),
     webExtension({
       manifest: "public/manifest.json",
+      additionalInputs: ["src/content/index.ts"],
     }),
   ],
   resolve: {
