@@ -1,4 +1,4 @@
-type TabId = "parameters" | "settings" | "results";
+import type { TabId } from "../state/optimiserContext";
 
 interface TabsNavProps {
   activeTab: TabId;

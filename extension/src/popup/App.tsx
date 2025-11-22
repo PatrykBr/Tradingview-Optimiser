@@ -1,14 +1,12 @@
-import { useState } from "react";
 import "./index.css";
+import { OptimiserProvider, useOptimiser } from "./state/optimiserContext";
 import TabsNav from "./components/TabsNav";
 import StrategyTab from "./components/StrategyTab";
 import SettingsTab from "./components/SettingsTab";
 import LiveResultsTab from "./components/LiveResultsTab";
 
-type TabId = "parameters" | "settings" | "results";
-
-function App() {
-  const [activeTab, setActiveTab] = useState<TabId>("parameters");
+function PopupShell() {
+  const { state, actions } = useOptimiser();
 
   return (
     <div className="bg-night-900 min-h-[540px] w-[420px] text-slate-100 shadow-2xl">
@@ -22,14 +20,28 @@ function App() {
         </div>
       </header>
 
-      <TabsNav activeTab={activeTab} onTabChange={setActiveTab} />
+      {state.error && (
+        <div className="mx-5 mt-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+          {state.error}
+        </div>
+      )}
+
+      <TabsNav activeTab={state.tab} onTabChange={actions.setTab} />
 
       <main className="h-[420px] overflow-y-auto px-5 pt-4 pb-6">
-        {activeTab === "parameters" && <StrategyTab />}
-        {activeTab === "settings" && <SettingsTab />}
-        {activeTab === "results" && <LiveResultsTab />}
+        {state.tab === "parameters" && <StrategyTab />}
+        {state.tab === "settings" && <SettingsTab />}
+        {state.tab === "results" && <LiveResultsTab />}
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <OptimiserProvider>
+      <PopupShell />
+    </OptimiserProvider>
   );
 }
 
