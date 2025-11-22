@@ -4,6 +4,8 @@ import type {
   BackgroundResponse,
   ContentScriptRequest,
   ContentScriptResponse,
+  GetParamsPayload,
+  StrategyParameter,
   StrategySummary,
 } from "@shared/ipc";
 
@@ -55,6 +57,14 @@ async function handleBackgroundRequest(message: BackgroundRequest): Promise<Back
       return response.ok
         ? { type: "strategies", strategies: response.data }
         : { type: "error", message: response.error ?? "Unable to list strategies." };
+    }
+    case "get-params": {
+      const response = await sendToContent<StrategyParameter[], GetParamsPayload>("get-params", {
+        strategyId: message.strategyId,
+      });
+      return response.ok
+        ? { type: "params", strategyId: message.strategyId, params: response.data }
+        : { type: "error", message: response.error ?? "Unable to fetch parameters." };
     }
     default:
       return { type: "error", message: "Unknown request" };

@@ -12,7 +12,7 @@ export interface StrategySummary {
   name: string;
 }
 
-export type ContentScriptAction = "list-strategies";
+export type ContentScriptAction = "list-strategies" | "get-params";
 
 export interface ContentScriptRequest<T = unknown> {
   channel: "tv-optimiser";
@@ -22,10 +22,16 @@ export interface ContentScriptRequest<T = unknown> {
 
 export type ContentScriptResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: string };
 
+export interface GetParamsPayload {
+  strategyId: string;
+}
+
 export type BackgroundRequest =
-  | { type: "list-strategies" };
+  | { type: "list-strategies" }
+  | { type: "get-params"; strategyId: string };
 
 export type BackgroundResponse =
   | { type: "strategies"; strategies: StrategySummary[] }
+  | { type: "params"; strategyId: string; params: StrategyParameter[] }
   | { type: "error"; message: string };
 
