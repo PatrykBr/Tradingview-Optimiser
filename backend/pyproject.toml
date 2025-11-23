@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]>=0.38.0",
     "optuna>=4.6.0",
     "pydantic>=2.12.4",
+    "python-dotenv>=1.0.1",
 ]
 
 [build-system]
