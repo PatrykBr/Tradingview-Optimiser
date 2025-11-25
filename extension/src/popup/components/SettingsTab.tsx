@@ -44,6 +44,7 @@ function SettingsTab() {
         <button
           type="button"
           disabled={enabledCount === 0}
+          onClick={() => actions.startOptimisation()}
           className="text-night-900 rounded-md bg-cyan-500 px-5 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
         >
           Start optimisation

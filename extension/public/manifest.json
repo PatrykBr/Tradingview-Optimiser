@@ -14,7 +14,8 @@
     "tabs"
   ],
   "host_permissions": [
-    "https://*.tradingview.com/*"
+    "https://*.tradingview.com/*",
+    "http://localhost:8000/*"
   ],
   "background": {
     "service_worker": "src/background/index.ts",

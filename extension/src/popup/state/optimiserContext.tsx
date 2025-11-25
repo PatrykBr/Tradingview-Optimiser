@@ -3,8 +3,12 @@ import browser from "webextension-polyfill";
 import type {
   BackgroundRequest,
   BackgroundResponse,
+  ExtensionEvent,
+  OptimisationConfig,
+  RunStatus,
   StrategyParameter,
   StrategySummary,
+  TrialResult,
 } from "@shared/ipc";
 
 export type TabId = "parameters" | "settings" | "results";
@@ -27,6 +31,11 @@ interface OptimiserState {
   error?: string;
   metric: string;
   trials: number;
+  status: RunStatus;
+  totalTrials: number;
+  completedTrials: TrialResult[];
+  bestTrial?: TrialResult;
+  statusMessage?: string;
 }
 
 type Action =
@@ -39,7 +48,11 @@ type Action =
   | { type: "set-loading"; payload: { strategies?: boolean; params?: boolean } }
   | { type: "set-error"; payload?: string }
   | { type: "set-metric"; payload: string }
-  | { type: "set-trials"; payload: number };
+  | { type: "set-trials"; payload: number }
+  | { type: "set-status"; payload: RunStatus }
+  | { type: "set-status-message"; payload?: string }
+  | { type: "append-trial"; payload: TrialResult }
+  | { type: "reset-trials"; payload: { totalTrials?: number } };
 
 const initialState: OptimiserState = {
   tab: "parameters",
@@ -50,6 +63,10 @@ const initialState: OptimiserState = {
   isLoadingParams: false,
   metric: "net-profit",
   trials: 250,
+  status: "idle",
+  totalTrials: 0,
+  completedTrials: [],
+  statusMessage: undefined,
 };
 
 function reducer(state: OptimiserState, action: Action): OptimiserState {
@@ -104,6 +121,22 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
       return { ...state, metric: action.payload };
     case "set-trials":
       return { ...state, trials: Math.max(10, action.payload) || 10 };
+    case "set-status":
+      return { ...state, status: action.payload };
+    case "set-status-message":
+      return { ...state, statusMessage: action.payload };
+    case "append-trial":
+      return {
+        ...state,
+        completedTrials: [action.payload, ...state.completedTrials].slice(0, 200),
+      };
+    case "reset-trials":
+      return {
+        ...state,
+        completedTrials: [],
+        bestTrial: undefined,
+        totalTrials: action.payload.totalTrials ?? state.totalTrials,
+      };
     default:
       return state;
   }
@@ -120,6 +153,8 @@ interface OptimiserContextValue {
     setTrials(trials: number): void;
     loadStrategies(): Promise<void>;
     loadParameters(strategyId: string): Promise<void>;
+    startOptimisation(): Promise<void>;
+    stopOptimisation(): Promise<void>;
   };
 }
 
@@ -172,9 +207,113 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const buildOptimisationConfig = useCallback((): OptimisationConfig | null => {
+    const { selectedStrategyId, parameterOrder, parameters, metric, trials } = stateRef.current;
+    if (!selectedStrategyId) return null;
+
+    const enabledParams = parameterOrder
+      .map((id) => parameters[id])
+      .filter((p): p is ParameterState => Boolean(p?.enabled));
+
+    if (!enabledParams.length) return null;
+
+    return {
+      strategyId: selectedStrategyId,
+      params: enabledParams.map((p) => ({
+        paramId: p.definition.id,
+        label: p.definition.label,
+        type: p.definition.type,
+        enabled: true,
+        range: { min: Number(p.min), max: Number(p.max) },
+      })),
+      settings: {
+        metric: metric as any,
+        trials,
+        useCustomRange: false,
+        filters: [],
+      },
+    };
+  }, []);
+
+  const startOptimisation = useCallback(async () => {
+    dispatch({ type: "set-error", payload: undefined });
+    const config = buildOptimisationConfig();
+    if (!config) {
+      dispatch({ type: "set-error", payload: "Select a strategy and parameters first." });
+      return;
+    }
+
+    const response = await sendBackgroundMessage({ type: "start-optimisation", payload: config });
+    if (response?.type === "error") {
+      dispatch({ type: "set-error", payload: response.message });
+      return;
+    }
+
+    dispatch({ type: "set-status", payload: "running" });
+    dispatch({ type: "reset-trials", payload: { totalTrials: config.settings.trials } });
+    dispatch({ type: "set-status-message", payload: "Optimisation session started" });
+    dispatch({ type: "set-tab", payload: "results" });
+  }, [buildOptimisationConfig]);
+
+  const stopOptimisation = useCallback(async () => {
+    const response = await sendBackgroundMessage({ type: "stop-optimisation" });
+    if (response?.type === "error") {
+      dispatch({ type: "set-error", payload: response.message });
+    }
+    dispatch({ type: "set-status", payload: "stopped" });
+    dispatch({ type: "set-status-message", payload: "Optimisation stopped by user" });
+  }, []);
+
   useEffect(() => {
     loadStrategies();
   }, [loadStrategies]);
+
+  useEffect(() => {
+    const listener: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (message: unknown) => {
+      if (!message || typeof message !== "object" || !("type" in message)) {
+        return undefined;
+      }
+
+      const typed = message as ExtensionEvent;
+      switch (typed.type) {
+        case "status":
+          dispatch({ type: "set-status", payload: typed.status });
+          dispatch({ type: "set-status-message", payload: typed.message });
+          break;
+        case "trial":
+          dispatch({
+            type: "append-trial",
+            payload: {
+              id: `trial-${typed.payload.trial}-${Date.now()}`,
+              trial: typed.payload.trial,
+              params: typed.payload.params,
+              metrics: typed.payload.metrics,
+              passedFilters: typed.payload.passedFilters,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          dispatch({
+            type: "reset-trials",
+            payload: { totalTrials: typed.payload.progress.total },
+          });
+          break;
+        case "complete": {
+          const status: RunStatus = typed.reason === "finished" ? "completed" : "stopped";
+          dispatch({ type: "set-status", payload: status });
+          dispatch({
+            type: "set-status-message",
+            payload: typed.reason === "finished" ? "Optimisation completed" : "Optimisation stopped",
+          });
+          break;
+        }
+      }
+
+      return undefined;
+    };
+
+    browser.runtime.onMessage.addListener(listener);
+    return () => browser.runtime.onMessage.removeListener(listener);
+  }, []);
 
   const contextValue: OptimiserContextValue = {
     state,
@@ -196,6 +335,8 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
       setTrials: (trials) => dispatch({ type: "set-trials", payload: trials }),
       loadStrategies,
       loadParameters,
+      startOptimisation,
+      stopOptimisation,
     },
   };
 

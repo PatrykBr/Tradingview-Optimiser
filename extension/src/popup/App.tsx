@@ -15,7 +15,7 @@ function PopupShell() {
         <div className="mt-1 flex items-center justify-between">
           <h1 className="text-xl font-semibold">Strategy Optimiser</h1>
           <span className="rounded-full bg-cyan-500/20 px-3 py-1 text-xs font-medium text-cyan-200">
-            IDLE
+            {state.status.toUpperCase()}
           </span>
         </div>
       </header>
