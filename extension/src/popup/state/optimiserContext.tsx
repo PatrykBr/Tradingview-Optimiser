@@ -20,6 +20,13 @@ interface ParameterState {
   max: string;
 }
 
+interface FilterDraft {
+  id: string;
+  metric: string;
+  comparator: string;
+  value: string;
+}
+
 interface OptimiserState {
   tab: TabId;
   strategies: StrategySummary[];
@@ -31,6 +38,10 @@ interface OptimiserState {
   error?: string;
   metric: string;
   trials: number;
+  customRangeEnabled: boolean;
+  startDate?: string;
+  endDate?: string;
+  filters: FilterDraft[];
   status: RunStatus;
   totalTrials: number;
   completedTrials: TrialResult[];
@@ -49,6 +60,11 @@ type Action =
   | { type: "set-error"; payload?: string }
   | { type: "set-metric"; payload: string }
   | { type: "set-trials"; payload: number }
+  | { type: "toggle-custom-range"; payload: boolean }
+  | { type: "set-date"; payload: { field: "start" | "end"; value?: string } }
+  | { type: "add-filter" }
+  | { type: "update-filter"; payload: { id: string; field: keyof FilterDraft; value: string } }
+  | { type: "remove-filter"; payload: string }
   | { type: "set-status"; payload: RunStatus }
   | { type: "set-status-message"; payload?: string }
   | { type: "append-trial"; payload: TrialResult }
@@ -63,6 +79,8 @@ const initialState: OptimiserState = {
   isLoadingParams: false,
   metric: "net-profit",
   trials: 250,
+  customRangeEnabled: false,
+  filters: [],
   status: "idle",
   totalTrials: 0,
   completedTrials: [],
@@ -121,6 +139,42 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
       return { ...state, metric: action.payload };
     case "set-trials":
       return { ...state, trials: Math.max(10, action.payload) || 10 };
+    case "toggle-custom-range":
+      return {
+        ...state,
+        customRangeEnabled: action.payload,
+        startDate: action.payload ? state.startDate : undefined,
+        endDate: action.payload ? state.endDate : undefined,
+      };
+    case "set-date":
+      return action.payload.field === "start"
+        ? { ...state, startDate: action.payload.value }
+        : { ...state, endDate: action.payload.value };
+    case "add-filter":
+      return {
+        ...state,
+        filters: [
+          ...state.filters,
+          {
+            id: crypto.randomUUID(),
+            metric: "net-profit",
+            comparator: ">=",
+            value: "",
+          },
+        ],
+      };
+    case "update-filter":
+      return {
+        ...state,
+        filters: state.filters.map((filter) =>
+          filter.id === action.payload.id ? { ...filter, [action.payload.field]: action.payload.value } : filter
+        ),
+      };
+    case "remove-filter":
+      return {
+        ...state,
+        filters: state.filters.filter((filter) => filter.id !== action.payload),
+      };
     case "set-status":
       return { ...state, status: action.payload };
     case "set-status-message":
@@ -151,6 +205,11 @@ interface OptimiserContextValue {
     updateParameterRange(id: string, field: "min" | "max", value: string): void;
     setMetric(metric: string): void;
     setTrials(trials: number): void;
+    toggleCustomRange(enabled: boolean): void;
+    setDate(field: "start" | "end", value?: string): void;
+    addFilter(): void;
+    updateFilter(id: string, field: keyof FilterDraft, value: string): void;
+    removeFilter(id: string): void;
     loadStrategies(): Promise<void>;
     loadParameters(strategyId: string): Promise<void>;
     startOptimisation(): Promise<void>;
@@ -208,7 +267,7 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const buildOptimisationConfig = useCallback((): OptimisationConfig | null => {
-    const { selectedStrategyId, parameterOrder, parameters, metric, trials } = stateRef.current;
+    const { selectedStrategyId, parameterOrder, parameters, metric, trials, customRangeEnabled, startDate, endDate, filters } = stateRef.current;
     if (!selectedStrategyId) return null;
 
     const enabledParams = parameterOrder
@@ -229,8 +288,13 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
       settings: {
         metric: metric as any,
         trials,
-        useCustomRange: false,
-        filters: [],
+        useCustomRange: customRangeEnabled,
+        startDate: customRangeEnabled ? startDate : undefined,
+        endDate: customRangeEnabled ? endDate : undefined,
+        filters: filters
+          .filter((f) => f.value !== "")
+          .map((f) => ({ id: f.id, metric: f.metric as any, comparator: f.comparator as any, value: Number(f.value) }))
+          .filter((f) => Number.isFinite(f.value)),
       },
     };
   }, []);
@@ -333,6 +397,15 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
         }),
       setMetric: (metric) => dispatch({ type: "set-metric", payload: metric }),
       setTrials: (trials) => dispatch({ type: "set-trials", payload: trials }),
+      toggleCustomRange: (enabled) => dispatch({ type: "toggle-custom-range", payload: enabled }),
+      setDate: (field, value) => dispatch({ type: "set-date", payload: { field, value } }),
+      addFilter: () => dispatch({ type: "add-filter" }),
+      updateFilter: (id, field, value) =>
+        dispatch({
+          type: "update-filter",
+          payload: { id, field: field as keyof FilterDraft, value },
+        }),
+      removeFilter: (id) => dispatch({ type: "remove-filter", payload: id }),
       loadStrategies,
       loadParameters,
       startOptimisation,

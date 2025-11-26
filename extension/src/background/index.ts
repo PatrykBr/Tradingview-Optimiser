@@ -194,8 +194,17 @@ class BackendBridge {
           break;
         }
 
-        const metricsResponse = await sendToContent<any, { metrics: string[] }>("read-metrics", {
-          metrics: [sessionState.config.settings.metric],
+        const { settings } = sessionState.config;
+        if (settings.useCustomRange && settings.startDate && settings.endDate) {
+          await sendToContent<unknown, DateRangePayload>("set-date-range", {
+            start: settings.startDate,
+            end: settings.endDate,
+          });
+        }
+
+        const metricsNeeded = new Set([settings.metric, ...settings.filters.map((f) => f.metric)]);
+        const metricsResponse = await sendToContent<any, ReadMetricsPayload>("read-metrics", {
+          metrics: Array.from(metricsNeeded),
         });
         
         if (!metricsResponse.ok) {
