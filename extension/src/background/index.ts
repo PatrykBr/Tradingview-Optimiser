@@ -1,12 +1,15 @@
 import browser from "webextension-polyfill";
 import type {
+  ApplyParamsPayload,
   BackgroundRequest,
   BackgroundResponse,
   ContentScriptRequest,
   ContentScriptResponse,
+  DateRangePayload,
   ExtensionEvent,
   GetParamsPayload,
   OptimisationConfig,
+  ReadMetricsPayload,
   RunStatus,
   StrategyParameter,
   StrategySummary,
@@ -175,9 +178,43 @@ class BackendBridge {
       case "status":
         emitStatus("running", message.message);
         break;
-      case "trial-request":
-        // Trial request will be handled by content script
+      case "trial-request": {
+        if (!sessionState.config) break;
+        
+        const applyResponse = await sendToContent<unknown, { strategyId: string; params: Record<string, string | number | boolean> }>(
+          "apply-params",
+          {
+            strategyId: sessionState.config.strategyId,
+            params: message.params,
+          }
+        );
+        
+        if (!applyResponse.ok) {
+          emitStatus("error", applyResponse.error ?? "Failed to apply params");
+          break;
+        }
+
+        const metricsResponse = await sendToContent<any, { metrics: string[] }>("read-metrics", {
+          metrics: [sessionState.config.settings.metric],
+        });
+        
+        if (!metricsResponse.ok) {
+          emitStatus("error", metricsResponse.error ?? "Failed to fetch metrics");
+          break;
+        }
+
+        this.socket?.send(
+          JSON.stringify({
+            type: "trial-result",
+            trial: message.trial,
+            payload: {
+              metrics: metricsResponse.data,
+              passedFilters: true,
+            },
+          })
+        );
         break;
+      }
       case "trial-complete":
         const trial: TrialResult = {
           id: `trial-${message.trial}-${Date.now()}`,

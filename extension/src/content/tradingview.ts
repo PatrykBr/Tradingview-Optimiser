@@ -1,11 +1,18 @@
 import type {
+  ApplyParamsPayload,
   ContentScriptRequest,
   ContentScriptResponse,
+  DateRangePayload,
+  ReadMetricsPayload,
   StrategyParameter,
   StrategySummary,
+  TrialMetrics,
 } from "@shared/ipc";
+import { METRIC_TO_PROPERTY } from "@shared/metrics";
 
 const CHANNEL = "tv-optimiser";
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function slugify(value: string, fallback = "value"): string {
   const slug = value
@@ -13,6 +20,16 @@ function slugify(value: string, fallback = "value"): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
   return slug || fallback;
+}
+
+async function waitForElement(selector: string, timeout = 4000): Promise<Element> {
+  const start = performance.now();
+  while (performance.now() - start < timeout) {
+    const element = document.querySelector(selector);
+    if (element) return element;
+    await sleep(100);
+  }
+  throw new Error(`Timeout waiting for selector: ${selector}`);
 }
 
 function extractStrategiesFromLegend(): StrategySummary[] {
@@ -35,16 +52,6 @@ function extractStrategiesFromLegend(): StrategySummary[] {
   });
   
   return strategies;
-}
-
-async function waitForElement(selector: string, timeout = 4000): Promise<Element> {
-  const start = performance.now();
-  while (performance.now() - start < timeout) {
-    const element = document.querySelector(selector);
-    if (element) return element;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(`Timeout waiting for selector: ${selector}`);
 }
 
 function detectParameterType(input: HTMLElement | null): StrategyParameter["type"] {
@@ -83,7 +90,7 @@ async function fetchParameters(strategyId: string): Promise<StrategyParameter[]>
   }
 
   settingsButton.click();
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await sleep(200);
 
   const dialog = await waitForElement('[data-name="indicator-properties-dialog"]', 5000) as HTMLElement;
   
@@ -116,6 +123,112 @@ async function fetchParameters(strategyId: string): Promise<StrategyParameter[]>
   return parameters;
 }
 
+async function applyParameters(payload: ApplyParamsPayload): Promise<void> {
+  const legendItem = document.querySelector(`[data-tv-optimiser-id="${payload.strategyId}"]`);
+  if (!legendItem) {
+    throw new Error("Strategy not found");
+  }
+
+  const settingsButton = legendItem.querySelector('button[data-name="legend-settings-action"]') as HTMLElement;
+  if (!settingsButton) {
+    throw new Error("Settings button not found");
+  }
+
+  settingsButton.click();
+  await sleep(200);
+
+  const dialog = await waitForElement('[data-name="indicator-properties-dialog"]', 5000) as HTMLElement;
+  
+  const rows = dialog.querySelectorAll(".cell-RLntasnw.first-RLntasnw");
+  
+  for (const row of rows) {
+    const label = row.textContent?.trim();
+    if (!label) continue;
+    
+    const paramId = slugify(label);
+    const value = payload.params[paramId];
+    if (value === undefined) continue;
+    
+    const controlCell = row.nextElementSibling;
+    if (!controlCell) continue;
+    
+    const input = controlCell.querySelector("input, select") as HTMLElement;
+    if (!input) continue;
+    
+    if (input instanceof HTMLInputElement) {
+      if (input.type === "checkbox") {
+        input.checked = Boolean(value);
+      } else {
+        input.value = String(value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (input instanceof HTMLSelectElement) {
+      input.value = String(value);
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
+  const submitButton = dialog.querySelector('button[data-name="submit-button"]') as HTMLElement;
+  if (submitButton) {
+    submitButton.click();
+  }
+
+  await sleep(500);
+}
+
+async function readMetrics(payload: ReadMetricsPayload): Promise<TrialMetrics> {
+  const tester = document.querySelector('[data-name="strategy-tester"]');
+  if (!tester) {
+    throw new Error("Strategy Tester panel not found. Open the Strategy Tester before running optimisation.");
+  }
+
+  await sleep(500);
+
+  const metrics: TrialMetrics = {};
+  const requestedProps = payload.metrics.map((m) => METRIC_TO_PROPERTY[m]);
+
+  // Simple metric extraction from overview cards
+  const cards = tester.querySelectorAll(".containerCell-hwB8aI49");
+  for (const card of cards) {
+    const title = card.querySelector(".title-_aP8GmAC")?.textContent?.toLowerCase().trim();
+    const valueText = card.querySelector(".value-LVMgafTl, .highlightedValue-LVMgafTl")?.textContent;
+    
+    if (!title || !valueText) continue;
+    
+    const numValue = Number(valueText.replace(/[%,$\s]/g, ""));
+    if (!Number.isFinite(numValue)) continue;
+
+    // Basic mapping
+    if (title.includes("net profit") || title.includes("total p&l")) {
+      metrics.netProfit = numValue;
+    } else if (title.includes("profit factor")) {
+      metrics.profitFactor = numValue;
+    } else if (title.includes("total trades")) {
+      metrics.numberOfTrades = numValue;
+    }
+  }
+
+  // Ensure we have at least the requested metrics
+  for (const prop of requestedProps) {
+    if (metrics[prop] === undefined) {
+      throw new Error(`Unable to read metric: ${prop}`);
+    }
+  }
+
+  return metrics;
+}
+
+async function updateDateRange(payload: DateRangePayload): Promise<void> {
+  const chart = (window as any).tvWidget?.activeChart?.();
+  const from = Math.floor(new Date(payload.start).getTime() / 1000);
+  const to = Math.floor(new Date(payload.end).getTime() / 1000);
+
+  if (chart?.setVisibleRange && Number.isFinite(from) && Number.isFinite(to)) {
+    chart.setVisibleRange({ from, to });
+  }
+}
+
 export async function handleTradingViewMessage(
   request: ContentScriptRequest
 ): Promise<ContentScriptResponse> {
@@ -138,6 +251,27 @@ export async function handleTradingViewMessage(
         }
         const params = await fetchParameters(request.payload.strategyId as string);
         return { ok: true, data: params };
+      }
+      case "apply-params": {
+        if (!request.payload || typeof request.payload !== "object" || !("strategyId" in request.payload)) {
+          return { ok: false, error: "Missing payload" };
+        }
+        await applyParameters(request.payload as ApplyParamsPayload);
+        return { ok: true, data: undefined };
+      }
+      case "read-metrics": {
+        if (!request.payload || typeof request.payload !== "object" || !("metrics" in request.payload)) {
+          return { ok: false, error: "Missing payload" };
+        }
+        const metrics = await readMetrics(request.payload as ReadMetricsPayload);
+        return { ok: true, data: metrics };
+      }
+      case "set-date-range": {
+        if (!request.payload || typeof request.payload !== "object") {
+          return { ok: false, error: "Missing payload" };
+        }
+        await updateDateRange(request.payload as DateRangePayload);
+        return { ok: true, data: undefined };
       }
       default:
         return { ok: false, error: "Unknown action" };

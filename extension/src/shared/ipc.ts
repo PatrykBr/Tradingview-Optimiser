@@ -12,7 +12,7 @@ export interface StrategySummary {
   name: string;
 }
 
-export type ContentScriptAction = "list-strategies" | "get-params";
+export type ContentScriptAction = "list-strategies" | "get-params" | "apply-params" | "read-metrics" | "set-date-range";
 
 export interface ContentScriptRequest<T = unknown> {
   channel: "tv-optimiser";
@@ -24,6 +24,20 @@ export type ContentScriptResponse<T = unknown> = { ok: true; data: T } | { ok: f
 
 export interface GetParamsPayload {
   strategyId: string;
+}
+
+export interface ApplyParamsPayload {
+  strategyId: string;
+  params: Record<string, string | number | boolean>;
+}
+
+export interface DateRangePayload {
+  start: string;
+  end: string;
+}
+
+export interface ReadMetricsPayload {
+  metrics: StrategyMetric[];
 }
 
 export interface OptimisationFilter {
