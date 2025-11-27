@@ -9,6 +9,7 @@ import type {
   TrialMetrics,
 } from "@shared/ipc";
 import { METRIC_TO_PROPERTY } from "@shared/metrics";
+import { LABEL_TO_METRIC, METRICS } from "./dom";
 
 const CHANNEL = "tv-optimiser";
 
@@ -177,6 +178,15 @@ async function applyParameters(payload: ApplyParamsPayload): Promise<void> {
   await sleep(500);
 }
 
+function parseMetricValue(text: string): number | undefined {
+  const num = Number(text.replace(/−/g, "-").replace(/[%,$\s]/g, ""));
+  return Number.isFinite(num) ? num : undefined;
+}
+
+function normalizeLabel(label: string | null | undefined): string {
+  return (label ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 async function readMetrics(payload: ReadMetricsPayload): Promise<TrialMetrics> {
   const tester = document.querySelector('[data-name="strategy-tester"]');
   if (!tester) {
@@ -188,32 +198,54 @@ async function readMetrics(payload: ReadMetricsPayload): Promise<TrialMetrics> {
   const metrics: TrialMetrics = {};
   const requestedProps = payload.metrics.map((m) => METRIC_TO_PROPERTY[m]);
 
-  // Simple metric extraction from overview cards
-  const cards = tester.querySelectorAll(".containerCell-hwB8aI49");
-  for (const card of cards) {
-    const title = card.querySelector(".title-_aP8GmAC")?.textContent?.toLowerCase().trim();
-    const valueText = card.querySelector(".value-LVMgafTl, .highlightedValue-LVMgafTl")?.textContent;
-    
-    if (!title || !valueText) continue;
-    
-    const numValue = Number(valueText.replace(/[%,$\s]/g, ""));
-    if (!Number.isFinite(numValue)) continue;
+  // Group metrics by tab
+  const metricsByTab = new Map<string, Array<keyof TrialMetrics>>();
+  for (const prop of requestedProps) {
+    const def = METRICS[prop];
+    if (!def) continue;
+    const list = metricsByTab.get(def.tab) ?? [];
+    list.push(prop);
+    metricsByTab.set(def.tab, list);
+  }
 
-    // Basic mapping
-    if (title.includes("net profit") || title.includes("total p&l")) {
-      metrics.netProfit = numValue;
-    } else if (title.includes("profit factor")) {
-      metrics.profitFactor = numValue;
-    } else if (title.includes("total trades")) {
-      metrics.numberOfTrades = numValue;
+  // Parse overview tab (cards)
+  const overviewCards = tester.querySelectorAll(".containerCell-hwB8aI49");
+  for (const card of overviewCards) {
+    const title = normalizeLabel(card.querySelector(".title-_aP8GmAC")?.textContent);
+    const mapping = LABEL_TO_METRIC[title];
+    if (!mapping) continue;
+
+    const valueText = card.querySelector(".value-LVMgafTl, .highlightedValue-LVMgafTl")?.textContent;
+    const value = parseMetricValue(valueText ?? "");
+    if (value !== undefined) {
+      metrics[mapping.key] = value;
+    }
+  }
+
+  // Parse table-based tabs (Performance, Ratios, etc.)
+  const tables = tester.querySelectorAll(".ka-table");
+  for (const table of tables) {
+    const rows = table.querySelectorAll(".ka-row");
+    for (const row of rows) {
+      const title = normalizeLabel(row.querySelector(".title-NcOKy65p")?.textContent);
+      const mapping = LABEL_TO_METRIC[title];
+      if (!mapping) continue;
+
+      const cells = row.querySelectorAll(".ka-cell");
+      if (cells.length < 2) continue;
+
+      const valueText = cells[1]?.textContent;
+      const value = parseMetricValue(valueText ?? "");
+      if (value !== undefined) {
+        metrics[mapping.key] = value;
+      }
     }
   }
 
   // Ensure we have at least the requested metrics
-  for (const prop of requestedProps) {
-    if (metrics[prop] === undefined) {
-      throw new Error(`Unable to read metric: ${prop}`);
-    }
+  const missing = requestedProps.filter((p) => metrics[p] === undefined || Number.isNaN(metrics[p]));
+  if (missing.length) {
+    throw new Error(`Unable to read metrics: ${missing.join(", ")}`);
   }
 
   return metrics;

@@ -13,8 +13,10 @@ import type {
   RunStatus,
   StrategyParameter,
   StrategySummary,
+  TrialMetrics,
   TrialResult,
 } from "@shared/ipc";
+import { METRIC_TO_PROPERTY } from "@shared/metrics";
 
 const CHANNEL = "tv-optimiser";
 const BACKEND_WS_URL = "ws://localhost:8000/optimise";
@@ -203,7 +205,7 @@ class BackendBridge {
         }
 
         const metricsNeeded = new Set([settings.metric, ...settings.filters.map((f) => f.metric)]);
-        const metricsResponse = await sendToContent<any, ReadMetricsPayload>("read-metrics", {
+        const metricsResponse = await sendToContent<TrialMetrics, ReadMetricsPayload>("read-metrics", {
           metrics: Array.from(metricsNeeded),
         });
         
@@ -212,13 +214,41 @@ class BackendBridge {
           break;
         }
 
+        // Evaluate filters
+        let filtersPassed = true;
+        for (const flt of settings.filters) {
+          const metricValue = metricsResponse.data[METRIC_TO_PROPERTY[flt.metric as any]];
+          if (metricValue === undefined) {
+            filtersPassed = false;
+            break;
+          }
+          switch (flt.comparator) {
+            case ">=":
+              if (metricValue < flt.value) filtersPassed = false;
+              break;
+            case "<=":
+              if (metricValue > flt.value) filtersPassed = false;
+              break;
+            case ">":
+              if (metricValue <= flt.value) filtersPassed = false;
+              break;
+            case "<":
+              if (metricValue >= flt.value) filtersPassed = false;
+              break;
+            case "=":
+              if (metricValue !== flt.value) filtersPassed = false;
+              break;
+          }
+          if (!filtersPassed) break;
+        }
+
         this.socket?.send(
           JSON.stringify({
             type: "trial-result",
             trial: message.trial,
             payload: {
               metrics: metricsResponse.data,
-              passedFilters: true,
+              passedFilters: filtersPassed,
             },
           })
         );
