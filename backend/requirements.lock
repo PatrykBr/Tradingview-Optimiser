@@ -1,0 +1,10 @@
+fastapi==0.121.3
+uvicorn[standard]==0.38.0
+optuna==4.6.0
+pydantic==2.12.4
+python-dotenv==1.0.1
+optunahub==0.4.0
+cmaes==0.10.0
+torch==2.9.1
+scipy==1.16.3
+

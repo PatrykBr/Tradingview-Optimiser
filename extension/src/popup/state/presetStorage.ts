@@ -18,20 +18,43 @@ export interface StrategyPreset {
 
 type PresetStore = Record<string, StrategyPreset[]>;
 
-async function readStore(): Promise<PresetStore> {
-  if (!browser?.storage?.local) {
-    return {};
-  }
-  const stored = await browser.storage.local.get(STORAGE_KEY);
-  const raw = stored?.[STORAGE_KEY];
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  return raw as PresetStore;
+function isValidPreset(preset: unknown): preset is StrategyPreset {
+  if (!preset || typeof preset !== "object") return false;
+  const p = preset as StrategyPreset;
+  return (
+    typeof p.id === "string" &&
+    typeof p.name === "string" &&
+    typeof p.createdAt === "string" &&
+    p.parameters &&
+    typeof p.parameters === "object"
+  );
 }
 
-async function writeStore(store: PresetStore): Promise<void> {
+function assertStorageAvailable(): void {
   if (!browser?.storage?.local) {
     throw new Error("Browser storage is unavailable.");
   }
+}
+
+async function readStore(): Promise<PresetStore> {
+  assertStorageAvailable();
+
+  const stored = await browser.storage.local.get(STORAGE_KEY);
+  const raw = stored?.[STORAGE_KEY];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
+  return Object.fromEntries(
+    Object.entries(raw as PresetStore)
+      .filter(([, presets]) => Array.isArray(presets))
+      .map(([strategyId, presets]) => [
+        strategyId,
+        presets.filter(isValidPreset).map((p) => ({ ...p, strategyId: p.strategyId ?? strategyId })),
+      ]),
+  );
+}
+
+async function writeStore(store: PresetStore): Promise<void> {
+  assertStorageAvailable();
   await browser.storage.local.set({ [STORAGE_KEY]: store });
 }
 
@@ -56,4 +79,3 @@ export async function deleteStrategyPreset(strategyId: string, presetId: string)
   await writeStore(store);
   return store[strategyId];
 }
-
