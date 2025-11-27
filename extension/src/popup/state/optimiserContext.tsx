@@ -10,6 +10,7 @@ import type {
   StrategySummary,
   TrialResult,
 } from "@shared/ipc";
+import { deleteStrategyPreset, loadStrategyPresets, persistStrategyPreset, type StrategyPreset } from "./presetStorage";
 
 export type TabId = "parameters" | "settings" | "results";
 
@@ -33,8 +34,11 @@ interface OptimiserState {
   selectedStrategyId?: string;
   parameterOrder: string[];
   parameters: Record<string, ParameterState>;
+  presets: StrategyPreset[];
+  activePresetId?: string;
   isLoadingStrategies: boolean;
   isLoadingParams: boolean;
+  isLoadingPresets: boolean;
   error?: string;
   metric: string;
   trials: number;
@@ -54,9 +58,11 @@ type Action =
   | { type: "set-strategies"; payload: StrategySummary[] }
   | { type: "set-selected-strategy"; payload?: string }
   | { type: "set-parameters"; payload: StrategyParameter[] }
+  | { type: "set-presets"; payload: StrategyPreset[] }
+  | { type: "apply-preset"; payload: StrategyPreset }
   | { type: "toggle-parameter"; payload: { id: string; enabled: boolean } }
   | { type: "update-parameter-range"; payload: { id: string; field: "min" | "max"; value: string } }
-  | { type: "set-loading"; payload: { strategies?: boolean; params?: boolean } }
+  | { type: "set-loading"; payload: { strategies?: boolean; params?: boolean; presets?: boolean } }
   | { type: "set-error"; payload?: string }
   | { type: "set-metric"; payload: string }
   | { type: "set-trials"; payload: number }
@@ -75,8 +81,10 @@ const initialState: OptimiserState = {
   strategies: [],
   parameterOrder: [],
   parameters: {},
+  presets: [],
   isLoadingStrategies: false,
   isLoadingParams: false,
+  isLoadingPresets: false,
   metric: "net-profit",
   trials: 250,
   customRangeEnabled: false,
@@ -99,6 +107,8 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
         selectedStrategyId: action.payload,
         parameters: {},
         parameterOrder: [],
+        presets: [],
+        activePresetId: undefined,
       };
     case "set-parameters": {
       const parameters: Record<string, ParameterState> = {};
@@ -127,11 +137,38 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
         },
       };
     }
+    case "set-presets":
+      return {
+        ...state,
+        presets: action.payload,
+        activePresetId: action.payload.some((p) => p.id === state.activePresetId) ? state.activePresetId : undefined,
+      };
+    case "apply-preset": {
+      const preset = action.payload;
+      const parameters = Object.fromEntries(
+        state.parameterOrder.map((id) => {
+          const existing = state.parameters[id];
+          const presetParam = preset.parameters[id];
+          if (!existing || !presetParam) return [id, existing];
+          return [
+            id,
+            {
+              ...existing,
+              enabled: Boolean(presetParam.enabled),
+              min: presetParam.min ?? existing.min,
+              max: presetParam.max ?? existing.max,
+            },
+          ];
+        }),
+      );
+      return { ...state, parameters, activePresetId: preset.id };
+    }
     case "set-loading":
       return {
         ...state,
         isLoadingStrategies: action.payload.strategies ?? state.isLoadingStrategies,
         isLoadingParams: action.payload.params ?? state.isLoadingParams,
+        isLoadingPresets: action.payload.presets ?? state.isLoadingPresets,
       };
     case "set-error":
       return { ...state, error: action.payload };
@@ -210,6 +247,9 @@ interface OptimiserContextValue {
     addFilter(): void;
     updateFilter(id: string, field: keyof FilterDraft, value: string): void;
     removeFilter(id: string): void;
+    savePreset(name: string): Promise<void>;
+    applyPreset(presetId: string): void;
+    deletePreset(presetId: string): Promise<void>;
     loadStrategies(): Promise<void>;
     loadParameters(strategyId: string): Promise<void>;
     startOptimisation(): Promise<void>;
@@ -328,9 +368,95 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "set-status-message", payload: "Optimisation stopped by user" });
   }, []);
 
+  const loadPresets = useCallback(async (strategyId?: string) => {
+    if (!strategyId) {
+      dispatch({ type: "set-presets", payload: [] });
+      return;
+    }
+
+    dispatch({ type: "set-loading", payload: { presets: true } });
+    try {
+      const presets = await loadStrategyPresets(strategyId);
+      dispatch({ type: "set-presets", payload: presets });
+    } catch (error) {
+      console.warn("Preset load failed", error);
+    } finally {
+      dispatch({ type: "set-loading", payload: { presets: false } });
+    }
+  }, []);
+
+  const savePreset = useCallback(async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      dispatch({ type: "set-error", payload: "Please provide a name for this preset." });
+      return;
+    }
+
+    const { selectedStrategyId, parameterOrder, parameters } = stateRef.current;
+    if (!selectedStrategyId) {
+      dispatch({ type: "set-error", payload: "Select a strategy before saving presets." });
+      return;
+    }
+
+    if (!parameterOrder.some((id) => parameters[id]?.enabled)) {
+      dispatch({ type: "set-error", payload: "Enable at least one parameter before saving a preset." });
+      return;
+    }
+
+    const preset: StrategyPreset = {
+      id: crypto.randomUUID(),
+      strategyId: selectedStrategyId,
+      name: trimmed,
+      createdAt: new Date().toISOString(),
+      parameters: Object.fromEntries(
+        parameterOrder
+          .filter((id) => parameters[id])
+          .map((id) => [id, { enabled: parameters[id].enabled, min: parameters[id].min, max: parameters[id].max }]),
+      ),
+    };
+
+    dispatch({ type: "set-loading", payload: { presets: true } });
+    try {
+      const updated = await persistStrategyPreset(preset);
+      dispatch({ type: "set-presets", payload: updated });
+      dispatch({ type: "apply-preset", payload: preset });
+    } catch (error) {
+      console.warn("Preset save failed", error);
+      dispatch({ type: "set-error", payload: "Unable to save the preset." });
+    } finally {
+      dispatch({ type: "set-loading", payload: { presets: false } });
+    }
+  }, []);
+
+  const applyPreset = useCallback((presetId: string) => {
+    const preset = stateRef.current.presets.find((p) => p.id === presetId);
+    if (preset) dispatch({ type: "apply-preset", payload: preset });
+  }, []);
+
+  const deletePresetById = useCallback(async (presetId: string) => {
+    const strategyId = stateRef.current.selectedStrategyId;
+    if (!strategyId) return;
+
+    dispatch({ type: "set-loading", payload: { presets: true } });
+    try {
+      const updated = await deleteStrategyPreset(strategyId, presetId);
+      dispatch({ type: "set-presets", payload: updated });
+    } catch (error) {
+      console.warn("Preset delete failed", error);
+    } finally {
+      dispatch({ type: "set-loading", payload: { presets: false } });
+    }
+  }, []);
+
   useEffect(() => {
     loadStrategies();
   }, [loadStrategies]);
+
+  useEffect(() => {
+    if (state.selectedStrategyId) {
+      void loadPresets(state.selectedStrategyId);
+    }
+  }, [state.selectedStrategyId, loadPresets]);
 
   useEffect(() => {
     const listener: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (message: unknown) => {
@@ -387,6 +513,7 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: "set-selected-strategy", payload: id });
         if (id) {
           void loadParameters(id);
+          void loadPresets(id);
         }
       },
       toggleParameter: (id, enabled) => dispatch({ type: "toggle-parameter", payload: { id, enabled } }),
@@ -406,6 +533,9 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
           payload: { id, field: field as keyof FilterDraft, value },
         }),
       removeFilter: (id) => dispatch({ type: "remove-filter", payload: id }),
+      savePreset,
+      applyPreset,
+      deletePreset: deletePresetById,
       loadStrategies,
       loadParameters,
       startOptimisation,

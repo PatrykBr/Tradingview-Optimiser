@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useOptimiser } from "../state/optimiserContext";
 
 const typeColours: Record<string, string> = {
@@ -15,14 +15,29 @@ function formatValue(value: string | number | boolean) {
   return String(value);
 }
 
+function formatPresetDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
 function StrategyTab() {
   const { state, actions } = useOptimiser();
+  const [presetName, setPresetName] = useState("");
   const parameters = useMemo(
     () => state.parameterOrder.map((id) => state.parameters[id]).filter(Boolean),
     [state.parameterOrder, state.parameters],
   );
 
   const selectedCount = parameters.filter((param) => param.enabled).length;
+  const canSavePreset = Boolean(state.selectedStrategyId && selectedCount > 0 && presetName.trim().length > 0);
+
+  const handleSavePreset = async () => {
+    const name = presetName.trim();
+    if (!name) return;
+    await actions.savePreset(name);
+    setPresetName("");
+  };
 
   return (
     <section className="space-y-5">
@@ -126,6 +141,82 @@ function StrategyTab() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {state.selectedStrategyId && (
+        <div className="bg-night-900/40 rounded-2xl border border-white/10 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-100">Parameter presets</p>
+              <p className="text-xs text-slate-400">Save enabled inputs and their ranges per strategy.</p>
+            </div>
+            {state.isLoadingPresets && <span className="text-xs font-medium text-cyan-200">Syncing…</span>}
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              type="text"
+              placeholder="Preset name"
+              value={presetName}
+              onChange={(event) => setPresetName(event.target.value)}
+              className="bg-night-900 flex-1 rounded-md border border-white/10 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+            />
+            <button
+              type="button"
+              disabled={!canSavePreset || state.isLoadingPresets}
+              onClick={() => void handleSavePreset()}
+              className="text-night-900 rounded-md bg-cyan-500 px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+            >
+              Save preset
+            </button>
+          </div>
+
+          <div className="mt-4 max-h-56 space-y-2 overflow-y-auto pr-1">
+            {state.presets.length === 0 && !state.isLoadingPresets && (
+              <p className="rounded-lg border border-dashed border-white/10 px-3 py-2 text-xs text-slate-400">
+                No presets stored for this strategy yet.
+              </p>
+            )}
+
+            {state.presets.map((preset) => {
+              const isActive = state.activePresetId === preset.id;
+              return (
+                <div
+                  key={preset.id}
+                  className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm ${
+                    isActive
+                      ? "border-cyan-500/60 bg-cyan-500/10 text-cyan-50"
+                      : "bg-night-950/40 border-white/10 text-slate-200"
+                  }`}
+                >
+                  <div>
+                    <p className="font-semibold">{preset.name}</p>
+                    <p className="text-xs opacity-70">
+                      Saved {formatPresetDate(preset.createdAt)}
+                      {isActive ? " · Applied" : ""}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => actions.applyPreset(preset.id)}
+                      className="rounded-md border border-white/15 px-2 py-1 text-xs font-semibold hover:border-cyan-400 hover:text-cyan-200"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void actions.deletePreset(preset.id)}
+                      className="rounded-md border border-white/15 px-2 py-1 text-xs font-semibold text-slate-300 hover:border-rose-400 hover:text-rose-200"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
