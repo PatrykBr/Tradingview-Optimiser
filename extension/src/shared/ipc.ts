@@ -1,4 +1,4 @@
-export type StrategyParameterType = "int" | "float" | "bool" | "string";
+export type StrategyParameterType = "int" | "float" | "bool" | "string" | "source" | "resolution";
 
 export interface StrategyParameter {
   id: string;
@@ -10,35 +10,21 @@ export interface StrategyParameter {
 export interface StrategySummary {
   id: string;
   name: string;
+  author?: string;
 }
 
-export type ContentScriptAction = "list-strategies" | "get-params" | "apply-params" | "read-metrics" | "set-date-range";
+export type StrategyMetric =
+  | "net-profit"
+  | "profit-factor"
+  | "sharpe"
+  | "sortino"
+  | "max-dd-pct"
+  | "win-rate"
+  | "trades"
+  | "drawdown"
+  | "custom";
 
-export interface ContentScriptRequest<T = unknown> {
-  channel: "tv-optimiser";
-  action: ContentScriptAction;
-  payload?: T;
-}
-
-export type ContentScriptResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: string };
-
-export interface GetParamsPayload {
-  strategyId: string;
-}
-
-export interface ApplyParamsPayload {
-  strategyId: string;
-  params: Record<string, string | number | boolean>;
-}
-
-export interface DateRangePayload {
-  start: string;
-  end: string;
-}
-
-export interface ReadMetricsPayload {
-  metrics: StrategyMetric[];
-}
+export type FilterComparator = ">=" | "<=" | "=" | ">" | "<";
 
 export interface OptimisationFilter {
   id: string;
@@ -93,28 +79,82 @@ export interface TrialResult {
   params: Record<string, string | number | boolean>;
   metrics: TrialMetrics;
   passedFilters: boolean;
+  filterReasons?: string[];
   timestamp: string;
 }
 
 export type RunStatus = "idle" | "running" | "stopped" | "completed" | "error";
+
+export interface OptimisationSessionSnapshot {
+  status: RunStatus;
+  statusMessage?: string;
+  config?: OptimisationConfig;
+  totalTrials: number;
+  completedTrials: TrialResult[];
+  bestTrial?: TrialResult | null;
+}
 
 export type BackgroundRequest =
   | { type: "list-strategies" }
   | { type: "get-params"; strategyId: string }
   | { type: "start-optimisation"; payload: OptimisationConfig }
   | { type: "stop-optimisation" }
-  | { type: "get-session" };
+  | { type: "get-session" }
+  | { type: "apply-best-params" };
 
 export type BackgroundResponse =
   | { type: "strategies"; strategies: StrategySummary[] }
   | { type: "params"; strategyId: string; params: StrategyParameter[] }
   | { type: "optimisation-started" }
   | { type: "optimisation-stopped" }
-  | { type: "session"; snapshot: { status: RunStatus; totalTrials: number; completedTrials: TrialResult[] } }
+  | { type: "session"; snapshot: OptimisationSessionSnapshot }
+  | { type: "best-applied" }
   | { type: "error"; message: string };
+
+export type ContentScriptAction = "list-strategies" | "get-params" | "apply-params" | "read-metrics" | "set-date-range";
+
+export interface ContentScriptRequest<T = unknown> {
+  channel: "tv-optimiser";
+  action: ContentScriptAction;
+  payload?: T;
+}
+
+export type ContentScriptResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: string };
+
+export interface GetParamsPayload {
+  strategyId: string;
+}
+
+export interface ApplyParamsPayload {
+  strategyId: string;
+  params: Record<string, string | number | boolean>;
+}
+
+export interface DateRangePayload {
+  start: string;
+  end: string;
+}
+
+export interface ReadMetricsPayload {
+  metrics: StrategyMetric[];
+}
+
+export interface TrialBroadcast {
+  trial: number;
+  params: Record<string, number | string | boolean>;
+  metrics: TrialMetrics;
+  passedFilters: boolean;
+  filterReasons?: string[];
+  objective: number;
+  progress: { completed: number; total: number };
+  best?: TrialResult | null;
+}
 
 export type ExtensionEvent =
   | { type: "status"; status: RunStatus; message?: string }
-  | { type: "trial"; payload: { trial: number; params: Record<string, number | string | boolean>; metrics: TrialMetrics; passedFilters: boolean; progress: { completed: number; total: number } } }
-  | { type: "complete"; reason: "finished" | "stopped" };
-
+  | { type: "trial"; payload: TrialBroadcast }
+  | {
+      type: "complete";
+      reason: "finished" | "stopped";
+      best?: TrialResult | null;
+    };

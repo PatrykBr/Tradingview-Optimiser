@@ -8,12 +8,14 @@ const typeColours: Record<string, string> = {
   string: "bg-sky-500/15 text-sky-100",
 };
 
-function formatValue(value: string | number | boolean) {
+function formatValue(value: StrategyParamValue) {
   if (typeof value === "boolean") {
     return value ? "True" : "False";
   }
   return String(value);
 }
+
+type StrategyParamValue = string | number | boolean;
 
 function formatPresetDate(value: string) {
   const date = new Date(value);
@@ -30,7 +32,8 @@ function StrategyTab() {
   );
 
   const selectedCount = parameters.filter((param) => param.enabled).length;
-  const canSavePreset = Boolean(state.selectedStrategyId && selectedCount > 0 && presetName.trim().length > 0);
+  const supportsNext = Boolean(state.selectedStrategyId) && selectedCount > 0;
+  const canSavePreset = Boolean(state.selectedStrategyId) && selectedCount > 0 && presetName.trim().length > 0;
 
   const handleSavePreset = async () => {
     const name = presetName.trim();
@@ -56,6 +59,7 @@ function StrategyTab() {
             {state.strategies.map((strategy) => (
               <option key={strategy.id} value={strategy.id}>
                 {strategy.name}
+                {strategy.author ? ` — ${strategy.author}` : ""}
               </option>
             ))}
           </select>
@@ -88,7 +92,7 @@ function StrategyTab() {
             return (
               <div
                 key={param.definition.id}
-                className="bg-night-800/60 rounded-xl border border-white/5 p-4"
+                className="bg-night-800/60 rounded-xl border border-white/5 p-4 shadow-inner shadow-black/40"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -226,7 +230,7 @@ function StrategyTab() {
         </div>
         <button
           type="button"
-          disabled={selectedCount === 0}
+          disabled={!supportsNext}
           onClick={() => actions.setTab("settings")}
           className="text-night-900 rounded-md bg-cyan-500 px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
         >
@@ -238,4 +242,3 @@ function StrategyTab() {
 }
 
 export default StrategyTab;
-

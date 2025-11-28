@@ -1,12 +1,12 @@
 import "./index.css";
 import { OptimiserProvider, useOptimiser } from "./state/optimiserContext";
-import TabsNav from "./components/TabsNav";
 import StrategyTab from "./components/StrategyTab";
 import SettingsTab from "./components/SettingsTab";
 import LiveResultsTab from "./components/LiveResultsTab";
+import TabsNav from "./components/TabsNav";
 
 function PopupShell() {
-  const { state, actions } = useOptimiser();
+  const { state } = useOptimiser();
 
   return (
     <div className="bg-night-900 min-h-[540px] w-[420px] text-slate-100 shadow-2xl">
@@ -20,13 +20,16 @@ function PopupShell() {
         </div>
       </header>
 
-      {state.error && (
+      {(state.error || (state.status === "error" && state.statusMessage)) && (
         <div className="mx-5 mt-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
-          {state.error}
+          {state.error ?? state.statusMessage}
         </div>
       )}
+      {!state.error && state.status !== "error" && state.statusMessage && (
+        <div className="mx-5 mt-3 text-xs text-slate-400">{state.statusMessage}</div>
+      )}
 
-      <TabsNav activeTab={state.tab} onTabChange={actions.setTab} />
+      <TabsNav />
 
       <main className="h-[420px] overflow-y-auto px-5 pt-4 pb-6">
         {state.tab === "parameters" && <StrategyTab />}

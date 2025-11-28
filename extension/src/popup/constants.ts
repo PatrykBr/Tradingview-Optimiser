@@ -21,4 +21,3 @@ export const FILTER_COMPARATORS: Array<{
   { id: "<", label: "<" },
   { id: "=", label: "=" },
 ];
-

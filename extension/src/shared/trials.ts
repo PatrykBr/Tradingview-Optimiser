@@ -1,4 +1,4 @@
-import type { TrialBroadcast, TrialResult } from "./ipc";
+import type { TrialBroadcast, TrialResult } from "@shared/ipc";
 
 export function broadcastToTrial(payload: TrialBroadcast): TrialResult {
   return {
@@ -11,4 +11,3 @@ export function broadcastToTrial(payload: TrialBroadcast): TrialResult {
     timestamp: new Date().toISOString(),
   };
 }
-
