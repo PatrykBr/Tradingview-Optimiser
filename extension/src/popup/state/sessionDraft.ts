@@ -33,4 +33,3 @@ export async function persistSessionDraft(draft: DraftPayload): Promise<void> {
     console.warn("Failed to persist optimiser draft state", error);
   }
 }
-

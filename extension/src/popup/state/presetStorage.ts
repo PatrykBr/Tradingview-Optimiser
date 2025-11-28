@@ -79,3 +79,4 @@ export async function deleteStrategyPreset(strategyId: string, presetId: string)
   await writeStore(store);
   return store[strategyId];
 }
+

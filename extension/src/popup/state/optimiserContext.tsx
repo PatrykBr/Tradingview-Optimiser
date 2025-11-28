@@ -1,18 +1,27 @@
-import { createContext, useCallback, useContext, useEffect, useReducer, useRef } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import browser from "webextension-polyfill";
 import type {
   BackgroundRequest,
   BackgroundResponse,
   ExtensionEvent,
+  FilterComparator,
   OptimisationConfig,
+  OptimisationFilter,
+  OptimisationSessionSnapshot,
   RunStatus,
+  StrategyMetric,
   StrategyParameter,
   StrategySummary,
   TrialResult,
 } from "@shared/ipc";
+import { broadcastToTrial } from "@shared/trials";
 import { deleteStrategyPreset, loadStrategyPresets, persistStrategyPreset, type StrategyPreset } from "./presetStorage";
+import { loadFavouriteMetrics, persistFavouriteMetrics } from "./metricPreferences";
+import { loadSessionDraft, persistSessionDraft } from "./sessionDraft";
 
 export type TabId = "parameters" | "settings" | "results";
+
+type ParameterField = "min" | "max";
 
 interface ParameterState {
   definition: StrategyParameter;
@@ -21,12 +30,7 @@ interface ParameterState {
   max: string;
 }
 
-interface FilterDraft {
-  id: string;
-  metric: string;
-  comparator: string;
-  value: string;
-}
+type FilterDraft = Omit<OptimisationFilter, "value"> & { value: string };
 
 interface OptimiserState {
   tab: TabId;
@@ -40,12 +44,13 @@ interface OptimiserState {
   isLoadingParams: boolean;
   isLoadingPresets: boolean;
   error?: string;
-  metric: string;
+  metric: StrategyMetric;
   trials: number;
   customRangeEnabled: boolean;
   startDate?: string;
   endDate?: string;
   filters: FilterDraft[];
+  favouriteMetrics: StrategyMetric[];
   status: RunStatus;
   totalTrials: number;
   completedTrials: TrialResult[];
@@ -53,28 +58,7 @@ interface OptimiserState {
   statusMessage?: string;
 }
 
-type Action =
-  | { type: "set-tab"; payload: TabId }
-  | { type: "set-strategies"; payload: StrategySummary[] }
-  | { type: "set-selected-strategy"; payload?: string }
-  | { type: "set-parameters"; payload: StrategyParameter[] }
-  | { type: "set-presets"; payload: StrategyPreset[] }
-  | { type: "apply-preset"; payload: StrategyPreset }
-  | { type: "toggle-parameter"; payload: { id: string; enabled: boolean } }
-  | { type: "update-parameter-range"; payload: { id: string; field: "min" | "max"; value: string } }
-  | { type: "set-loading"; payload: { strategies?: boolean; params?: boolean; presets?: boolean } }
-  | { type: "set-error"; payload?: string }
-  | { type: "set-metric"; payload: string }
-  | { type: "set-trials"; payload: number }
-  | { type: "toggle-custom-range"; payload: boolean }
-  | { type: "set-date"; payload: { field: "start" | "end"; value?: string } }
-  | { type: "add-filter" }
-  | { type: "update-filter"; payload: { id: string; field: keyof FilterDraft; value: string } }
-  | { type: "remove-filter"; payload: string }
-  | { type: "set-status"; payload: RunStatus }
-  | { type: "set-status-message"; payload?: string }
-  | { type: "append-trial"; payload: TrialResult }
-  | { type: "reset-trials"; payload: { totalTrials?: number } };
+const defaultFilterMetric: StrategyMetric = "net-profit";
 
 const initialState: OptimiserState = {
   tab: "parameters",
@@ -89,14 +73,79 @@ const initialState: OptimiserState = {
   trials: 250,
   customRangeEnabled: false,
   filters: [],
+  favouriteMetrics: [],
   status: "idle",
   totalTrials: 0,
   completedTrials: [],
   statusMessage: undefined,
 };
 
+const PERSIST_VERSION = 1;
+
+type PersistedOptimiserState = {
+  version: number;
+} & Pick<
+  OptimiserState,
+  | "tab"
+  | "selectedStrategyId"
+  | "parameterOrder"
+  | "parameters"
+  | "metric"
+  | "trials"
+  | "customRangeEnabled"
+  | "startDate"
+  | "endDate"
+  | "filters"
+  | "activePresetId"
+>;
+
+type Action =
+  | { type: "hydrate"; payload: Partial<OptimiserState> }
+  | { type: "set-tab"; payload: TabId }
+  | { type: "set-strategies"; payload: StrategySummary[] }
+  | { type: "set-selected-strategy"; payload?: string }
+  | { type: "set-parameters"; payload: StrategyParameter[] }
+  | { type: "toggle-parameter"; payload: { id: string; enabled: boolean } }
+  | { type: "set-presets"; payload: StrategyPreset[] }
+  | { type: "apply-preset"; payload: StrategyPreset }
+  | {
+      type: "update-parameter-range";
+      payload: { id: string; field: ParameterField; value: string };
+    }
+  | { type: "set-loading"; payload: { strategies?: boolean; params?: boolean; presets?: boolean } }
+  | { type: "set-error"; payload?: string }
+  | { type: "set-metric"; payload: StrategyMetric }
+  | { type: "set-trials"; payload: number }
+  | { type: "toggle-custom-range"; payload: boolean }
+  | { type: "set-date"; payload: { field: "start" | "end"; value?: string } }
+  | { type: "add-filter" }
+  | {
+      type: "update-filter";
+      payload: {
+        id: string;
+        field: keyof FilterDraft;
+        value: string | FilterComparator;
+      };
+    }
+  | { type: "remove-filter"; payload: string }
+  | { type: "set-status"; payload: RunStatus }
+  | {
+      type: "set-progress";
+      payload: {
+        totalTrials?: number;
+        completedTrials?: TrialResult[];
+        bestTrial?: TrialResult;
+      };
+    }
+  | { type: "append-trial"; payload: TrialResult }
+  | { type: "reset-trials"; payload: { totalTrials?: number } }
+  | { type: "set-status-message"; payload?: string }
+  | { type: "set-favourite-metrics"; payload: StrategyMetric[] };
+
 function reducer(state: OptimiserState, action: Action): OptimiserState {
   switch (action.type) {
+    case "hydrate":
+      return { ...state, ...action.payload };
     case "set-tab":
       return { ...state, tab: action.payload };
     case "set-strategies":
@@ -109,6 +158,7 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
         parameterOrder: [],
         presets: [],
         activePresetId: undefined,
+        isLoadingPresets: false,
       };
     case "set-parameters": {
       const parameters: Record<string, ParameterState> = {};
@@ -117,25 +167,6 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
         parameters[param.id] = { definition: param, enabled: false, min: val, max: val };
       }
       return { ...state, parameters, parameterOrder: action.payload.map((p) => p.id) };
-    }
-    case "toggle-parameter": {
-      const param = state.parameters[action.payload.id];
-      if (!param) return state;
-      return {
-        ...state,
-        parameters: { ...state.parameters, [action.payload.id]: { ...param, enabled: action.payload.enabled } },
-      };
-    }
-    case "update-parameter-range": {
-      const param = state.parameters[action.payload.id];
-      if (!param) return state;
-      return {
-        ...state,
-        parameters: {
-          ...state.parameters,
-          [action.payload.id]: { ...param, [action.payload.field]: action.payload.value },
-        },
-      };
     }
     case "set-presets":
       return {
@@ -162,6 +193,25 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
         }),
       );
       return { ...state, parameters, activePresetId: preset.id };
+    }
+    case "toggle-parameter": {
+      const param = state.parameters[action.payload.id];
+      if (!param) return state;
+      return {
+        ...state,
+        parameters: { ...state.parameters, [action.payload.id]: { ...param, enabled: action.payload.enabled } },
+      };
+    }
+    case "update-parameter-range": {
+      const param = state.parameters[action.payload.id];
+      if (!param) return state;
+      return {
+        ...state,
+        parameters: {
+          ...state.parameters,
+          [action.payload.id]: { ...param, [action.payload.field]: action.payload.value },
+        },
+      };
     }
     case "set-loading":
       return {
@@ -194,7 +244,7 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
           ...state.filters,
           {
             id: crypto.randomUUID(),
-            metric: "net-profit",
+            metric: state.favouriteMetrics[0] ?? defaultFilterMetric,
             comparator: ">=",
             value: "",
           },
@@ -204,7 +254,7 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
       return {
         ...state,
         filters: state.filters.map((filter) =>
-          filter.id === action.payload.id ? { ...filter, [action.payload.field]: action.payload.value } : filter
+          filter.id === action.payload.id ? { ...filter, [action.payload.field]: action.payload.value } : filter,
         ),
       };
     case "remove-filter":
@@ -214,8 +264,13 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
       };
     case "set-status":
       return { ...state, status: action.payload };
-    case "set-status-message":
-      return { ...state, statusMessage: action.payload };
+    case "set-progress":
+      return {
+        ...state,
+        totalTrials: action.payload.totalTrials ?? state.totalTrials,
+        completedTrials: action.payload.completedTrials ?? state.completedTrials,
+        bestTrial: action.payload.bestTrial ?? state.bestTrial,
+      };
     case "append-trial":
       return {
         ...state,
@@ -228,6 +283,10 @@ function reducer(state: OptimiserState, action: Action): OptimiserState {
         bestTrial: undefined,
         totalTrials: action.payload.totalTrials ?? state.totalTrials,
       };
+    case "set-status-message":
+      return { ...state, statusMessage: action.payload };
+    case "set-favourite-metrics":
+      return { ...state, favouriteMetrics: action.payload };
     default:
       return state;
   }
@@ -239,14 +298,15 @@ interface OptimiserContextValue {
     setTab(tab: TabId): void;
     selectStrategy(id?: string): void;
     toggleParameter(id: string, enabled: boolean): void;
-    updateParameterRange(id: string, field: "min" | "max", value: string): void;
-    setMetric(metric: string): void;
+    updateParameterRange(id: string, field: ParameterField, value: string): void;
+    setMetric(metric: StrategyMetric): void;
     setTrials(trials: number): void;
     toggleCustomRange(enabled: boolean): void;
     setDate(field: "start" | "end", value?: string): void;
     addFilter(): void;
     updateFilter(id: string, field: keyof FilterDraft, value: string): void;
     removeFilter(id: string): void;
+    toggleFavouriteMetric(metric: StrategyMetric): Promise<void>;
     savePreset(name: string): Promise<void>;
     applyPreset(presetId: string): void;
     deletePreset(presetId: string): Promise<void>;
@@ -254,6 +314,7 @@ interface OptimiserContextValue {
     loadParameters(strategyId: string): Promise<void>;
     startOptimisation(): Promise<void>;
     stopOptimisation(): Promise<void>;
+    applyBestToChart(): Promise<void>;
   };
 }
 
@@ -263,6 +324,7 @@ async function sendBackgroundMessage(request: BackgroundRequest): Promise<Backgr
   if (!browser?.runtime?.id) {
     return null;
   }
+
   try {
     return (await browser.runtime.sendMessage(request)) as BackgroundResponse;
   } catch (error) {
@@ -273,6 +335,64 @@ async function sendBackgroundMessage(request: BackgroundRequest): Promise<Backgr
 
 export function OptimiserProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    let mounted = true;
+    loadFavouriteMetrics().then((favourites) => {
+      if (mounted) dispatch({ type: "set-favourite-metrics", payload: favourites });
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const buildOptimisationConfig = useCallback((): OptimisationConfig | null => {
+    const {
+      selectedStrategyId,
+      parameterOrder,
+      parameters,
+      filters,
+      metric,
+      trials,
+      customRangeEnabled,
+      startDate,
+      endDate,
+    } = stateRef.current;
+    if (!selectedStrategyId) return null;
+
+    const enabledParams = parameterOrder
+      .map((id) => parameters[id])
+      .filter((p): p is ParameterState => Boolean(p?.enabled));
+
+    if (!enabledParams.length) return null;
+
+    return {
+      strategyId: selectedStrategyId,
+      params: enabledParams.map((p) => ({
+        paramId: p.definition.id,
+        label: p.definition.label,
+        type: p.definition.type,
+        enabled: true,
+        range: { min: Number(p.min), max: Number(p.max) },
+      })),
+      settings: {
+        metric,
+        trials,
+        useCustomRange: customRangeEnabled,
+        startDate: customRangeEnabled ? startDate : undefined,
+        endDate: customRangeEnabled ? endDate : undefined,
+        filters: filters
+          .filter((f) => f.value !== "")
+          .map((f) => ({ id: f.id, metric: f.metric, comparator: f.comparator, value: Number(f.value) }))
+          .filter((f) => Number.isFinite(f.value)),
+      },
+    };
+  }, []);
 
   const loadStrategies = useCallback(async () => {
     dispatch({ type: "set-loading", payload: { strategies: true } });
@@ -306,38 +426,51 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const buildOptimisationConfig = useCallback((): OptimisationConfig | null => {
-    const { selectedStrategyId, parameterOrder, parameters, metric, trials, customRangeEnabled, startDate, endDate, filters } = stateRef.current;
-    if (!selectedStrategyId) return null;
+  const loadPresets = useCallback(async (strategyId?: string) => {
+    if (!strategyId) {
+      dispatch({ type: "set-presets", payload: [] });
+      return;
+    }
 
-    const enabledParams = parameterOrder
-      .map((id) => parameters[id])
-      .filter((p): p is ParameterState => Boolean(p?.enabled));
-
-    if (!enabledParams.length) return null;
-
-    return {
-      strategyId: selectedStrategyId,
-      params: enabledParams.map((p) => ({
-        paramId: p.definition.id,
-        label: p.definition.label,
-        type: p.definition.type,
-        enabled: true,
-        range: { min: Number(p.min), max: Number(p.max) },
-      })),
-      settings: {
-        metric: metric as any,
-        trials,
-        useCustomRange: customRangeEnabled,
-        startDate: customRangeEnabled ? startDate : undefined,
-        endDate: customRangeEnabled ? endDate : undefined,
-        filters: filters
-          .filter((f) => f.value !== "")
-          .map((f) => ({ id: f.id, metric: f.metric as any, comparator: f.comparator as any, value: Number(f.value) }))
-          .filter((f) => Number.isFinite(f.value)),
-      },
-    };
+    dispatch({ type: "set-loading", payload: { presets: true } });
+    dispatch({ type: "set-error", payload: undefined });
+    try {
+      const presets = await loadStrategyPresets(strategyId);
+      dispatch({ type: "set-presets", payload: presets });
+    } catch (error) {
+      console.warn("Preset load failed", error);
+      dispatch({
+        type: "set-error",
+        payload: "Unable to load saved presets. Storage permission denied.",
+      });
+    } finally {
+      dispatch({ type: "set-loading", payload: { presets: false } });
+    }
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    (async () => {
+      const draft = await loadSessionDraft<PersistedOptimiserState>();
+      if (isMounted && draft?.version === PERSIST_VERSION) {
+        const { version: _, ...rest } = draft;
+        dispatch({ type: "hydrate", payload: rest });
+        if (rest.selectedStrategyId) {
+          void loadPresets(rest.selectedStrategyId);
+        }
+      }
+
+      const response = await sendBackgroundMessage({ type: "get-session" });
+      if (isMounted && response?.type === "session") {
+        dispatch({ type: "hydrate", payload: sessionSnapshotToState(response.snapshot) });
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [loadPresets]);
 
   const startOptimisation = useCallback(async () => {
     dispatch({ type: "set-error", payload: undefined });
@@ -368,20 +501,16 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "set-status-message", payload: "Optimisation stopped by user" });
   }, []);
 
-  const loadPresets = useCallback(async (strategyId?: string) => {
-    if (!strategyId) {
-      dispatch({ type: "set-presets", payload: [] });
-      return;
-    }
+  const applyBestToChart = useCallback(async () => {
+    dispatch({ type: "set-error", payload: undefined });
+    const response = await sendBackgroundMessage({ type: "apply-best-params" });
 
-    dispatch({ type: "set-loading", payload: { presets: true } });
-    try {
-      const presets = await loadStrategyPresets(strategyId);
-      dispatch({ type: "set-presets", payload: presets });
-    } catch (error) {
-      console.warn("Preset load failed", error);
-    } finally {
-      dispatch({ type: "set-loading", payload: { presets: false } });
+    if (!response) {
+      dispatch({ type: "set-error", payload: "Background worker is unavailable. Reload the extension." });
+    } else if (response.type === "error") {
+      dispatch({ type: "set-error", payload: response.message });
+    } else {
+      dispatch({ type: "set-status-message", payload: "Best parameters applied to your chart" });
     }
   }, []);
 
@@ -416,13 +545,14 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
     };
 
     dispatch({ type: "set-loading", payload: { presets: true } });
+    dispatch({ type: "set-error", payload: undefined });
     try {
       const updated = await persistStrategyPreset(preset);
       dispatch({ type: "set-presets", payload: updated });
       dispatch({ type: "apply-preset", payload: preset });
     } catch (error) {
       console.warn("Preset save failed", error);
-      dispatch({ type: "set-error", payload: "Unable to save the preset." });
+      dispatch({ type: "set-error", payload: "Unable to save the preset. Check extension storage access." });
     } finally {
       dispatch({ type: "set-loading", payload: { presets: false } });
     }
@@ -435,28 +565,41 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
 
   const deletePresetById = useCallback(async (presetId: string) => {
     const strategyId = stateRef.current.selectedStrategyId;
-    if (!strategyId) return;
+    if (!strategyId) {
+      return;
+    }
 
     dispatch({ type: "set-loading", payload: { presets: true } });
+    dispatch({ type: "set-error", payload: undefined });
     try {
       const updated = await deleteStrategyPreset(strategyId, presetId);
       dispatch({ type: "set-presets", payload: updated });
     } catch (error) {
       console.warn("Preset delete failed", error);
+      dispatch({
+        type: "set-error",
+        payload: "Unable to delete the preset. Check extension storage access.",
+      });
     } finally {
       dispatch({ type: "set-loading", payload: { presets: false } });
     }
   }, []);
 
-  useEffect(() => {
-    loadStrategies();
-  }, [loadStrategies]);
-
-  useEffect(() => {
-    if (state.selectedStrategyId) {
-      void loadPresets(state.selectedStrategyId);
+  const toggleFavouriteMetric = useCallback(async (metric: StrategyMetric) => {
+    const current = stateRef.current.favouriteMetrics;
+    const exists = current.includes(metric);
+    const next = exists ? current.filter((item) => item !== metric) : [metric, ...current];
+    dispatch({ type: "set-favourite-metrics", payload: next });
+    try {
+      await persistFavouriteMetrics(next);
+    } catch (error) {
+      console.warn("Favourite metrics update failed", error);
+      dispatch({
+        type: "set-error",
+        payload: "Unable to update favourite metrics. Storage permission denied.",
+      });
     }
-  }, [state.selectedStrategyId, loadPresets]);
+  }, []);
 
   useEffect(() => {
     const listener: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (message: unknown) => {
@@ -473,18 +616,14 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
         case "trial":
           dispatch({
             type: "append-trial",
-            payload: {
-              id: `trial-${typed.payload.trial}-${Date.now()}`,
-              trial: typed.payload.trial,
-              params: typed.payload.params,
-              metrics: typed.payload.metrics,
-              passedFilters: typed.payload.passedFilters,
-              timestamp: new Date().toISOString(),
-            },
+            payload: broadcastToTrial(typed.payload),
           });
           dispatch({
-            type: "reset-trials",
-            payload: { totalTrials: typed.payload.progress.total },
+            type: "set-progress",
+            payload: {
+              totalTrials: typed.payload.progress.total,
+              bestTrial: typed.payload.best ?? stateRef.current.bestTrial,
+            },
           });
           break;
         case "complete": {
@@ -494,8 +633,16 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
             type: "set-status-message",
             payload: typed.reason === "finished" ? "Optimisation completed" : "Optimisation stopped",
           });
+          if (typed.best) {
+            dispatch({
+              type: "set-progress",
+              payload: { bestTrial: typed.best },
+            });
+          }
           break;
         }
+        default:
+          break;
       }
 
       return undefined;
@@ -505,45 +652,109 @@ export function OptimiserProvider({ children }: { children: React.ReactNode }) {
     return () => browser.runtime.onMessage.removeListener(listener);
   }, []);
 
-  const contextValue: OptimiserContextValue = {
-    state,
-    actions: {
-      setTab: (tab) => dispatch({ type: "set-tab", payload: tab }),
-      selectStrategy: (id) => {
-        dispatch({ type: "set-selected-strategy", payload: id });
-        if (id) {
-          void loadParameters(id);
-          void loadPresets(id);
-        }
+  useEffect(() => {
+    loadStrategies();
+  }, [loadStrategies]);
+
+  const persistableState = useMemo(
+    (): PersistedOptimiserState => ({
+      version: PERSIST_VERSION,
+      tab: state.tab,
+      selectedStrategyId: state.selectedStrategyId,
+      parameterOrder: state.parameterOrder,
+      parameters: state.parameters,
+      metric: state.metric,
+      trials: state.trials,
+      customRangeEnabled: state.customRangeEnabled,
+      startDate: state.startDate,
+      endDate: state.endDate,
+      filters: state.filters,
+      activePresetId: state.activePresetId,
+    }),
+    [
+      state.tab,
+      state.selectedStrategyId,
+      state.parameterOrder,
+      state.parameters,
+      state.metric,
+      state.trials,
+      state.customRangeEnabled,
+      state.startDate,
+      state.endDate,
+      state.filters,
+      state.activePresetId,
+    ],
+  );
+
+  useEffect(() => {
+    void persistSessionDraft(persistableState);
+  }, [persistableState]);
+
+  const contextValue = useMemo<OptimiserContextValue>(
+    () => ({
+      state,
+      actions: {
+        setTab: (tab) => dispatch({ type: "set-tab", payload: tab }),
+        selectStrategy: (id) => {
+          dispatch({ type: "set-selected-strategy", payload: id });
+          if (id) {
+            void loadParameters(id);
+            void loadPresets(id);
+          }
+        },
+        toggleParameter: (id, enabled) => dispatch({ type: "toggle-parameter", payload: { id, enabled } }),
+        updateParameterRange: (id, field, value) =>
+          dispatch({
+            type: "update-parameter-range",
+            payload: { id, field, value },
+          }),
+        setMetric: (metric) => dispatch({ type: "set-metric", payload: metric }),
+        setTrials: (trials) => dispatch({ type: "set-trials", payload: trials }),
+        toggleCustomRange: (enabled) => dispatch({ type: "toggle-custom-range", payload: enabled }),
+        setDate: (field, value) => dispatch({ type: "set-date", payload: { field, value } }),
+        addFilter: () => dispatch({ type: "add-filter" }),
+        updateFilter: (id, field, value) =>
+          dispatch({
+            type: "update-filter",
+            payload: { id, field: field as keyof FilterDraft, value },
+          }),
+        removeFilter: (id) => dispatch({ type: "remove-filter", payload: id }),
+        savePreset,
+        applyPreset,
+        deletePreset: deletePresetById,
+        loadStrategies,
+        loadParameters,
+        startOptimisation,
+        stopOptimisation,
+        applyBestToChart,
+        toggleFavouriteMetric,
       },
-      toggleParameter: (id, enabled) => dispatch({ type: "toggle-parameter", payload: { id, enabled } }),
-      updateParameterRange: (id, field, value) =>
-        dispatch({
-          type: "update-parameter-range",
-          payload: { id, field, value },
-        }),
-      setMetric: (metric) => dispatch({ type: "set-metric", payload: metric }),
-      setTrials: (trials) => dispatch({ type: "set-trials", payload: trials }),
-      toggleCustomRange: (enabled) => dispatch({ type: "toggle-custom-range", payload: enabled }),
-      setDate: (field, value) => dispatch({ type: "set-date", payload: { field, value } }),
-      addFilter: () => dispatch({ type: "add-filter" }),
-      updateFilter: (id, field, value) =>
-        dispatch({
-          type: "update-filter",
-          payload: { id, field: field as keyof FilterDraft, value },
-        }),
-      removeFilter: (id) => dispatch({ type: "remove-filter", payload: id }),
-      savePreset,
-      applyPreset,
-      deletePreset: deletePresetById,
+    }),
+    [
+      state,
       loadStrategies,
       loadParameters,
       startOptimisation,
       stopOptimisation,
-    },
-  };
+      applyBestToChart,
+      savePreset,
+      applyPreset,
+      deletePresetById,
+      toggleFavouriteMetric,
+    ],
+  );
 
   return <OptimiserContext.Provider value={contextValue}>{children}</OptimiserContext.Provider>;
+}
+
+function sessionSnapshotToState(snapshot: OptimisationSessionSnapshot): Partial<OptimiserState> {
+  return {
+    status: snapshot.status,
+    statusMessage: snapshot.statusMessage,
+    totalTrials: snapshot.totalTrials || snapshot.config?.settings?.trials || 0,
+    completedTrials: snapshot.completedTrials ?? [],
+    bestTrial: snapshot.bestTrial ?? undefined,
+  };
 }
 
 export function useOptimiser() {
@@ -553,4 +764,3 @@ export function useOptimiser() {
   }
   return ctx;
 }
-
