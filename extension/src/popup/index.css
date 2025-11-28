@@ -4,6 +4,7 @@
   --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --color-night-900: #020617;
   --color-night-800: #0f172a;
+  --color-night-700: #1e293b;
 }
 
 :root {
@@ -11,4 +12,3 @@
   color: var(--color-slate-50);
   background-color: var(--color-night-900);
 }
-

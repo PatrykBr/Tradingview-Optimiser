@@ -1,11 +1,14 @@
 {
   "manifest_version": 3,
   "name": "TradingView Optimiser",
-  "description": "Optimise TradingView strategies",
+  "description": "Optimise Pine Script strategies directly on your TradingView chart with Optuna intelligence.",
   "version": "0.1.0",
   "action": {
     "default_title": "TradingView Optimiser",
     "default_popup": "index.html"
+  },
+  "icons": {
+    "128": "icons/icon-128.png"
   },
   "permissions": [
     "storage",
@@ -26,6 +29,12 @@
       "matches": ["https://*.tradingview.com/*"],
       "js": ["src/content/index.ts"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*"],
+      "matches": ["*://*/*"]
     }
   ]
 }

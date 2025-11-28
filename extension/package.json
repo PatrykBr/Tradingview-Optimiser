@@ -11,12 +11,16 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.17",
     "@types/chrome": "^0.1.31",
+    "@types/firefox-webext-browser": "^143.0.0",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/webextension-polyfill": "^0.12.4",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.22",
     "postcss": "^8.5.6",
+    "prettier": "^3.6.2",
+    "prettier-plugin-tailwindcss": "^0.7.1",
     "tailwindcss": "^4.1.17",
     "typescript": "~5.9.3",
     "vite": "^7.2.4",
@@ -28,4 +32,3 @@
     "webextension-polyfill": "^0.12.0"
   }
 }
-
