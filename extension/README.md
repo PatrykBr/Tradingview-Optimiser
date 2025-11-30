@@ -4,10 +4,10 @@ Manifest V3 browser extension that automates TradingView's strategy tester. Work
 
 ## Tech Stack
 
-- **React** — popup UI
-- **Tailwind CSS** — styling
-- **Vite** — bundler
-- **TypeScript** — everywhere
+- **React**: popup UI
+- **Tailwind CSS**: styling
+- **Vite**: bundler
+- **TypeScript**: type checking
 
 ## Setup
 
@@ -37,10 +37,10 @@ After `npm run build`, load `dist/` as an unpacked extension:
 
 ## Folder Structure
 
-```
+```md
 src/
-├── background/     # Service worker — WebSocket to backend, message relay
-├── content/        # Injected into TradingView — DOM automation
+├── background/     # Service worker, WebSocket to backend, message relay
+├── content/        # Injected into TradingView, DOM automation
 │   ├── dom.ts      # All CSS selectors live here
 │   ├── tradingview.ts  # Strategy dialog, parameter reading/writing
 │   └── index.ts    # Entry point, message handlers

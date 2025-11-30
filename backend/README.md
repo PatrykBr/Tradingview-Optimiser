@@ -4,10 +4,10 @@ FastAPI server that runs Optuna and communicates with the browser extension over
 
 ## Tech Stack
 
-- **FastAPI** — async web framework
-- **Optuna** — Bayesian hyperparameter optimization (AutoSampler by default, falls back to TPE)
-- **OptunaHub** — for the AutoSampler package
-- **WebSockets** — real-time bidirectional communication with the extension
+- **FastAPI**: async web framework
+- **Optuna**: Bayesian hyperparameter optimization (AutoSampler by default, falls back to TPE)
+- **OptunaHub**: for the AutoSampler package
+- **WebSockets**: real-time bidirectional communication with the extension
 
 ## Setup
 
@@ -29,9 +29,9 @@ Copy `env.example` to `.env`:
 
 | Variable              | Default | Description                                                |
 | --------------------- | ------- | ---------------------------------------------------------- |
-| `OPTUNA_STORAGE`      | —       | SQLite URL to persist studies, e.g. `sqlite:///studies.db` |
+| `OPTUNA_STORAGE`      | -       | SQLite URL to persist studies, e.g. `sqlite:///studies.db` |
 | `OPTUNA_SAMPLER`      | `auto`  | `auto` (AutoSampler) or `tpe`                              |
-| `OPTUNA_SAMPLER_SEED` | —       | Fix seed for reproducible runs                             |
+| `OPTUNA_SAMPLER_SEED` | -       | Fix seed for reproducible runs                             |
 | `CORS_ALLOW_ORIGINS`  | `*`     | Comma-separated origins, or `*` for all                    |
 
 ## Scripts
@@ -48,7 +48,7 @@ WebSocket endpoint: `ws://localhost:8000/optimise`
 
 ## Folder Structure
 
-```
+```md
 app/
 ├── main.py       # FastAPI app, WebSocket handler, optimization loop
 ├── schemas.py    # Pydantic models, metric mappings, Optuna distributions
