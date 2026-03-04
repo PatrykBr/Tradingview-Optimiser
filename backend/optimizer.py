@@ -9,27 +9,19 @@ from pathlib import Path
 import re
 from threading import Lock
 import time
-from typing import Any, Literal, Mapping, cast
+from typing import Any, Literal, Mapping, TypeAlias, cast
 
 import optuna
 try:
     import optunahub
 except Exception:  # pragma: no cover - optional dependency at runtime
     optunahub = None
-try:
-    from backend.models import (  # pyright: ignore[reportMissingImports]
-        CategoricalParam,
-        FloatParam,
-        IntParam,
-        WarmStartTrialSeed,
-    )
-except ModuleNotFoundError:
-    from models import (
-        CategoricalParam,
-        FloatParam,
-        IntParam,
-        WarmStartTrialSeed,
-    )
+from .models import (
+    CategoricalParam,
+    FloatParam,
+    IntParam,
+    WarmStartTrialSeed,
+)
 from optuna.storages import RDBStorage
 from optuna.trial import FrozenTrial, TrialState
 
@@ -100,9 +92,9 @@ def _create_storage(storage_url: str) -> RDBStorage:
     )
 
 
-SamplerChoice = Literal["auto", "tpe", "random", "gp", "qmc", "cmaes"]
-RunMode = Literal["resume", "fresh", "warm_start"]
-SearchSpaceParamInput = FloatParam | IntParam | CategoricalParam
+SamplerChoice: TypeAlias = Literal["auto", "tpe", "random", "gp", "qmc", "cmaes"]
+RunMode: TypeAlias = Literal["resume", "fresh", "warm_start"]
+SearchSpaceParamInput: TypeAlias = FloatParam | IntParam | CategoricalParam
 
 
 def _create_optional_sampler(

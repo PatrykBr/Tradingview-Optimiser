@@ -21,6 +21,7 @@ export const DEFAULT_ANTI_DETECTION = {
 
 // Optimization defaults
 export const DEFAULT_TOTAL_TRIALS = 50;
+export const MAX_HISTORY_RUNS = 100;
 
 // Available metrics (all available from TradingView performance summary)
 export const AVAILABLE_METRICS = [

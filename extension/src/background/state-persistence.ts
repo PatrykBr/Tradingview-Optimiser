@@ -1,9 +1,10 @@
 import type { ServiceWorkerMessage } from '../shared/messages';
 import type { Metric, OptimizationConfig, OptimizationState, TrialHistoryRun, TrialResult } from '../shared/types';
+import { MAX_HISTORY_RUNS } from '../shared/constants';
 import { sanitizeOptimizationConfigInput, sanitizeTrialParamsInput } from '../shared/config-schema';
 
 const MAX_PERSISTED_TRIALS = 600;
-const MAX_PERSISTED_HISTORY_RUNS = 80;
+const MAX_PERSISTED_HISTORY_RUNS = MAX_HISTORY_RUNS;
 const MAX_PERSISTED_HISTORY_TRIALS = 300;
 const MAX_HISTORY_SUMMARY_TRIALS_PER_RUN = 12;
 const MAX_PERSISTED_METRICS_PER_TRIAL = 6;

@@ -1,7 +1,7 @@
 """FastAPI backend with a local-only WebSocket endpoint for Optuna optimization.
 
 Run with (recommended localhost bind):
-uvicorn main:app --host 127.0.0.1 --port 8765 --reload
+uvicorn backend.main:app --host 127.0.0.1 --port 8765 --reload
 """
 
 from __future__ import annotations
@@ -14,14 +14,15 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import Literal, cast
+from typing import Literal, TypeAlias, cast
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from models import (
+from .models import (
     AskMessage,
+    DeleteAck,
     DeleteStudyFamilyMessage,
     DeleteStudyMessage,
     ErrorResponse,
@@ -33,7 +34,7 @@ from models import (
     TellMessage,
     TrialSuggestion,
 )
-from optimizer import OptunaOptimizer, STORAGE_ROOT
+from .optimizer import OptunaOptimizer, STORAGE_ROOT
 
 # ============================================================
 # Logging
@@ -61,7 +62,7 @@ LOCAL_CORS_ORIGIN_REGEX = (
     r"|http://127\.0\.0\.1(:\d+)?)$"
 )
 
-IncomingMessageType = Literal[
+IncomingMessageType: TypeAlias = Literal[
     "init",
     "ask",
     "tell",
@@ -69,7 +70,7 @@ IncomingMessageType = Literal[
     "delete_study",
     "delete_study_family",
 ]
-OutgoingMessage = InitAck | TrialSuggestion | TellAck | StatusResponse | ErrorResponse
+OutgoingMessage: TypeAlias = InitAck | TrialSuggestion | TellAck | StatusResponse | DeleteAck | ErrorResponse
 
 ALLOWED_MESSAGE_TYPES: frozenset[str] = frozenset(
     {
@@ -275,13 +276,22 @@ async def _run_delete_and_ack(
     *,
     websocket: WebSocket,
     request_id: str,
+    deleted: Literal["study", "study_family"],
+    target: str,
     operation: Callable[[], None],
 ) -> None:
     t0 = time.monotonic()
     await asyncio.to_thread(operation)
     METRICS.total_deletes += 1
     METRICS.delete_latency_ms_sum += (time.monotonic() - t0) * 1000.0
-    await _send(websocket, _status_without_trials(request_id))
+    await _send(
+        websocket,
+        DeleteAck(
+            request_id=request_id,
+            deleted=deleted,
+            target=target,
+        ),
+    )
 
 
 # ============================================================
@@ -448,6 +458,8 @@ async def websocket_optimize(websocket: WebSocket, study_name: str):
                     await _run_delete_and_ack(
                         websocket=websocket,
                         request_id=msg.request_id,
+                        deleted="study",
+                        target=study_name_to_delete,
                         operation=lambda: OptunaOptimizer.delete_study(
                             study_name_to_delete,
                         ),
@@ -459,6 +471,8 @@ async def websocket_optimize(websocket: WebSocket, study_name: str):
                     await _run_delete_and_ack(
                         websocket=websocket,
                         request_id=msg.request_id,
+                        deleted="study_family",
+                        target=study_family_to_delete,
                         operation=lambda: OptunaOptimizer.delete_study_family(
                             study_family_to_delete,
                         ),

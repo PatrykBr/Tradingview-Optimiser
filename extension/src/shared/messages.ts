@@ -115,6 +115,12 @@ export type BackendIncomingMessage =
     }
   | {
       request_id: string;
+      type: 'delete_ack';
+      deleted: 'study' | 'study_family';
+      target: string;
+    }
+  | {
+      request_id: string;
       type: 'trial';
       trial_number: number;
       params: Record<string, number | string | boolean>;

@@ -108,7 +108,14 @@ export async function runOptimizationTrials(options: RunOptimizationTrialsOption
     await assertOptimizationTab();
 
     const injectResponse = await injectParams(suggestedParams as TrialParams);
-    if (injectResponse.type === 'ERROR' || (injectResponse.type === 'PARAMS_INJECTED' && !injectResponse.success)) {
+    if (injectResponse.type !== 'PARAMS_INJECTED') {
+      await markTrialFailed(trialMsg.trial_number);
+      continue;
+    }
+    if (!injectResponse.success || injectResponse.error) {
+      if (injectResponse.error) {
+        logDebug(`[Runner] Trial ${trialMsg.trial_number} injection warning: ${injectResponse.error}`);
+      }
       await markTrialFailed(trialMsg.trial_number);
       continue;
     }

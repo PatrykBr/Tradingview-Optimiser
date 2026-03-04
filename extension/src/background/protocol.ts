@@ -35,6 +35,22 @@ export function parseBackendIncomingMessage(raw: string, maxBytes: number): Back
     };
   }
 
+  if (parsed.type === 'delete_ack') {
+    if (
+      (parsed.deleted !== 'study' && parsed.deleted !== 'study_family') ||
+      typeof parsed.target !== 'string' ||
+      parsed.target.length === 0
+    ) {
+      throw new Error('Invalid delete_ack payload');
+    }
+    return {
+      request_id: parseRequiredRequestId(parsed),
+      type: 'delete_ack',
+      deleted: parsed.deleted,
+      target: parsed.target,
+    };
+  }
+
   if (parsed.type === 'trial') {
     if (typeof parsed.trial_number !== 'number' || !isRecord(parsed.params)) {
       throw new Error('Invalid trial payload');

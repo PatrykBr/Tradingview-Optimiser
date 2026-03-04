@@ -73,6 +73,11 @@ export class BackendClient {
       } catch {
         return;
       }
+      if (parsed.type === 'error' && !parsed.request_id) {
+        this.setStatus('error');
+        this.rejectPending(new Error(parsed.message));
+        return;
+      }
       if (!parsed.request_id) {
         return;
       }
@@ -286,11 +291,25 @@ export async function sendBackendMaintenanceMessage(
         return;
       }
 
+      if (parsed.type === 'error' && !parsed.request_id) {
+        finishReject(new Error(parsed.message));
+        return;
+      }
       if (parsed.request_id !== requestId) {
         return;
       }
       if (parsed.type === 'error') {
         finishReject(new Error(parsed.message));
+        return;
+      }
+      if (parsed.type !== 'delete_ack') {
+        finishReject(new Error(`Unexpected maintenance response type: ${parsed.type}`));
+        return;
+      }
+      const expectedDeleted = message.type === 'delete_study' ? 'study' : 'study_family';
+      const expectedTarget = message.type === 'delete_study' ? message.study_name : message.study_family;
+      if (parsed.deleted !== expectedDeleted || parsed.target !== expectedTarget) {
+        finishReject(new Error('Maintenance ack did not match requested operation'));
         return;
       }
       finishResolve();

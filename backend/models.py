@@ -237,6 +237,13 @@ class StatusResponse(StrictModel):
     best_params: dict[str, float | int | str | bool] | None
 
 
+class DeleteAck(StrictModel):
+    request_id: RequestIdentifier
+    type: Literal["delete_ack"] = "delete_ack"
+    deleted: Literal["study", "study_family"]
+    target: StudyIdentifier
+
+
 class ErrorResponse(StrictModel):
     request_id: RequestIdentifier | None = None
     type: Literal["error"] = "error"

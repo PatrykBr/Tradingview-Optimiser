@@ -25,9 +25,8 @@ pwsh -File scripts/check.ps1
 Backend:
 
 ```bash
-cd backend
-uv sync --frozen
-uv run uvicorn main:app --host 127.0.0.1 --port 8765 --reload
+uv sync --frozen --project backend
+uv run --project backend uvicorn backend.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
 Extension:
@@ -41,8 +40,7 @@ npm run dev
 Optional backend extras:
 
 ```bash
-cd backend
-uv sync --frozen --extra auto-sampler --extra sampler-gp --extra sampler-cmaes
+uv sync --frozen --project backend --extra auto-sampler --extra sampler-gp --extra sampler-cmaes
 ```
 
 `auto-sampler` is optional. If omitted, `sampler=auto` falls back to deterministic TPE locally.

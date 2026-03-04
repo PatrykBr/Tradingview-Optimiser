@@ -7,14 +7,25 @@
 
 import type { ContentScriptResponse } from '../shared/messages';
 import type {
-  StrategyParameter,
-  StrategyInfo,
-  NumericParameter,
   CheckboxParameter,
   DropdownParameter,
+  NumericParameter,
+  StrategyInfo,
+  StrategyParameter,
 } from '../shared/types';
 import { sleep } from '../utils/delay';
 import { createScopedLabelIdAllocator } from '../utils/label';
+import {
+  findNextValueCellIndex,
+  findNumericInputInCell,
+  findSectionName,
+  getCellInnerLabelText,
+  getCheckboxCheckedState,
+  getVisibleCellChildren,
+  getInnerText,
+  isElementVisible,
+  resolveInlineGroups,
+} from './parameter-dom';
 import { findListboxForCombobox, isChartPage, SELECTORS } from './selectors';
 import { simulatePointerClick } from './tradingview-dom';
 
@@ -203,21 +214,6 @@ function createNumericParam(
   };
 }
 
-function isElementVisible(element: Element): boolean {
-  const node = element as HTMLElement;
-
-  if (node.closest('[hidden], [aria-hidden="true"]')) {
-    return false;
-  }
-
-  const style = window.getComputedStyle(node);
-  if (style.display === 'none' || style.visibility === 'hidden') {
-    return false;
-  }
-
-  return node.getClientRects().length > 0;
-}
-
 function buildParameterFingerprint(param: StrategyParameter): string {
   const base = `${param.section}::${param.label}::${param.type}::${param.enabled}`;
 
@@ -282,36 +278,6 @@ function logParameterDetectionSummary(params: StrategyParameter[], meta: ParsedP
   }
 }
 
-function getInnerText(element: Element | null): string {
-  return element?.textContent?.trim() ?? '';
-}
-
-function findNumericInputInCell(valueCell: HTMLElement): HTMLInputElement | null {
-  const inputs = valueCell.querySelectorAll('input[data-qa-id="ui-lib-Input-input"]') as NodeListOf<HTMLInputElement>;
-  for (const input of inputs) {
-    const placeholder = input.getAttribute('placeholder') ?? '';
-    if (placeholder.includes('YYYY')) continue;
-
-    const inputMode = (input.getAttribute('inputmode') ?? '').toLowerCase();
-    if (inputMode && inputMode !== 'numeric' && inputMode !== 'decimal') continue;
-
-    const rawValue = input.value.trim();
-    if (!rawValue) continue;
-    if (!/^[-+]?(?:\d[\d,]*(\.\d+)?|\.\d+)$/.test(rawValue)) continue;
-
-    return input;
-  }
-
-  return null;
-}
-
-function findSectionName(node: HTMLElement): string | null {
-  const sectionHeader = node.querySelector('[data-qa-id^="property-dialog-item"]');
-  if (!sectionHeader) return null;
-  const name = sectionHeader.querySelector('[class*="title-"]')?.textContent?.trim() ?? '';
-  return name || null;
-}
-
 /**
  * Parse all parameters from the settings dialog.
  *
@@ -325,7 +291,8 @@ async function parseParameters(dialog: HTMLElement): Promise<StrategyParameter[]
   const params: StrategyParameter[] = [];
   const parsedMeta: ParsedParameterMeta[] = [];
   const nextParamId = createScopedLabelIdAllocator();
-  const pushParam = (param: StrategyParameter, source: ParseSource) => {
+
+  function pushParam(param: StrategyParameter, source: ParseSource): void {
     params.push(param);
     parsedMeta.push({
       source,
@@ -334,7 +301,8 @@ async function parseParameters(dialog: HTMLElement): Promise<StrategyParameter[]
       type: param.type,
       fingerprint: buildParameterFingerprint(param),
     });
-  };
+  }
+
   // C5: Remove hardcoded RLntasnw hash — just match the content- prefix
   const content = dialog.querySelector(SELECTORS.dialogContent) as HTMLElement;
   if (!content) return params;
@@ -357,16 +325,10 @@ async function parseParameters(dialog: HTMLElement): Promise<StrategyParameter[]
 
     // Inline row parameters (e.g. Take-Profit, date range rows)
     if (classList.includes('inlineRow-')) {
-      const inlineGroups = Array.from(node.querySelectorAll(':scope > span[class*="inlineRow-"]')).filter(
-        (entry): entry is HTMLElement => entry instanceof HTMLElement,
-      );
-      const groupsToParse = inlineGroups.length > 0 ? inlineGroups : [node];
+      const groupsToParse = resolveInlineGroups(node);
 
       for (const group of groupsToParse) {
-        const groupCells = Array.from(group.children).filter(
-          (entry): entry is HTMLElement =>
-            entry instanceof HTMLElement && entry.className.includes('cell-') && isElementVisible(entry),
-        );
+        const groupCells = getVisibleCellChildren(group);
 
         for (let cellIndex = 0; cellIndex < groupCells.length - 1; cellIndex += 1) {
           const labelCell = groupCells[cellIndex];
@@ -375,9 +337,7 @@ async function parseParameters(dialog: HTMLElement): Promise<StrategyParameter[]
           const valueCell = groupCells[cellIndex + 1];
           if (!valueCell || !valueCell.className.includes('cell-')) continue;
 
-          const label = getInnerText(
-            labelCell.querySelector(':scope > [class*="inner-"]') ?? labelCell.querySelector('[class*="inner-"]'),
-          );
+          const label = getCellInnerLabelText(labelCell);
           if (!label) continue;
 
           const numInput = findNumericInputInCell(valueCell);
@@ -402,8 +362,7 @@ async function parseParameters(dialog: HTMLElement): Promise<StrategyParameter[]
       if (!checkboxLabel) continue;
 
       // M2: Check both aria-checked and the native .checked property
-      const ariaChecked = checkboxInput.getAttribute('aria-checked');
-      const isChecked = ariaChecked !== null ? ariaChecked === 'true' : checkboxInput.checked;
+      const isChecked = getCheckboxCheckedState(checkboxInput);
 
       pushParam(
         {
@@ -422,29 +381,10 @@ async function parseParameters(dialog: HTMLElement): Promise<StrategyParameter[]
 
     // Standard two-cell rows: label (first) + value (next cell)
     if (classList.includes('first-')) {
-      const label = getInnerText(node.querySelector(':scope > [class*="inner-"]') ?? node.querySelector('[class*="inner-"]'));
+      const label = getCellInnerLabelText(node);
       if (!label) continue;
 
-      let valueCellIndex = -1;
-      for (let j = i + 1; j < directChildren.length; j += 1) {
-        const candidate = directChildren[j];
-        if (!isElementVisible(candidate)) continue;
-
-        const candidateClass = candidate.className;
-        if (
-          candidateClass.includes('titleWrap-') ||
-          candidateClass.includes('groupFooter-') ||
-          candidateClass.includes('inlineRow-')
-        ) {
-          break;
-        }
-        if (!candidateClass.includes('cell-')) continue;
-        if (candidateClass.includes('first-')) break;
-
-        valueCellIndex = j;
-        break;
-      }
-
+      const valueCellIndex = findNextValueCellIndex(directChildren, i);
       if (valueCellIndex === -1) continue;
       const valueCell = directChildren[valueCellIndex];
 

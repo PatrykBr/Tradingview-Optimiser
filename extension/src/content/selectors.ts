@@ -25,16 +25,10 @@ export function isTradingViewUrl(url: string | undefined): boolean {
 
 export function findListboxForCombobox(combobox: HTMLButtonElement): HTMLElement | null {
   const listboxId = combobox.getAttribute('aria-controls');
-  if (listboxId) {
-    const byId = document.getElementById(listboxId);
-    if (byId) return byId;
-  }
+  if (!listboxId) return null;
 
-  const dialog = combobox.closest(SELECTORS.strategyDialog);
-  if (dialog) {
-    const scoped = dialog.ownerDocument.querySelector('[role="listbox"]') as HTMLElement | null;
-    if (scoped) return scoped;
-  }
-
-  return document.querySelector('[role="listbox"]') as HTMLElement | null;
+  const byId = combobox.ownerDocument.getElementById(listboxId);
+  if (!byId) return null;
+  if (byId.getAttribute('role') !== 'listbox') return null;
+  return byId as HTMLElement;
 }

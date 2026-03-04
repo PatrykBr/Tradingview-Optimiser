@@ -9,7 +9,14 @@
  * - Orchestrate the optimization loop
  */
 
-import { BACKEND_HEALTH_URL, BACKEND_WS_URL, DEFAULT_ANTI_DETECTION, MAX_BACKEND_MESSAGE_BYTES, STORAGE_KEYS } from '../shared/constants';
+import {
+  BACKEND_HEALTH_URL,
+  BACKEND_WS_URL,
+  DEFAULT_ANTI_DETECTION,
+  MAX_BACKEND_MESSAGE_BYTES,
+  MAX_HISTORY_RUNS,
+  STORAGE_KEYS,
+} from '../shared/constants';
 import type {
   SidePanelMessage,
   ServiceWorkerMessage,
@@ -59,7 +66,6 @@ let currentStudyFamily: string | null = null;
 
 const MAX_WARM_START_SEEDS = 5000;
 const MAX_INIT_MESSAGE_BYTES = Math.floor(MAX_BACKEND_MESSAGE_BYTES * 0.85);
-const MAX_PERSISTED_HISTORY_RUNS = 100;
 const DEBUG_LOGS = import.meta.env.DEV;
 const FILTER_COMPARATORS = {
   '>=': (actual: number, expected: number) => actual >= expected,
@@ -771,7 +777,7 @@ function upsertCurrentRunIntoHistory() {
 
   optimizationState.historyRuns = [runEntry, ...optimizationState.historyRuns.filter((run) => run.id !== runId)].slice(
     0,
-    MAX_PERSISTED_HISTORY_RUNS,
+    MAX_HISTORY_RUNS,
   );
 }
 

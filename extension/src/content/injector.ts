@@ -16,8 +16,48 @@ import type { ContentScriptResponse } from '../shared/messages';
 import type { TrialParams } from '../shared/types';
 import { sleep } from '../utils/delay';
 import { createScopedLabelIdAllocator } from '../utils/label';
+import {
+  findNextValueCellIndex,
+  findNumericInputInCell,
+  findSectionName,
+  getCellInnerLabelText,
+  getCheckboxCheckedState,
+  getVisibleCellChildren,
+  getInnerText,
+  isElementVisible,
+  resolveInlineGroups,
+} from './parameter-dom';
 import { findListboxForCombobox, SELECTORS } from './selectors';
 import { ensureBacktestingPanelOpen, simulatePointerClick } from './tradingview-dom';
+
+const BACKTEST_SNACKBAR_SELECTOR = '[data-qa-id="backtesting-loading-report-snackbar"]';
+const RETURNS_SUMMARY_ROWS_SELECTOR = '[data-qa-id="returns-summary-table"] tr.ka-row';
+
+function queryBacktestSnackbar(): Element | null {
+  return document.querySelector(BACKTEST_SNACKBAR_SELECTOR);
+}
+
+function getReturnsSummaryFingerprint(scope: ParentNode): string | null {
+  const rows = scope.querySelectorAll(RETURNS_SUMMARY_ROWS_SELECTOR);
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const normalized = Array.from(rows)
+    .map((row) => (row.textContent ?? '').replace(/\s+/g, ' ').trim())
+    .filter((text) => text.length > 0)
+    .join('|');
+
+  return normalized.length > 0 ? normalized : null;
+}
+
+function getCurrentReturnsSummaryFingerprint(): string | null {
+  const panel = document.querySelector(SELECTORS.backtestingPanel);
+  if (!panel) {
+    return null;
+  }
+  return getReturnsSummaryFingerprint(panel);
+}
 
 /**
  * Set a React-controlled input value using the native setter.
@@ -40,14 +80,24 @@ function setInputValue(input: HTMLInputElement, value: string): void {
  * M2: Check both aria-checked and native .checked.
  */
 function toggleCheckbox(checkboxInput: HTMLInputElement, targetValue: boolean): void {
-  const ariaChecked = checkboxInput.getAttribute('aria-checked');
-  const isChecked = ariaChecked !== null ? ariaChecked === 'true' : checkboxInput.checked;
-  if (isChecked !== targetValue) {
-    // Find the clickable wrapper
-    const label = checkboxInput.closest('label') as HTMLElement;
-    const wrapper = label?.querySelector('[class*="wrapper-"]') as HTMLElement;
-    (wrapper ?? label)?.click();
+  const isChecked = getCheckboxCheckedState(checkboxInput);
+  if (isChecked === targetValue) {
+    return;
   }
+
+  // Find the clickable wrapper
+  const label = checkboxInput.closest('label');
+  if (!(label instanceof HTMLElement)) {
+    return;
+  }
+
+  const wrapper = label.querySelector('[class*="wrapper-"]');
+  if (wrapper instanceof HTMLElement) {
+    wrapper.click();
+    return;
+  }
+
+  label.click();
 }
 
 /**
@@ -92,51 +142,6 @@ async function waitForDialog(timeout = 2500): Promise<HTMLElement> {
   throw new Error('Settings dialog did not appear within timeout');
 }
 
-function isElementVisible(element: Element): boolean {
-  const node = element as HTMLElement;
-
-  if (node.closest('[hidden], [aria-hidden="true"]')) {
-    return false;
-  }
-
-  const style = window.getComputedStyle(node);
-  if (style.display === 'none' || style.visibility === 'hidden') {
-    return false;
-  }
-
-  return node.getClientRects().length > 0;
-}
-
-function getInnerText(element: Element | null): string {
-  return element?.textContent?.trim() ?? '';
-}
-
-function findSectionName(node: HTMLElement): string | null {
-  const sectionHeader = node.querySelector('[data-qa-id^="property-dialog-item"]');
-  if (!sectionHeader) return null;
-  const name = sectionHeader.querySelector('[class*="title-"]')?.textContent?.trim() ?? '';
-  return name || null;
-}
-
-function findNumericInputInCell(valueCell: HTMLElement): HTMLInputElement | null {
-  const inputs = valueCell.querySelectorAll('input[data-qa-id="ui-lib-Input-input"]') as NodeListOf<HTMLInputElement>;
-  for (const input of inputs) {
-    const placeholder = input.getAttribute('placeholder') ?? '';
-    if (placeholder.includes('YYYY')) continue;
-
-    const inputMode = (input.getAttribute('inputmode') ?? '').toLowerCase();
-    if (inputMode && inputMode !== 'numeric' && inputMode !== 'decimal') continue;
-
-    const rawValue = input.value.trim();
-    if (!rawValue) continue;
-    if (!/^[-+]?(?:\d[\d,]*(\.\d+)?|\.\d+)$/.test(rawValue)) continue;
-
-    return input;
-  }
-
-  return null;
-}
-
 function setNumericValue(input: HTMLInputElement, value: number): void {
   input.focus();
   input.select();
@@ -177,40 +182,63 @@ async function openSettingsDialog(strategyIndex: number): Promise<void> {
  *
  * We wait for the snackbar to appear (loading started), then wait for it to
  * either show the success state or disappear (both mean recalculation is done).
- * Falls back to a table-row check if the snackbar never appears.
+ * If snackbar never appears, we confirm completion from summary rows:
+ * - Prefer changed text vs. the pre-submit snapshot when available.
+ * - Fall back to any visible summary rows when no pre-submit snapshot exists.
  */
-async function waitForBacktestComplete(timeout = 30000): Promise<{ confirmed: boolean }> {
+async function waitForBacktestComplete(
+  beforeSubmitFingerprint: string | null,
+  timeout = 30000,
+): Promise<{ confirmed: boolean }> {
   const start = Date.now();
 
   // If Strategy Report is collapsed, open it right away to avoid waiting on a hidden panel.
   await ensureBacktestingPanelOpen({ timeoutMs: 1200 });
+
+  const hasChangedSummaryRows = async (timeoutMs: number): Promise<boolean> => {
+    const panel = await ensureBacktestingPanelOpen({ timeoutMs });
+    if (!panel) {
+      return false;
+    }
+
+    const currentFingerprint = getReturnsSummaryFingerprint(panel);
+    if (!currentFingerprint) {
+      return false;
+    }
+    if (!beforeSubmitFingerprint) {
+      return true;
+    }
+    return currentFingerprint !== beforeSubmitFingerprint;
+  };
 
   // Phase 1: Wait for the loading snackbar to appear (TradingView started recalculating)
   // Give it up to 3s — if it never appears, the backtest might have been instant
   let snackbarSeen = false;
   const snackbarWaitLimit = 3000;
   while (Date.now() - start < snackbarWaitLimit) {
-    const snackbar = document.querySelector('[data-qa-id="backtesting-loading-report-snackbar"]');
+    const snackbar = queryBacktestSnackbar();
     if (snackbar) {
       snackbarSeen = true;
       break;
     }
-    // Also check if data is already fresh (instant recalc)
-    const panel = await ensureBacktestingPanelOpen({ timeoutMs: 250 });
-    const rows = panel?.querySelectorAll('[data-qa-id="returns-summary-table"] tr.ka-row');
-    if (rows && rows.length > 0 && !document.querySelector('[data-qa-id="backtesting-loading-report-snackbar"]')) {
-      // No snackbar and rows exist — recalc may have been instant
-      await sleep(200);
-      if (!document.querySelector('[data-qa-id="backtesting-loading-report-snackbar"]')) {
-        return { confirmed: true };
-      }
+    // No snackbar path: only trust changed table content vs pre-submit snapshot.
+    if (await hasChangedSummaryRows(250)) {
+      return { confirmed: true };
+    }
+    await sleep(100);
+    if (await hasChangedSummaryRows(250)) {
+      return { confirmed: true };
+    }
+    if (queryBacktestSnackbar()) {
+      snackbarSeen = true;
+      break;
     }
     await sleep(100);
   }
 
   // Phase 2: Wait for the snackbar to show success or disappear
   while (Date.now() - start < timeout) {
-    const snackbar = document.querySelector('[data-qa-id="backtesting-loading-report-snackbar"]');
+    const snackbar = queryBacktestSnackbar();
 
     if (snackbar) {
       // Check for success indicator
@@ -223,22 +251,16 @@ async function waitForBacktestComplete(timeout = 30000): Promise<{ confirmed: bo
     } else if (snackbarSeen) {
       // Snackbar was there but now it's gone — recalculation finished and snackbar auto-dismissed
       return { confirmed: true };
-    } else {
-      // No snackbar observed yet; ensure the report is open and treat existing table data as ready.
-      const panel = await ensureBacktestingPanelOpen({ timeoutMs: 250 });
-      const rows = panel?.querySelectorAll('[data-qa-id="returns-summary-table"] tr.ka-row');
-      if (rows && rows.length > 0) {
-        return { confirmed: true };
-      }
+    } else if (await hasChangedSummaryRows(250)) {
+      // Snackbar-less path: only accept changed summary data.
+      return { confirmed: true };
     }
 
     await sleep(100);
   }
 
-  // Timeout fallback — check if data exists anyway
-  const panel = await ensureBacktestingPanelOpen({ timeoutMs: 500 });
-  const rows = panel?.querySelectorAll('[data-qa-id="returns-summary-table"] tr.ka-row');
-  if (rows && rows.length > 0) {
+  // Timeout fallback — allow completion only if we can prove data changed.
+  if (await hasChangedSummaryRows(500)) {
     return { confirmed: true };
   }
 
@@ -294,16 +316,10 @@ export async function injectParameters(
 
       // Inline row parameters (e.g. Take-Profit rows)
       if (classList.includes('inlineRow-')) {
-        const inlineGroups = Array.from(node.querySelectorAll(':scope > span[class*="inlineRow-"]')).filter(
-          (entry): entry is HTMLElement => entry instanceof HTMLElement,
-        );
-        const groupsToParse = inlineGroups.length > 0 ? inlineGroups : [node];
+        const groupsToParse = resolveInlineGroups(node);
 
         for (const group of groupsToParse) {
-          const groupCells = Array.from(group.children).filter(
-            (entry): entry is HTMLElement =>
-              entry instanceof HTMLElement && entry.className.includes('cell-') && isElementVisible(entry),
-          );
+          const groupCells = getVisibleCellChildren(group);
 
           for (let cellIndex = 0; cellIndex < groupCells.length - 1; cellIndex += 1) {
             const labelCell = groupCells[cellIndex];
@@ -312,9 +328,7 @@ export async function injectParameters(
             const valueCell = groupCells[cellIndex + 1];
             if (!valueCell || !valueCell.className.includes('cell-')) continue;
 
-            const label = getInnerText(
-              labelCell.querySelector(':scope > [class*="inner-"]') ?? labelCell.querySelector('[class*="inner-"]'),
-            );
+            const label = getCellInnerLabelText(labelCell);
             if (!label) continue;
 
             const numInput = findNumericInputInCell(valueCell);
@@ -351,31 +365,10 @@ export async function injectParameters(
 
       // Standard two-cell rows: label (first) + value (next cell)
       if (classList.includes('first-')) {
-        const label = getInnerText(
-          node.querySelector(':scope > [class*="inner-"]') ?? node.querySelector('[class*="inner-"]'),
-        );
+        const label = getCellInnerLabelText(node);
         if (!label) continue;
 
-        let valueCellIndex = -1;
-        for (let j = i + 1; j < directChildren.length; j += 1) {
-          const candidate = directChildren[j];
-          if (!isElementVisible(candidate)) continue;
-
-          const candidateClass = candidate.className;
-          if (
-            candidateClass.includes('titleWrap-') ||
-            candidateClass.includes('groupFooter-') ||
-            candidateClass.includes('inlineRow-')
-          ) {
-            break;
-          }
-          if (!candidateClass.includes('cell-')) continue;
-          if (candidateClass.includes('first-')) break;
-
-          valueCellIndex = j;
-          break;
-        }
-
+        const valueCellIndex = findNextValueCellIndex(directChildren, i);
         if (valueCellIndex === -1) continue;
         const valueCell = directChildren[valueCellIndex];
 
@@ -413,10 +406,11 @@ export async function injectParameters(
     if (!submitBtn) {
       throw new Error('Could not find OK/Submit button');
     }
+    const beforeSubmitFingerprint = getCurrentReturnsSummaryFingerprint();
     submitBtn.click();
 
     // Wait for backtest to complete
-    const { confirmed } = await waitForBacktestComplete();
+    const { confirmed } = await waitForBacktestComplete(beforeSubmitFingerprint);
 
     return {
       type: 'PARAMS_INJECTED',

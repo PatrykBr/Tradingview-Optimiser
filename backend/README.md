@@ -15,8 +15,8 @@ Fixed local runtime guards:
 ## Running
 
 ```bash
-uv sync --frozen
-uv run uvicorn main:app --host 127.0.0.1 --port 8765 --reload
+uv sync --frozen --project backend
+uv run --project backend uvicorn backend.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
 ## Optional extras
@@ -29,11 +29,11 @@ uv run uvicorn main:app --host 127.0.0.1 --port 8765 --reload
 Example:
 
 ```bash
-uv sync --frozen --extra auto-sampler --extra sampler-gp --extra sampler-cmaes --extra gpu
+uv sync --frozen --project backend --extra auto-sampler --extra sampler-gp --extra sampler-cmaes --extra gpu
 ```
 
 ## Optional tests
 
 ```bash
-uv run pytest
+uv run --project backend python -m pytest backend/tests -q
 ```

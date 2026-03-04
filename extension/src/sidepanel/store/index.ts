@@ -16,6 +16,40 @@ import type {
 import type { ServiceWorkerMessage, SidePanelMessage } from '../../shared/messages';
 import { DEFAULT_ANTI_DETECTION, DEFAULT_TOTAL_TRIALS, STORAGE_KEYS } from '../../shared/constants';
 
+const MIN_TOTAL_TRIALS = 1;
+const MAX_TOTAL_TRIALS = 10000;
+const DEFAULT_APPLY_PARAMS_ERROR = 'Failed to apply parameters';
+
+function toggleStringSelection(values: string[], value: string): string[] {
+  if (values.includes(value)) {
+    return values.filter((entry) => entry !== value);
+  }
+
+  return [...values, value];
+}
+
+function clampTotalTrials(trials: number): number {
+  return Math.min(MAX_TOTAL_TRIALS, Math.max(MIN_TOTAL_TRIALS, trials));
+}
+
+function resolveEffectiveRunMode(requestedRunMode: RunMode, selectedHistoryRunIds: string[]): RunMode {
+  if (requestedRunMode === 'warm_start' && selectedHistoryRunIds.length === 0) {
+    return 'fresh';
+  }
+
+  return requestedRunMode;
+}
+
+function updateArrayItemById<T extends { id: string }>(items: T[], id: string, updates: Partial<T>): T[] {
+  return items.map((item) => {
+    if (item.id !== id) {
+      return item;
+    }
+
+    return { ...item, ...updates };
+  });
+}
+
 function logDetectedParameterDiagnostics(source: string, strategyName: string, parameters: StrategyParameter[]): void {
   const sectionCounts = new Map<string, number>();
   const duplicateKeyCounts = new Map<string, number>();
@@ -113,8 +147,6 @@ interface OptimizationStore {
 }
 
 export const useOptimizationStore = create<OptimizationStore>((set, get) => {
-  let suppressNextStateSync = false;
-
   function mapConfigToStoreState(config: OptimizationState['config']): Partial<OptimizationStore> {
     if (!config) {
       return {};
@@ -178,10 +210,6 @@ export const useOptimizationStore = create<OptimizationStore>((set, get) => {
     const port = chrome.runtime.connect({ name: 'sidepanel' });
 
     const handleStateUpdateMessage = (msg: Extract<ServiceWorkerMessage, { type: 'STATE_UPDATE' }>) => {
-      if (suppressNextStateSync) {
-        suppressNextStateSync = false;
-        return;
-      }
       set({
         status: msg.state.status,
         currentTrial: msg.state.currentTrial,
@@ -244,13 +272,16 @@ export const useOptimizationStore = create<OptimizationStore>((set, get) => {
         }),
       PARAMS_APPLIED: (msg: Extract<ServiceWorkerMessage, { type: 'PARAMS_APPLIED' }>) => {
         if (msg.success) {
-          set({ applyParamsStatus: 'success', applyParamsError: null });
+          set({
+            applyParamsStatus: 'success',
+            applyParamsError: msg.error ?? null,
+          });
           return;
         }
         set({
           applyParamsStatus: 'error',
-          applyParamsError: msg.error ?? 'Failed to apply parameters',
-          error: msg.error ?? 'Failed to apply parameters',
+          applyParamsError: msg.error ?? DEFAULT_APPLY_PARAMS_ERROR,
+          error: msg.error ?? DEFAULT_APPLY_PARAMS_ERROR,
         });
       },
     } satisfies {
@@ -359,7 +390,6 @@ export const useOptimizationStore = create<OptimizationStore>((set, get) => {
     },
     retryBackend: () => {
       set({ backendStatus: 'connecting' });
-      suppressNextStateSync = true;
       dispatchSidePanelMessage({ type: 'CHECK_BACKEND' }, { backendStatus: 'disconnected' });
     },
     setTargetMetric: (metric, direction) => set({ targetMetric: metric, targetMetricDirection: direction }),
@@ -368,31 +398,27 @@ export const useOptimizationStore = create<OptimizationStore>((set, get) => {
     setSelectedHistoryRunIds: (selectedHistoryRunIds) => set({ selectedHistoryRunIds }),
     toggleHistoryRunSelection: (runId) =>
       set((s) => ({
-        selectedHistoryRunIds: s.selectedHistoryRunIds.includes(runId)
-          ? s.selectedHistoryRunIds.filter((id) => id !== runId)
-          : [...s.selectedHistoryRunIds, runId],
+        selectedHistoryRunIds: toggleStringSelection(s.selectedHistoryRunIds, runId),
       })),
     clearHistoryRunSelection: () => set({ selectedHistoryRunIds: [] }),
     setSampler: (sampler) => set({ sampler }),
-    setTotalTrials: (trials) => set({ totalTrials: Math.min(10000, Math.max(1, trials)) }),
+    setTotalTrials: (trials) => set({ totalTrials: clampTotalTrials(trials) }),
     setParameters: (parameters) => set({ parameters }),
     updateParameter: (id, updates) =>
       set((s) => ({
-        parameters: s.parameters.map((p) => (p.id === id ? ({ ...p, ...updates } as StrategyParameter) : p)),
+        parameters: updateArrayItemById<StrategyParameter>(s.parameters, id, updates),
       })),
     setFilters: (filters) => set({ filters }),
     addFilter: (filter) => set((s) => ({ filters: [...s.filters, filter] })),
     removeFilter: (id) => set((s) => ({ filters: s.filters.filter((f) => f.id !== id) })),
     updateFilter: (id, updates) =>
       set((s) => ({
-        filters: s.filters.map((f) => (f.id === id ? { ...f, ...updates } : f)),
+        filters: updateArrayItemById<Filter>(s.filters, id, updates),
       })),
     setAntiDetection: (config) => set({ antiDetection: config }),
     toggleFavoriteMetric: (metric) =>
       set((s) => {
-        const favorites = s.favoriteMetrics.includes(metric)
-          ? s.favoriteMetrics.filter((m) => m !== metric)
-          : [...s.favoriteMetrics, metric];
+        const favorites = toggleStringSelection(s.favoriteMetrics, metric);
         chrome.storage.local
           .set({ [STORAGE_KEYS.FAVORITE_METRICS]: favorites })
           .catch((err) => console.error('[Store] Failed to persist favorite metrics:', err));
@@ -441,8 +467,7 @@ export const useOptimizationStore = create<OptimizationStore>((set, get) => {
       const normalizedSelectedHistoryRunIds = state.selectedHistoryRunIds.filter(
         (id) => typeof id === 'string' && id.length > 0,
       );
-      const effectiveRunMode =
-        requestedRunMode === 'warm_start' && normalizedSelectedHistoryRunIds.length === 0 ? 'fresh' : requestedRunMode;
+      const effectiveRunMode = resolveEffectiveRunMode(requestedRunMode, normalizedSelectedHistoryRunIds);
       if (state.selectedStrategyIndex === null) {
         set({ error: 'Select a strategy first' });
         return;
