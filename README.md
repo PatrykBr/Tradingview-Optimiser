@@ -46,3 +46,6 @@ uv sync --frozen --extra auto-sampler --extra sampler-gp --extra sampler-cmaes
 ```
 
 `auto-sampler` is optional. If omitted, `sampler=auto` falls back to deterministic TPE locally.
+
+Disclaimer: This software is provided for research and educational purposes only.
+The author is not responsible for financial losses resulting from the use of this software.
