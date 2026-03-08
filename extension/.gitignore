@@ -1,8 +1,0 @@
-# Build output
-dist/
-
-# Vite
-.vite/
-
-# TypeScript
-*.tsbuildinfo
