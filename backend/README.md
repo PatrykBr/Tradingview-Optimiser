@@ -21,15 +21,14 @@ uv run --project backend uvicorn backend.main:app --host 127.0.0.1 --port 8765 -
 
 ## Optional extras
 
-- `auto-sampler`: installs `optunahub` to enable OptunaHub AutoSampler. Without it, `sampler=auto` falls back to deterministic TPE.
-- `sampler-gp`: installs `scipy` (`GPSampler` also requires `torch`).
-- `sampler-cmaes`: installs `cmaes`.
-- `gpu`: installs `torch`.
+- `auto-sampler`: installs `optunahub`, `scipy`, `torch`, and `cmaes` to enable OptunaHub AutoSampler. Without it, `sampler=auto` falls back to deterministic TPE.
+- `sampler-gp`: installs `scipy` and `torch` for `GPSampler`.
+- `sampler-cmaes`: installs `cmaes` for `CmaEsSampler`.
 
 Example:
 
 ```bash
-uv sync --frozen --project backend --extra auto-sampler --extra sampler-gp --extra sampler-cmaes --extra gpu
+uv sync --frozen --project backend --extra auto-sampler
 ```
 
 ## Optional tests
