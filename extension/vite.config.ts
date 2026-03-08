@@ -1,29 +1,28 @@
-import { resolve } from "node:path";
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import webExtension from "vite-plugin-web-extension";
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { crx } from '@crxjs/vite-plugin';
+import manifest from './src/manifest.json';
 
 export default defineConfig({
-  plugins: [
-    react(),
-    webExtension({
-      manifest: "public/manifest.json",
-      additionalInputs: ["src/content/index.ts"],
-    }),
-  ],
-  resolve: {
-    alias: {
-      "@popup": resolve(__dirname, "src/popup"),
-      "@shared": resolve(__dirname, "src/shared"),
-    },
-  },
+  plugins: [react(), tailwindcss(), crx({ manifest })],
   build: {
-    outDir: "dist",
+    outDir: 'dist',
     emptyOutDir: true,
   },
+  server: {
+    port: 5173,
+    strictPort: true,
+    cors: {
+      origin: '*',
+    },
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
+      'Access-Control-Allow-Headers': '*',
+    },
+    hmr: {
+      port: 5173,
+    },
+  },
 });
-
-
-
-
-

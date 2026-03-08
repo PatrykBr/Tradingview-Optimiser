@@ -1,34 +1,54 @@
 {
-  "name": "extension",
+  "name": "tradingview-strategy-optimizer",
+  "version": "1.0.0",
+  "description": "Optimize TradingView strategy parameters using Optuna-powered Bayesian optimization",
   "private": true,
-  "version": "0.0.0",
+  "license": "ISC",
   "type": "module",
+  "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=20.19.0 <25"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
+    "typecheck:ci": "tsc --noEmit -p tsconfig.ci.json",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "audit": "npm audit --package-lock-only",
+    "ci": "npm run typecheck:ci && npm run lint && npm run test && npm run audit",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview"
   },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.17",
-    "@types/chrome": "^0.1.31",
-    "@types/firefox-webext-browser": "^143.0.0",
-    "@types/node": "^24.10.1",
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
-    "@types/webextension-polyfill": "^0.12.4",
-    "@vitejs/plugin-react": "^5.1.1",
-    "autoprefixer": "^10.4.22",
-    "postcss": "^8.5.6",
-    "prettier": "^3.6.2",
-    "prettier-plugin-tailwindcss": "^0.7.1",
-    "tailwindcss": "^4.1.17",
-    "typescript": "~5.9.3",
-    "vite": "^7.2.4",
-    "vite-plugin-web-extension": "^4.5.0"
-  },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "webextension-polyfill": "^0.12.0"
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.24.0",
+    "@crxjs/vite-plugin": "^2.3.0",
+    "@tailwindcss/vite": "^4.2.1",
+    "@types/chrome": "^0.1.37",
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "eslint": "^9.24.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.30.1",
+    "vitest": "^4.0.18",
+    "vite": "^7.3.1"
+  },
+  "overrides": {
+    "rollup": "^4.52.5"
   }
 }

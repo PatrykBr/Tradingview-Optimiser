@@ -1,20 +1,47 @@
-# OS
+# OS / Editor
 .DS_Store
 Thumbs.db
-
-# Editors
-.idea/
 *.swp
 *.swo
+.vscode/
+.idea/
+.opencode/
 
 # Logs
 *.log
 npm-debug.log*
-
-# Dependencies (catches all nested node_modules too)
-node_modules/
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Environment files
-.env
-.env.local
-.env.*.local
+*.env
+*.env.*
+!*.env.example
+
+# Python backend
+backend/__pycache__/
+backend/**/*.py[cod]
+backend/.venv/
+backend/venv/
+backend/env/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/.coverage
+backend/.python-version
+
+# Backend runtime data (Optuna SQLite studies)
+backend/data/*
+!backend/data/.gitkeep
+
+# Extension frontend
+extension/node_modules/
+extension/dist/
+extension/.vite/
+extension/.cache/
+extension/*.tsbuildinfo
+
+# Accidental Windows reserved-name artifacts
+/nul
+backend/nul

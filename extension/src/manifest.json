@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "TradingView Strategy Optimizer",
+  "description": "Optimize TradingView strategy parameters using Optuna-powered Bayesian optimization",
+  "version": "1.0.0",
+  "permissions": ["sidePanel", "storage", "alarms"],
+  "host_permissions": [
+    "https://www.tradingview.com/chart/*",
+    "https://www.tradingview.com/super-chart/*",
+    "https://www.tradingview.com/supercharts/*",
+    "https://*.tradingview.com/chart/*",
+    "https://*.tradingview.com/super-chart/*",
+    "https://*.tradingview.com/supercharts/*"
+  ],
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.tradingview.com/chart/*",
+        "https://www.tradingview.com/super-chart/*",
+        "https://www.tradingview.com/supercharts/*",
+        "https://*.tradingview.com/chart/*",
+        "https://*.tradingview.com/super-chart/*",
+        "https://*.tradingview.com/supercharts/*"
+      ],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Open Strategy Optimizer",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

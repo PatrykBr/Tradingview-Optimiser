@@ -1,61 +1,78 @@
-import type {
-  ApplyParamsPayload,
-  ContentScriptRequest,
-  ContentScriptResponse,
-  DateRangePayload,
-  GetParamsPayload,
-  ReadMetricsPayload,
-  StrategyParameter,
-  StrategySummary,
-  TrialMetrics,
-} from "@shared/ipc";
-import { applyParameters, collectMetrics, fetchParameters, fetchStrategies, updateDateRange } from "./tradingview";
+/**
+ * Content Script - TradingView DOM Interaction
+ *
+ * Injected into TradingView pages. Handles:
+ * - Parameter detection from the strategy settings dialog
+ * - Parameter injection (setting values)
+ * - Result scraping from the performance summary
+ * - Anti-detection delays
+ */
 
-const browser = (globalThis as typeof globalThis & { browser?: typeof chrome }).browser ?? globalThis.chrome;
+import type { ContentScriptCommand, ContentScriptResponse } from '../shared/messages';
+import { detectParameters, listStrategies } from './detector';
+import { injectParameters } from './injector';
+import { scrapeResults } from './scraper';
+import { isChartPage } from './selectors';
 
-const CHANNEL = "tv-optimiser";
+if (!isChartPage()) {
+  console.log('[TVO] Content script loaded but not on a chart page — dormant');
+}
 
-async function handleRequest(
-  request: ContentScriptRequest,
-): Promise<ContentScriptResponse<StrategySummary[] | StrategyParameter[] | TrialMetrics | void>> {
-  switch (request.action) {
-    case "list-strategies": {
-      const strategies = await fetchStrategies();
-      return { ok: true, data: strategies };
+// Listen for messages from the service worker
+chrome.runtime.onMessage.addListener(
+  (message: ContentScriptCommand, _sender, sendResponse: (response: ContentScriptResponse) => void) => {
+    const chartPage = isChartPage();
+
+    // Allow PING on any page so the service worker can check if content script is loaded
+    if (!chartPage && message.type !== 'PING') {
+      sendResponse({
+        type: 'ERROR',
+        error: 'Content script is not on a TradingView chart page',
+      });
+      return true;
     }
-    case "get-params": {
-      const payload = request.payload as GetParamsPayload;
-      const params = await fetchParameters(payload.strategyId);
-      return { ok: true, data: params };
-    }
-    case "apply-params":
-      await applyParameters(request.payload as ApplyParamsPayload);
-      return { ok: true, data: undefined };
-    case "set-date-range":
-      await updateDateRange(request.payload as DateRangePayload);
-      return { ok: true, data: undefined };
-    case "read-metrics": {
-      const metrics = await collectMetrics(request.payload as ReadMetricsPayload);
-      return { ok: true, data: metrics };
-    }
+
+    handleMessage(message)
+      .then(sendResponse)
+      .catch((err) => {
+        sendResponse({
+          type: 'ERROR',
+          error: err instanceof Error ? err.message : 'Unknown content script error',
+        });
+      });
+
+    // Return true to indicate async response
+    return true;
+  },
+);
+
+async function handleMessage(msg: ContentScriptCommand): Promise<ContentScriptResponse> {
+  switch (msg.type) {
+    case 'PING':
+      return { type: 'PONG' };
+
+    case 'LIST_STRATEGIES':
+      return listStrategies();
+
+    case 'DETECT_PARAMS':
+      return await detectParameters(msg.strategyIndex);
+
+    case 'INJECT_PARAMS':
+      return await injectParameters(msg.params, msg.antiDetection, msg.strategyIndex);
+
+    case 'SCRAPE_RESULTS':
+      return await scrapeResults();
+
+    // M7: APPLY_PARAMS removed — it was a redundant duplicate of INJECT_PARAMS.
+    // The service worker now uses INJECT_PARAMS for both trial injection and applying best params.
+
     default:
-      return { ok: false, error: "Unknown action" };
+      return assertNever(msg);
   }
 }
 
-browser.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
-  if (!message || typeof message !== "object") return undefined;
-  const typed = message as ContentScriptRequest;
-  if (typed.channel !== CHANNEL) return undefined;
+function assertNever(_value: never): ContentScriptResponse {
+  return { type: 'ERROR', error: 'Unknown command' };
+}
 
-  handleRequest(typed)
-    .then(sendResponse)
-    .catch((error) =>
-      sendResponse({
-        ok: false,
-        error: error instanceof Error ? error.message : "Unexpected content-script error",
-      }),
-    );
-
-  return true;
-});
+console.log('[TVO] Content script loaded on TradingView');

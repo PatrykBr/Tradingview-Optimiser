@@ -1,64 +1,38 @@
-# Backend — Optuna Optimization Server
+# Backend
 
-FastAPI server that runs Optuna and communicates with the browser extension over WebSocket.
+## Local-only mode
 
-## Tech Stack
+This backend is configured for local development usage.
+Auth tokens, admin tokens, and WebSocket origin/token checks are disabled.
 
-- **FastAPI**: async web framework
-- **Optuna**: Bayesian hyperparameter optimization (AutoSampler by default, falls back to TPE)
-- **OptunaHub**: for the AutoSampler package
-- **WebSockets**: real-time bidirectional communication with the extension
+Fixed local runtime guards:
 
-## Setup
+- WebSocket receive timeout: `300s`.
+- WebSocket message size limit: `256KB`.
+- WebSocket per-connection message rate limit: `240/min`.
+- Study/trial warm-start caps are fixed in code for predictable local behavior.
 
-```bash
-python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS/Linux
-source .venv/bin/activate
-
-pip install -r requirements.lock
-```
-
-## Environment Variables
-
-Copy `env.example` to `.env`:
-
-| Variable              | Default | Description                                                |
-| --------------------- | ------- | ---------------------------------------------------------- |
-| `OPTUNA_STORAGE`      | -       | SQLite URL to persist studies, e.g. `sqlite:///studies.db` |
-| `OPTUNA_SAMPLER`      | `auto`  | `auto` (AutoSampler) or `tpe`                              |
-| `OPTUNA_SAMPLER_SEED` | -       | Fix seed for reproducible runs                             |
-| `CORS_ALLOW_ORIGINS`  | `*`     | Comma-separated origins, or `*` for all                    |
-
-## Scripts
+## Running
 
 ```bash
-# Development (auto-reload)
-uvicorn app.main:app --reload --port 8000
-
-# Production
-uvicorn app.main:app --port 8000
+uv sync --frozen --project backend
+uv run --project backend uvicorn backend.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
-WebSocket endpoint: `ws://localhost:8000/optimise`
+## Optional extras
 
-## Folder Structure
+- `auto-sampler`: installs `optunahub`, `scipy`, `torch`, and `cmaes` to enable OptunaHub AutoSampler. Without it, `sampler=auto` falls back to deterministic TPE.
+- `sampler-gp`: installs `scipy` and `torch` for `GPSampler`.
+- `sampler-cmaes`: installs `cmaes` for `CmaEsSampler`.
 
-```md
-app/
-├── main.py       # FastAPI app, WebSocket handler, optimization loop
-├── schemas.py    # Pydantic models, metric mappings, Optuna distributions
-└── __init__.py
+Example:
+
+```bash
+uv sync --frozen --project backend --extra auto-sampler
 ```
 
-## Adding New Metrics
+## Optional tests
 
-1. Add to `METRIC_KEY_MAP` in `app/schemas.py`
-2. Add matching key in `extension/src/shared/metrics.ts`
-3. Add DOM selector in `extension/src/content/dom.ts`
-
-Both sides must stay in sync.
+```bash
+uv run --project backend python -m pytest backend/tests -q
+```

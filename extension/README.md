@@ -1,66 +1,26 @@
-# Extension — TradingView Automation
+# Extension
 
-Manifest V3 browser extension that automates TradingView's strategy tester. Works on Chrome and Firefox.
+## Runtime backend configuration
 
-## Tech Stack
+No auth/token configuration is required in local-only mode.
 
-- **React**: popup UI
-- **Tailwind CSS**: styling
-- **Vite**: bundler
-- **TypeScript**: type checking
-
-## Setup
+## Commands
 
 ```bash
-npm install
-```
-
-## Scripts
-
-```bash
-# Dev server for popup UI (localhost:5173)
+npm ci
 npm run dev
-
-# Production build
+npm run typecheck:ci
+npm run lint
+npm run test
 npm run build
-
-# Type check
-npm run typecheck
 ```
 
-## Loading the Extension
+## Privacy and retention
 
-After `npm run build`, load `dist/` as an unpacked extension:
+- Optimization history is size-limited before persistence to avoid storage quota failures.
+- Persisted payloads are trimmed and may be reduced when storage limits are approached.
+- To clear local extension state:
 
-- **Chrome**: `chrome://extensions` → Developer Mode → Load unpacked
-- **Firefox**: `about:debugging` → This Firefox → Load Temporary Add-on
-
-## Folder Structure
-
-```md
-src/
-├── background/     # Service worker, WebSocket to backend, message relay
-├── content/        # Injected into TradingView, DOM automation
-│   ├── dom.ts      # All CSS selectors live here
-│   ├── tradingview.ts  # Strategy dialog, parameter reading/writing
-│   └── index.ts    # Entry point, message handlers
-├── popup/          # React UI
-│   ├── components/ # Tabs: Strategy, Settings, Results
-│   ├── state/      # Context, presets, session drafts
-│   └── App.tsx     # Main component
-└── shared/         # Types, IPC contracts, metric definitions
+```js
+await chrome.storage.local.remove('last_optimization_state');
 ```
-
-## Troubleshooting
-
-**Strategy not detected?**  
-Make sure the Strategy Tester panel is open. The extension reads from it.
-
-**Parameters missing?**  
-Open the strategy settings dialog manually once, then retry. Some strategies lazy-load inputs.
-
-**WebSocket failed?**  
-Check the backend is running on port 8000. Inspect the service worker: `chrome://extensions` → Details → Inspect views.
-
-**Selectors broken after TradingView update?**  
-All DOM selectors are in `src/content/dom.ts`. PRs welcome!
