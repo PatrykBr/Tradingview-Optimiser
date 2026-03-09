@@ -2,6 +2,10 @@
 
 A Chrome extension and local Python backend that optimizes TradingView strategy parameters using [Optuna](https://optuna.org/)-powered Bayesian optimization. The extension runs as a side panel on TradingView chart pages, communicates with a local FastAPI backend over WebSocket, and iteratively tunes your strategy inputs to find optimal parameter combinations.
 
+<p align="center">
+  <img src="docs/images/overview.png" alt="TradingView chart with optimizer side panel" width="800">
+</p>
+
 ## Prerequisites
 
 - **Python** ≥ 3.12, < 3.14
@@ -123,6 +127,14 @@ uv run --project backend --extra dev python -m pytest -q backend/tests
 2. The **side panel** provides the optimizer controls and connects to the backend via WebSocket (`ws://127.0.0.1:8765`).
 3. The **backend** manages Optuna studies with an ask-and-tell loop — it suggests parameter combinations, receives performance results, and converges toward optimal values.
 4. Studies are persisted locally as SQLite databases in `backend/data/`.
+
+<table align="center">
+  <tr>
+    <td align="center" valign="top"><img src="docs/images/parameters.png" alt="Parameter configuration" width="260"></td>
+    <td align="center" valign="top"><img src="docs/images/running.png" alt="Optimization in progress" width="260"></td>
+    <td align="center" valign="top"><img src="docs/images/results.png" alt="Optimization results" width="260"></td>
+  </tr>
+</table>
 
 ## Supported samplers
 
