@@ -164,7 +164,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // Open side panel when the action button is clicked.
 // MV3 service workers cannot use top-level await during registration.
-void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
   console.error('[SW] Failed to set side panel behavior:', error);
 });
 
