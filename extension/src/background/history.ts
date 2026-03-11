@@ -33,7 +33,7 @@ export function recomputeVisibleHistoryTrials(
   config: OptimizationConfig | null,
   historyRuns: TrialHistoryRun[],
 ): TrialResult[] {
-  if (!config || config.runMode !== 'warm_start') {
+  if (config?.runMode !== 'warm_start') {
     return [];
   }
 

@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { findListboxForCombobox, isTradingViewUrl } from './selectors';
 
+function createCombobox(
+  ariaControls: string | null,
+  ownerDocument: Pick<Document, 'getElementById'>,
+): HTMLButtonElement {
+  return {
+    getAttribute: (name: string) => (name === 'aria-controls' ? ariaControls : null),
+    ownerDocument,
+  } as unknown as HTMLButtonElement;
+}
+
 describe('isTradingViewUrl', () => {
   it('accepts tradingview hosts and rejects non-tradingview hosts', () => {
     expect(isTradingViewUrl('https://www.tradingview.com/chart/abc')).toBe(true);
@@ -11,16 +21,6 @@ describe('isTradingViewUrl', () => {
 });
 
 describe('findListboxForCombobox', () => {
-  function createCombobox(
-    ariaControls: string | null,
-    ownerDocument: Pick<Document, 'getElementById'>,
-  ): HTMLButtonElement {
-    return {
-      getAttribute: (name: string) => (name === 'aria-controls' ? ariaControls : null),
-      ownerDocument,
-    } as unknown as HTMLButtonElement;
-  }
-
   it('returns null when aria-controls is missing', () => {
     const ownerDocument = {
       getElementById: vi.fn(() => null),

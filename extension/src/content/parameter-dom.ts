@@ -8,7 +8,7 @@ export function isElementVisible(element: Element): boolean {
     return false;
   }
 
-  const style = window.getComputedStyle(node);
+  const style = globalThis.getComputedStyle(node);
   if (style.display === 'none' || style.visibility === 'hidden') {
     return false;
   }
@@ -31,7 +31,7 @@ export function findSectionName(node: HTMLElement): string | null {
 }
 
 export function findNumericInputInCell(valueCell: HTMLElement): HTMLInputElement | null {
-  const inputs = valueCell.querySelectorAll('input[data-qa-id="ui-lib-Input-input"]') as NodeListOf<HTMLInputElement>;
+  const inputs = valueCell.querySelectorAll<HTMLInputElement>('input[data-qa-id="ui-lib-Input-input"]');
 
   for (const input of inputs) {
     const placeholder = input.getAttribute('placeholder') ?? '';

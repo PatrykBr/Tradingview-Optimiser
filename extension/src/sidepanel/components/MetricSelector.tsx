@@ -4,6 +4,15 @@ import { AVAILABLE_METRICS } from '../../shared/constants';
 import { useShallow } from 'zustand/react/shallow';
 import PanelCardHeader from './PanelCardHeader';
 
+type MetricOptionProps = {
+  name: string;
+  section: string;
+  isFavorite: boolean;
+  isSelected: boolean;
+  onSelect: () => void;
+  onToggleFavorite: () => void;
+};
+
 export default function MetricSelector() {
   const {
     targetMetric,
@@ -77,6 +86,7 @@ export default function MetricSelector() {
         {/* Metric Dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
+            type="button"
             onClick={() => setIsOpen(!isOpen)}
             className="ui-btn ui-btn-secondary w-full justify-between px-4 py-3 text-left"
           >
@@ -144,29 +154,32 @@ export default function MetricSelector() {
 
         {/* Direction + Column as segmented controls */}
         <div className="grid grid-cols-2 gap-3 panel-divider">
-          <div className="flex-1 panel-field">
-            <label className="ui-field-label block">Direction</label>
+          <fieldset className="flex-1 panel-field">
+            <legend className="ui-field-label block">Direction</legend>
             <div className="ui-segmented">
               <button
+                type="button"
                 onClick={() => setTargetMetric(targetMetric, 'maximize')}
                 className={`ui-segmented-option ${targetMetricDirection === 'maximize' ? 'is-active' : ''}`}
               >
                 Maximize
               </button>
               <button
+                type="button"
                 onClick={() => setTargetMetric(targetMetric, 'minimize')}
                 className={`ui-segmented-option ${targetMetricDirection === 'minimize' ? 'is-active' : ''}`}
               >
                 Minimize
               </button>
             </div>
-          </div>
-          <div className="flex-1 panel-field">
-            <label className="ui-field-label block">Column</label>
+          </fieldset>
+          <fieldset className="flex-1 panel-field">
+            <legend className="ui-field-label block">Column</legend>
             <div className="ui-segmented">
               {(['all', 'long', 'short'] as const).map((col) => (
                 <button
                   key={col}
+                  type="button"
                   onClick={() => setTargetMetricColumn(col)}
                   className={`ui-segmented-option capitalize ${targetMetricColumn === col ? 'is-active' : ''}`}
                 >
@@ -174,7 +187,7 @@ export default function MetricSelector() {
                 </button>
               ))}
             </div>
-          </div>
+          </fieldset>
         </div>
       </div>
     </div>
@@ -188,30 +201,29 @@ function MetricOption({
   isSelected,
   onSelect,
   onToggleFavorite,
-}: {
-  name: string;
-  section: string;
-  isFavorite: boolean;
-  isSelected: boolean;
-  onSelect: () => void;
-  onToggleFavorite: () => void;
-}) {
+}: Readonly<MetricOptionProps>) {
   return (
     <div
-      className={`flex cursor-pointer items-center justify-between px-3.5 py-2.5 transition-colors ${
+      className={`flex items-center justify-between px-3.5 py-2.5 transition-colors ${
         isSelected ? 'bg-accent-soft/90' : 'hover:bg-bg-hover/70'
       }`}
-      onClick={onSelect}
     >
-      <div className="flex-1 min-w-0">
-        <div className="text-[13px] text-text-primary truncate">{name}</div>
-        <div className="text-[11px] text-text-muted">{section}</div>
-      </div>
       <button
-        onClick={(e) => {
-          e.stopPropagation();
+        type="button"
+        onClick={onSelect}
+        aria-pressed={isSelected}
+        className="min-w-0 flex-1 text-left"
+      >
+        <div className="truncate text-[13px] text-text-primary">{name}</div>
+        <div className="text-[11px] text-text-muted">{section}</div>
+      </button>
+      <button
+        type="button"
+        onClick={() => {
           onToggleFavorite();
         }}
+        aria-pressed={isFavorite}
+        aria-label={isFavorite ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
         className="ml-2 shrink-0 rounded-md border border-transparent p-1 transition-colors hover:border-border/60 hover:bg-bg-active/70"
       >
         <svg

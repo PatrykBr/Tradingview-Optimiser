@@ -107,6 +107,18 @@ export default function HistoryManager() {
   const visibleTrials = useMemo(() => visibleRuns.reduce((sum, run) => sum + run.trials.length, 0), [visibleRuns]);
   const hiddenIncompatibleRuns = runMode === 'warm_start' ? Math.max(0, historyRuns.length - visibleRuns.length) : 0;
   const selectedCount = selectedHistoryRunIds.filter((id) => visibleRunIds.has(id)).length;
+  let summaryText = 'No saved runs';
+  if (hasHistory) {
+    summaryText =
+      runMode === 'warm_start'
+        ? `${visibleRuns.length} compatible runs`
+        : `${historyRuns.length} runs • ${totalTrials} trials`;
+  }
+  let warmStartSelectionText = 'No compatible run history yet';
+  if (hasVisibleHistory) {
+    warmStartSelectionText = selectedCount > 0 ? `${selectedCount} selected` : 'None selected (will run fresh)';
+  }
+  const hiddenIncompatibleRunSuffix = hiddenIncompatibleRuns === 1 ? '' : 's';
 
   if (!hasHistory && runMode !== 'warm_start') return null;
 
@@ -120,15 +132,7 @@ export default function HistoryManager() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.5h16.5m-16.5 5.25h16.5m-16.5 5.25h16.5M3.75 19.5h16.5" />
         </svg>
       }
-      summary={
-        <span className="text-[11px] text-text-muted">
-          {hasHistory
-            ? runMode === 'warm_start'
-              ? `${visibleRuns.length} compatible runs`
-              : `${historyRuns.length} runs • ${totalTrials} trials`
-            : 'No saved runs'}
-        </span>
-      }
+      summary={summaryText}
     >
       <div className="panel-card-body border-b border-border/40 flex flex-col items-start gap-2.5 sm:flex-row sm:items-center sm:justify-between">
         <p className="ui-note">Warm start reuses selected compatible runs.</p>
@@ -172,20 +176,14 @@ export default function HistoryManager() {
       {runMode === 'warm_start' && (
         <div className="px-4 py-2.5 border-b border-border/40 bg-bg-tertiary/30 text-[11px] text-text-muted">
           Warm-start source runs:{' '}
-          <span className="text-text-secondary font-medium">
-            {hasVisibleHistory
-              ? selectedCount > 0
-                ? `${selectedCount} selected`
-                : 'None selected (will run fresh)'
-              : 'No compatible run history yet'}
-          </span>
+          <span className="text-text-secondary font-medium">{warmStartSelectionText}</span>
           {hasVisibleHistory && <span className="text-text-muted"> • {visibleTrials} trials</span>}
         </div>
       )}
 
       {runMode === 'warm_start' && hiddenIncompatibleRuns > 0 && (
         <div className="px-4 py-2 border-b border-border/40 bg-bg-tertiary/10 text-[11px] text-text-muted">
-          Hidden {hiddenIncompatibleRuns} incompatible run{hiddenIncompatibleRuns !== 1 ? 's' : ''} (different
+          Hidden {hiddenIncompatibleRuns} incompatible run{hiddenIncompatibleRunSuffix} (different
           objective/search space/filters).
         </div>
       )}

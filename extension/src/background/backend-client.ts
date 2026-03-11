@@ -25,7 +25,7 @@ function createRequestId(prefix: string, counter: number): string {
 
 export class BackendClient {
   private ws: WebSocket | null = null;
-  private pending = new Map<string, PendingRequest>();
+  private readonly pending = new Map<string, PendingRequest>();
   private sequence = 0;
   private readonly baseWsUrl: string;
   private readonly maxMessageBytes: number;
@@ -108,7 +108,7 @@ export class BackendClient {
     const url = `${this.baseWsUrl}/${encodeURIComponent(studyName)}`;
 
     if (this.isConnected()) return;
-    if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+    if (this.ws?.readyState === WebSocket.CONNECTING) {
       throw new Error('WebSocket is already connecting');
     }
 
@@ -162,7 +162,7 @@ export class BackendClient {
   }
 
   sendFireAndForget(message: RequestPayload): string {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
     const requestId = this.nextRequestId(message.type);
@@ -175,7 +175,7 @@ export class BackendClient {
   }
 
   request(message: RequestPayload, timeout = 30000): Promise<BackendIncomingMessage> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error('WebSocket not connected'));
     }
 

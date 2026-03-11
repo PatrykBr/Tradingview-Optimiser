@@ -15,7 +15,7 @@ export const SELECTORS = {
 export function isChartPage(): boolean {
   return (
     SELECTORS.chartContainer.some((selector) => document.querySelector(selector) !== null) ||
-    isTradingViewChartPath(window.location.pathname)
+    isTradingViewChartPath(globalThis.location.pathname)
   );
 }
 
@@ -30,5 +30,5 @@ export function findListboxForCombobox(combobox: HTMLButtonElement): HTMLElement
   const byId = combobox.ownerDocument.getElementById(listboxId);
   if (!byId) return null;
   if (byId.getAttribute('role') !== 'listbox') return null;
-  return byId as HTMLElement;
+  return byId;
 }

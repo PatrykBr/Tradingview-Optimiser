@@ -22,24 +22,24 @@ if (!isChartPage()) {
 chrome.runtime.onMessage.addListener(
   (message: ContentScriptCommand, _sender, sendResponse: (response: ContentScriptResponse) => void) => {
     const chartPage = isChartPage();
+    const requiresChartPage = !chartPage && message.type !== 'PING';
 
     // Allow PING on any page so the service worker can check if content script is loaded
-    if (!chartPage && message.type !== 'PING') {
+    if (requiresChartPage) {
       sendResponse({
         type: 'ERROR',
         error: 'Content script is not on a TradingView chart page',
       });
-      return true;
-    }
-
-    handleMessage(message)
-      .then(sendResponse)
-      .catch((err) => {
-        sendResponse({
-          type: 'ERROR',
-          error: err instanceof Error ? err.message : 'Unknown content script error',
+    } else {
+      handleMessage(message)
+        .then(sendResponse)
+        .catch((err) => {
+          sendResponse({
+            type: 'ERROR',
+            error: err instanceof Error ? err.message : 'Unknown content script error',
+          });
         });
-      });
+    }
 
     // Return true to indicate async response
     return true;

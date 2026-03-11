@@ -11,11 +11,14 @@ import type {
 } from './types';
 import { normalizeNumericRange } from './parameter-normalization';
 
-const RUN_MODES: RunMode[] = ['resume', 'fresh', 'warm_start'];
-const SAMPLERS: SamplerChoice[] = ['auto', 'tpe', 'random', 'gp', 'qmc', 'cmaes'];
-const TARGET_DIRECTIONS: Array<'maximize' | 'minimize'> = ['maximize', 'minimize'];
-const TARGET_COLUMNS: Array<'all' | 'long' | 'short'> = ['all', 'long', 'short'];
-const FILTER_OPERATORS: FilterOperator[] = ['>=', '<=', '>', '<', '==', '!='];
+type TargetMetricDirection = OptimizationConfig['targetMetricDirection'];
+type TargetMetricColumn = OptimizationConfig['targetMetricColumn'];
+
+const RUN_MODES = new Set<RunMode>(['resume', 'fresh', 'warm_start']);
+const SAMPLERS = new Set<SamplerChoice>(['auto', 'tpe', 'random', 'gp', 'qmc', 'cmaes']);
+const TARGET_DIRECTIONS = new Set<TargetMetricDirection>(['maximize', 'minimize']);
+const TARGET_COLUMNS = new Set<TargetMetricColumn>(['all', 'long', 'short']);
+const FILTER_OPERATORS = new Set<FilterOperator>(['>=', '<=', '>', '<', '==', '!=']);
 
 export const MAX_TOTAL_TRIALS = 10000;
 export const MAX_PARAMETERS = 128;
@@ -178,7 +181,7 @@ function sanitizeFilters(value: unknown): Filter[] {
     const filter = asRecord(raw);
     if (!filter) continue;
     const operatorRaw = asString(filter.operator, '>=');
-    const operator = FILTER_OPERATORS.includes(operatorRaw as FilterOperator) ? (operatorRaw as FilterOperator) : '>=';
+    const operator = FILTER_OPERATORS.has(operatorRaw as FilterOperator) ? (operatorRaw as FilterOperator) : '>=';
     const baseId = asString(filter.id, '', 80) || `filter_${index + 1}`;
     filters.push({
       id: createUniqueFilterId(baseId, usedFilterIds),
@@ -230,23 +233,23 @@ export function sanitizeOptimizationConfigInput(
   }
 
   const runModeRaw = asString(input.runMode, defaults?.runMode ?? 'fresh');
-  const runMode: RunMode = RUN_MODES.includes(runModeRaw as RunMode) ? (runModeRaw as RunMode) : 'fresh';
+  const runMode: RunMode = RUN_MODES.has(runModeRaw as RunMode) ? (runModeRaw as RunMode) : 'fresh';
 
   const samplerRaw = asString(input.sampler, defaults?.sampler ?? 'auto');
-  const sampler: SamplerChoice = SAMPLERS.includes(samplerRaw as SamplerChoice)
+  const sampler: SamplerChoice = SAMPLERS.has(samplerRaw as SamplerChoice)
     ? (samplerRaw as SamplerChoice)
     : 'auto';
 
   const directionRaw = asString(input.targetMetricDirection, defaults?.targetMetricDirection ?? 'maximize');
-  const targetMetricDirection: 'maximize' | 'minimize' = TARGET_DIRECTIONS.includes(
-    directionRaw as 'maximize' | 'minimize',
+  const targetMetricDirection: TargetMetricDirection = TARGET_DIRECTIONS.has(
+    directionRaw as TargetMetricDirection,
   )
-    ? (directionRaw as 'maximize' | 'minimize')
+    ? (directionRaw as TargetMetricDirection)
     : 'maximize';
 
   const columnRaw = asString(input.targetMetricColumn, defaults?.targetMetricColumn ?? 'all');
-  const targetMetricColumn: 'all' | 'long' | 'short' = TARGET_COLUMNS.includes(columnRaw as 'all' | 'long' | 'short')
-    ? (columnRaw as 'all' | 'long' | 'short')
+  const targetMetricColumn: TargetMetricColumn = TARGET_COLUMNS.has(columnRaw as TargetMetricColumn)
+    ? (columnRaw as TargetMetricColumn)
     : 'all';
 
   const parameters = ensureUniqueParameterIds(

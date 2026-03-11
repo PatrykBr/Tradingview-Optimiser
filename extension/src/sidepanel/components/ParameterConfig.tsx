@@ -65,11 +65,11 @@ type NumericConfigProps = { param: NumericParameter; onUpdate: ParameterUpdater<
 type CheckboxConfigProps = { param: CheckboxParameter; onUpdate: ParameterUpdater<CheckboxParameter> };
 type DropdownConfigProps = { param: DropdownParameter; onUpdate: ParameterUpdater<DropdownParameter> };
 
-function EmptyNotice({ text }: EmptyNoticeProps): ReactElement {
+function EmptyNotice({ text }: Readonly<EmptyNoticeProps>): ReactElement {
   return <div className="ui-empty-state text-[11px] text-text-muted">{text}</div>;
 }
 
-function SearchField({ label, value, placeholder, onChange }: SearchFieldProps): ReactElement {
+function SearchField({ label, value, placeholder, onChange }: Readonly<SearchFieldProps>): ReactElement {
   return (
     <div className="grid gap-2">
       <label className="ui-field-label">{label}</label>
@@ -84,7 +84,7 @@ function SearchField({ label, value, placeholder, onChange }: SearchFieldProps):
   );
 }
 
-function NumericField({ label, value, step, onChange }: NumericFieldProps): ReactElement {
+function NumericField({ label, value, step, onChange }: Readonly<NumericFieldProps>): ReactElement {
   return (
     <div className="min-w-0">
       <label className="ui-field-label mb-1 block">{label}</label>
@@ -99,7 +99,7 @@ function NumericField({ label, value, step, onChange }: NumericFieldProps): Reac
   );
 }
 
-function SectionChip({ label, active, onClick }: SectionChipProps): ReactElement {
+function SectionChip({ label, active, onClick }: Readonly<SectionChipProps>): ReactElement {
   return (
     <button
       type="button"
@@ -264,9 +264,9 @@ export default function ParameterConfig() {
                 type="button"
                 onClick={() => setShowEnabledOnly(false)}
                 className={`h-full rounded-md px-3.5 text-[11px] font-semibold text-center transition-colors ${
-                  !showEnabledOnly
-                    ? 'bg-accent text-[#06251d] shadow-[0_2px_7px_rgba(46,201,168,0.28)]'
-                    : 'text-text-muted hover:text-text-secondary'
+                  showEnabledOnly
+                    ? 'text-text-muted hover:text-text-secondary'
+                    : 'bg-accent text-[#06251d] shadow-[0_2px_7px_rgba(46,201,168,0.28)]'
                 }`}
               >
                 All
@@ -372,7 +372,7 @@ function renderParameterConfig(
   }
 }
 
-const ParameterRow = memo(function ParameterRow({ param, onUpdate }: ParameterRowProps) {
+const ParameterRow = memo(function ParameterRow({ param, onUpdate }: Readonly<ParameterRowProps>) {
   const renderedConfig = renderParameterConfig(param, onUpdate);
 
   return (
@@ -401,12 +401,12 @@ const ParameterRow = memo(function ParameterRow({ param, onUpdate }: ParameterRo
 });
 
 function sanitizeNumericValue(value: number, fallback: number, enforcePositive = false): number {
-  if (isNaN(value)) return fallback;
+  if (Number.isNaN(value)) return fallback;
   if (enforcePositive && value <= 0) return fallback;
   return value;
 }
 
-function NumericConfig({ param, onUpdate }: NumericConfigProps): ReactElement {
+function NumericConfig({ param, onUpdate }: Readonly<NumericConfigProps>): ReactElement {
   return (
     <div className="mt-2 panel-stack-tight">
       <div className="grid grid-cols-3 gap-2">
@@ -434,7 +434,7 @@ function NumericConfig({ param, onUpdate }: NumericConfigProps): ReactElement {
   );
 }
 
-function CheckboxConfig({ param, onUpdate }: CheckboxConfigProps): ReactElement {
+function CheckboxConfig({ param, onUpdate }: Readonly<CheckboxConfigProps>): ReactElement {
   return (
     <div className="mt-2 flex items-center justify-between gap-3">
       <label className="flex items-center gap-2 text-[12px] text-text-secondary cursor-pointer">
@@ -444,7 +444,7 @@ function CheckboxConfig({ param, onUpdate }: CheckboxConfigProps): ReactElement 
           onChange={(e) => onUpdate(param.id, { optimize: e.target.checked })}
           className="ui-checkbox"
         />
-        Try both values
+        <span>Try both values</span>
       </label>
       <span className="text-[11px] text-text-muted">
         Current: <span className="font-mono text-text-secondary">{param.currentValue ? 'On' : 'Off'}</span>
@@ -453,7 +453,7 @@ function CheckboxConfig({ param, onUpdate }: CheckboxConfigProps): ReactElement 
   );
 }
 
-function DropdownConfig({ param, onUpdate }: DropdownConfigProps): ReactElement {
+function DropdownConfig({ param, onUpdate }: Readonly<DropdownConfigProps>): ReactElement {
   return (
     <div className="mt-2 panel-stack-tight">
       <div className="text-[11px] text-text-muted">

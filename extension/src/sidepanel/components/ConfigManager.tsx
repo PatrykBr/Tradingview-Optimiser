@@ -279,12 +279,16 @@ export default function ConfigManager() {
               key={config.id}
               className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-bg-hover/45"
             >
-              <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleLoad(config)}>
+              <button
+                type="button"
+                className="min-w-0 flex-1 text-left"
+                onClick={() => handleLoad(config)}
+              >
                 <div className="text-[12px] font-medium text-text-primary truncate">{config.name}</div>
                 <div className="text-[11px] text-text-muted mt-0.5">
                   {config.strategyName} &middot; {new Date(config.updatedAt).toLocaleDateString()}
                 </div>
-              </div>
+              </button>
               <div className="flex items-center gap-1 shrink-0 ml-2">
                 <button
                   onClick={() => handleExport(config)}

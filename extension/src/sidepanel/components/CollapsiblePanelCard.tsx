@@ -16,7 +16,7 @@ export default function CollapsiblePanelCard({
   title,
   summary,
   children,
-}: CollapsiblePanelCardProps) {
+}: Readonly<CollapsiblePanelCardProps>) {
   return (
     <div className="panel-card overflow-hidden">
       <button

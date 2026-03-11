@@ -97,9 +97,8 @@ class CategoricalParam(StrictModel):
                     raise ValueError("Categorical choices cannot contain empty strings.")
                 if len(item) > MAX_STRING_CHOICE_LEN:
                     raise ValueError("Categorical string choices exceed max length.")
-            elif isinstance(item, float):
-                if not math.isfinite(item):
-                    raise ValueError("Categorical numeric choices must be finite.")
+            elif isinstance(item, float) and not math.isfinite(item):
+                raise ValueError("Categorical numeric choices must be finite.")
             cleaned.append(item)
         return cleaned
 
@@ -224,8 +223,8 @@ class TellAck(StrictModel):
     request_id: RequestIdentifier
     type: Literal["tell_ack"] = "tell_ack"
     trial_number: int
-    best_value: float | None
-    best_params: dict[str, float | int | str | bool] | None
+    best_value: float | None = None
+    best_params: dict[str, float | int | str | bool] | None = None
     n_complete: int
 
 
@@ -233,8 +232,8 @@ class StatusResponse(StrictModel):
     request_id: RequestIdentifier
     type: Literal["status"] = "status"
     n_trials: int
-    best_value: float | None
-    best_params: dict[str, float | int | str | bool] | None
+    best_value: float | None = None
+    best_params: dict[str, float | int | str | bool] | None = None
 
 
 class DeleteAck(StrictModel):

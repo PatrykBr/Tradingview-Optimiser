@@ -2,13 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BackendClient, sendBackendMaintenanceMessage } from './backend-client';
 
 class MockWebSocket {
-  static instances: MockWebSocket[] = [];
+  static readonly instances: MockWebSocket[] = [];
+  static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSED = 3;
 
   readonly url: string;
   readonly sent: string[] = [];
-  readyState = 0;
+  readyState = MockWebSocket.CONNECTING;
   onopen: ((event: unknown) => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onerror: ((event: unknown) => void) | null = null;
@@ -41,7 +42,7 @@ describe('backend-client message routing', () => {
   const OriginalWebSocket = globalThis.WebSocket;
 
   beforeEach(() => {
-    MockWebSocket.instances = [];
+    MockWebSocket.instances.length = 0;
     (globalThis as { WebSocket: typeof WebSocket }).WebSocket = MockWebSocket as unknown as typeof WebSocket;
   });
 

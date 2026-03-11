@@ -153,6 +153,103 @@ function sanitizePersistedConfig(raw: unknown): OptimizationConfig | null {
   }
 }
 
+function getSavedOptimizationStatus(value: unknown): OptimizationState['status'] | null {
+  if (typeof value !== 'string' || !isOptimizationStatus(value)) return null;
+  return value;
+}
+
+function restorePersistedTrials(raw: unknown): TrialResult[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((trial) => sanitizePersistedTrial(trial))
+    .filter((trial): trial is TrialResult => trial !== null)
+    .slice(-MAX_PERSISTED_TRIALS);
+}
+
+function restorePersistedHistoryRuns(raw: unknown): TrialHistoryRun[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((run) => sanitizePersistedHistoryRun(run))
+    .filter((run): run is TrialHistoryRun => run !== null)
+    .slice(0, MAX_PERSISTED_HISTORY_RUNS);
+}
+
+function restorePersistedHistoryTrials(raw: unknown): TrialResult[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((trial) => sanitizePersistedTrial(trial))
+    .filter((trial): trial is TrialResult => trial !== null)
+    .slice(-MAX_PERSISTED_HISTORY_TRIALS)
+    .map((trial) => compactHistoryTrialSummary(trial));
+}
+
+interface RestoredStateSnapshot {
+  bestTrial: TrialResult | null;
+  config: OptimizationConfig | null;
+  currentTrial: number;
+  historyRuns: TrialHistoryRun[];
+  historyTrials: TrialResult[];
+  startTime: number | null;
+  trials: TrialResult[];
+}
+
+interface ResolvedRestoredState {
+  error: string | null;
+  logMessage: string;
+  resumeAvailable: boolean;
+  status: OptimizationState['status'];
+}
+
+function resolveRestoredState(
+  savedStatus: OptimizationState['status'],
+  restoredError: string | null,
+  restoredResumeAvailable: boolean,
+  restoredTrialCount: number,
+): ResolvedRestoredState {
+  if (savedStatus === 'running' || savedStatus === 'paused') {
+    return {
+      status: 'error',
+      error: 'Optimization interrupted (service worker restarted). Results up to this point are preserved.',
+      resumeAvailable: true,
+      logMessage: '[SW] Restored interrupted run as recoverable error state',
+    };
+  }
+
+  if (savedStatus === 'detecting') {
+    return {
+      status: 'idle',
+      error: null,
+      resumeAvailable: false,
+      logMessage: '[SW] Restored transient detecting state as idle',
+    };
+  }
+
+  return {
+    status: savedStatus,
+    error: restoredError,
+    resumeAvailable: restoredResumeAvailable,
+    logMessage: `[SW] Restored state: ${savedStatus}, ${restoredTrialCount} trials`,
+  };
+}
+
+function applyRestoredState(
+  optimizationState: OptimizationState,
+  restoredState: RestoredStateSnapshot,
+  resolvedState: ResolvedRestoredState,
+): void {
+  optimizationState.status = resolvedState.status;
+  optimizationState.currentTrial = restoredState.currentTrial;
+  optimizationState.trials = restoredState.trials;
+  optimizationState.historyRuns = restoredState.historyRuns;
+  optimizationState.historyTrials = restoredState.historyTrials;
+  optimizationState.bestTrial = restoredState.bestTrial;
+  optimizationState.error = resolvedState.error;
+  optimizationState.startTime = restoredState.startTime;
+  optimizationState.resumeAvailable = resolvedState.resumeAvailable;
+  optimizationState.config = restoredState.config;
+  optimizationState.pausedAt = null;
+}
+
 export interface StatePersistenceOptions {
   optimizationState: OptimizationState;
   storageKey: string;
@@ -241,88 +338,29 @@ export function createStatePersistence(options: StatePersistenceOptions): StateP
       const rawSaved = result[storageKey];
       if (!isRecord(rawSaved)) return;
 
-      const rawStatus = typeof rawSaved.status === 'string' ? rawSaved.status : null;
-      const savedStatus: OptimizationState['status'] | null = rawStatus && isOptimizationStatus(rawStatus) ? rawStatus : null;
+      const savedStatus = getSavedOptimizationStatus(rawSaved.status);
       if (!savedStatus) return;
 
-      const restoredTrials = Array.isArray(rawSaved.trials)
-        ? rawSaved.trials
-            .map((trial) => sanitizePersistedTrial(trial))
-            .filter((trial): trial is TrialResult => trial !== null)
-            .slice(-MAX_PERSISTED_TRIALS)
-        : [];
-
-      const restoredHistoryRuns = Array.isArray(rawSaved.historyRuns)
-        ? rawSaved.historyRuns
-            .map((run) => sanitizePersistedHistoryRun(run))
-            .filter((run): run is TrialHistoryRun => run !== null)
-            .slice(0, MAX_PERSISTED_HISTORY_RUNS)
-        : [];
-
-      const restoredHistoryTrials = Array.isArray(rawSaved.historyTrials)
-        ? rawSaved.historyTrials
-            .map((trial) => sanitizePersistedTrial(trial))
-            .filter((trial): trial is TrialResult => trial !== null)
-            .slice(-MAX_PERSISTED_HISTORY_TRIALS)
-            .map((trial) => compactHistoryTrialSummary(trial))
-        : [];
-
-      const restoredBestTrial = sanitizePersistedTrial(rawSaved.bestTrial);
-      const restoredConfig = sanitizePersistedConfig(rawSaved.config);
-      const restoredCurrentTrial = clampNonNegativeInt(rawSaved.currentTrial, 0);
-      const restoredStartTime =
-        typeof rawSaved.startTime === 'number' && Number.isFinite(rawSaved.startTime) ? rawSaved.startTime : null;
+      const restoredState: RestoredStateSnapshot = {
+        trials: restorePersistedTrials(rawSaved.trials),
+        historyRuns: restorePersistedHistoryRuns(rawSaved.historyRuns),
+        historyTrials: restorePersistedHistoryTrials(rawSaved.historyTrials),
+        bestTrial: sanitizePersistedTrial(rawSaved.bestTrial),
+        config: sanitizePersistedConfig(rawSaved.config),
+        currentTrial: clampNonNegativeInt(rawSaved.currentTrial, 0),
+        startTime: typeof rawSaved.startTime === 'number' && Number.isFinite(rawSaved.startTime) ? rawSaved.startTime : null,
+      };
       const restoredError = typeof rawSaved.error === 'string' ? rawSaved.error : null;
       const restoredResumeAvailable = Boolean(rawSaved.resumeAvailable ?? false);
+      const resolvedState = resolveRestoredState(
+        savedStatus,
+        restoredError,
+        restoredResumeAvailable,
+        restoredState.trials.length,
+      );
 
-      const applyRestoredState = ({
-        status,
-        error,
-        resumeAvailable,
-      }: {
-        status: OptimizationState['status'];
-        error: string | null;
-        resumeAvailable: boolean;
-      }) => {
-        optimizationState.status = status;
-        optimizationState.currentTrial = restoredCurrentTrial;
-        optimizationState.trials = restoredTrials;
-        optimizationState.historyRuns = restoredHistoryRuns;
-        optimizationState.historyTrials = restoredHistoryTrials;
-        optimizationState.bestTrial = restoredBestTrial;
-        optimizationState.error = error;
-        optimizationState.startTime = restoredStartTime;
-        optimizationState.resumeAvailable = resumeAvailable;
-        optimizationState.config = restoredConfig;
-        optimizationState.pausedAt = null;
-      };
-
-      if (savedStatus === 'running' || savedStatus === 'paused') {
-        applyRestoredState({
-          status: 'error',
-          error: 'Optimization interrupted (service worker restarted). Results up to this point are preserved.',
-          resumeAvailable: true,
-        });
-        logDebug('[SW] Restored interrupted run as recoverable error state');
-        return;
-      }
-
-      if (savedStatus === 'detecting') {
-        applyRestoredState({
-          status: 'idle',
-          error: null,
-          resumeAvailable: false,
-        });
-        logDebug('[SW] Restored transient detecting state as idle');
-        return;
-      }
-
-      applyRestoredState({
-        status: savedStatus,
-        error: restoredError,
-        resumeAvailable: restoredResumeAvailable,
-      });
-      logDebug(`[SW] Restored state: ${savedStatus}, ${restoredTrials.length} trials`);
+      applyRestoredState(optimizationState, restoredState, resolvedState);
+      logDebug(resolvedState.logMessage);
     } catch (err) {
       console.warn('[SW] Failed to restore state:', err instanceof Error ? err.message : err);
     }

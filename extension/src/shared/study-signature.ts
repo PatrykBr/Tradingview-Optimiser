@@ -11,14 +11,19 @@ export interface StudyIdentity {
 export function stableHash(input: string): string {
   let hash = 2166136261;
   for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
+    const codePoint = input.codePointAt(i);
+    if (codePoint === undefined) continue;
+    hash ^= codePoint;
     hash = Math.imul(hash, 16777619);
+    if (codePoint > 0xffff) {
+      i += 1;
+    }
   }
   return (hash >>> 0).toString(36);
 }
 
 export function sanitizeStudyBase(name: string): string {
-  const sanitized = name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+  const sanitized = name.replaceAll(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
   return `${sanitized}_${stableHash(name)}`;
 }
 
@@ -76,7 +81,7 @@ function normalizeSearchSpaceForSignature(searchSpace: SearchSpaceParam[]) {
         return {
           name: param.name,
           type: param.type,
-          choices: [...(param.choices ?? [])].map((choice) => String(choice)).sort(),
+          choices: [...(param.choices ?? [])].map(String).sort((a, b) => a.localeCompare(b)),
         };
       }
       return {

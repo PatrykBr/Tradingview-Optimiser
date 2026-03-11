@@ -168,7 +168,7 @@ async function scrapeDropdownOptions(combobox: HTMLButtonElement): Promise<strin
 }
 
 function parseNumericInputValue(rawValue: string): number {
-  const parsed = parseFloat(rawValue.replace(/,/g, ''));
+  const parsed = Number.parseFloat(rawValue.replaceAll(',', ''));
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
@@ -211,6 +211,42 @@ function createNumericParam(
     min,
     max,
     step,
+  };
+}
+
+function createCheckboxParam(
+  label: string,
+  section: string,
+  currentValue: boolean,
+  nextParamId: ReturnType<typeof createScopedLabelIdAllocator>,
+): CheckboxParameter {
+  return {
+    id: nextParamId(label, section),
+    label,
+    section,
+    type: 'checkbox',
+    enabled: false,
+    currentValue,
+    optimize: false,
+  };
+}
+
+function createDropdownParam(
+  label: string,
+  section: string,
+  currentValue: string,
+  options: string[],
+  nextParamId: ReturnType<typeof createScopedLabelIdAllocator>,
+): DropdownParameter {
+  return {
+    id: nextParamId(label, section),
+    label,
+    section,
+    type: 'dropdown',
+    enabled: false,
+    currentValue,
+    options,
+    selectedOptions: [currentValue],
   };
 }
 
@@ -278,6 +314,166 @@ function logParameterDetectionSummary(params: StrategyParameter[], meta: ParsedP
   }
 }
 
+interface ParameterParseState {
+  currentSection: string;
+  nextParamId: ReturnType<typeof createScopedLabelIdAllocator>;
+  params: StrategyParameter[];
+  parsedMeta: ParsedParameterMeta[];
+}
+
+function pushParsedParameter(state: ParameterParseState, param: StrategyParameter, source: ParseSource): void {
+  state.params.push(param);
+  state.parsedMeta.push({
+    source,
+    section: param.section,
+    label: param.label,
+    type: param.type,
+    fingerprint: buildParameterFingerprint(param),
+  });
+}
+
+function getDialogContent(dialog: HTMLElement): HTMLElement | null {
+  const content = dialog.querySelector(SELECTORS.dialogContent);
+  return content instanceof HTMLElement ? content : null;
+}
+
+function getDialogContentChildren(content: HTMLElement): HTMLElement[] {
+  return Array.from(content.children).filter((node): node is HTMLElement => node instanceof HTMLElement);
+}
+
+function parseInlineRowParameters(state: ParameterParseState, node: HTMLElement): void {
+  const groupsToParse = resolveInlineGroups(node);
+  for (const group of groupsToParse) {
+    const groupCells = getVisibleCellChildren(group);
+    for (let cellIndex = 0; cellIndex < groupCells.length - 1; cellIndex += 1) {
+      const labelCell = groupCells[cellIndex];
+      if (!labelCell.className.includes('first-')) continue;
+
+      const valueCell = groupCells[cellIndex + 1];
+      if (!valueCell?.className.includes('cell-')) continue;
+
+      const label = getCellInnerLabelText(labelCell);
+      if (!label) continue;
+
+      const numInput = findNumericInputInCell(valueCell);
+      if (!numInput) continue;
+
+      const value = parseNumericInputValue(numInput.value);
+      pushParsedParameter(
+        state,
+        createNumericParam(label, state.currentSection, value, state.nextParamId),
+        'inline_numeric',
+      );
+      cellIndex += 1;
+    }
+  }
+}
+
+function parseCheckboxRowParameter(state: ParameterParseState, node: HTMLElement): void {
+  const checkboxInput = node.querySelector('input[type="checkbox"]');
+  if (!(checkboxInput instanceof HTMLInputElement)) {
+    return;
+  }
+
+  const checkboxLabel = getInnerText(node.querySelector('[class*="label-"]'));
+  if (!checkboxLabel) {
+    return;
+  }
+
+  const isChecked = getCheckboxCheckedState(checkboxInput);
+  pushParsedParameter(
+    state,
+    createCheckboxParam(checkboxLabel, state.currentSection, isChecked, state.nextParamId),
+    'fill_checkbox',
+  );
+}
+
+async function parseLabeledValueRowParameter(
+  state: ParameterParseState,
+  directChildren: HTMLElement[],
+  index: number,
+  node: HTMLElement,
+): Promise<number> {
+  const label = getCellInnerLabelText(node);
+  if (!label) {
+    return index + 1;
+  }
+
+  const valueCellIndex = findNextValueCellIndex(directChildren, index);
+  if (valueCellIndex === -1) {
+    return index + 1;
+  }
+
+  const valueCell = directChildren[valueCellIndex];
+  const combobox = valueCell.querySelector('button[role="combobox"]');
+  if (combobox instanceof HTMLButtonElement) {
+    const currentValue = combobox.querySelector('[class*="middleSlot-"]')?.textContent?.trim() ?? '';
+    const options = await scrapeDropdownOptions(combobox);
+    const finalOptions = options.length > 0 ? options : [currentValue];
+    pushParsedParameter(
+      state,
+      createDropdownParam(label, state.currentSection, currentValue, finalOptions, state.nextParamId),
+      'first_dropdown',
+    );
+    return valueCellIndex + 1;
+  }
+
+  const numInput = findNumericInputInCell(valueCell);
+  if (!numInput) {
+    return index + 1;
+  }
+
+  const value = parseNumericInputValue(numInput.value);
+  pushParsedParameter(
+    state,
+    createNumericParam(label, state.currentSection, value, state.nextParamId),
+    'first_numeric',
+  );
+  return valueCellIndex + 1;
+}
+
+async function parseDialogNode(
+  state: ParameterParseState,
+  directChildren: HTMLElement[],
+  index: number,
+): Promise<number> {
+  const node = directChildren[index];
+  if (!isElementVisible(node)) {
+    return index + 1;
+  }
+
+  const sectionName = findSectionName(node);
+  if (sectionName) {
+    state.currentSection = sectionName;
+    return index + 1;
+  }
+
+  const classList = node.className;
+  if (classList.includes('groupFooter-')) {
+    return index + 1;
+  }
+
+  if (classList.includes('inlineRow-')) {
+    parseInlineRowParameters(state, node);
+    return index + 1;
+  }
+
+  if (!classList.includes('cell-')) {
+    return index + 1;
+  }
+
+  if (classList.includes('fill-')) {
+    parseCheckboxRowParameter(state, node);
+    return index + 1;
+  }
+
+  if (!classList.includes('first-')) {
+    return index + 1;
+  }
+
+  return parseLabeledValueRowParameter(state, directChildren, index, node);
+}
+
 /**
  * Parse all parameters from the settings dialog.
  *
@@ -288,142 +484,26 @@ function logParameterDetectionSummary(params: StrategyParameter[], meta: ParsedP
  * - M2: Check both aria-checked AND .checked for checkbox state
  */
 async function parseParameters(dialog: HTMLElement): Promise<StrategyParameter[]> {
-  const params: StrategyParameter[] = [];
-  const parsedMeta: ParsedParameterMeta[] = [];
-  const nextParamId = createScopedLabelIdAllocator();
+  const state: ParameterParseState = {
+    currentSection: '',
+    nextParamId: createScopedLabelIdAllocator(),
+    params: [],
+    parsedMeta: [],
+  };
 
-  function pushParam(param: StrategyParameter, source: ParseSource): void {
-    params.push(param);
-    parsedMeta.push({
-      source,
-      section: param.section,
-      label: param.label,
-      type: param.type,
-      fingerprint: buildParameterFingerprint(param),
-    });
+  const content = getDialogContent(dialog);
+  if (!content) {
+    return state.params;
   }
 
-  // C5: Remove hardcoded RLntasnw hash — just match the content- prefix
-  const content = dialog.querySelector(SELECTORS.dialogContent) as HTMLElement;
-  if (!content) return params;
-
-  let currentSection = '';
-  const directChildren = Array.from(content.children).filter((node): node is HTMLElement => node instanceof HTMLElement);
-
-  for (let i = 0; i < directChildren.length; i += 1) {
-    const node = directChildren[i];
-    if (!isElementVisible(node)) continue;
-
-    const sectionName = findSectionName(node);
-    if (sectionName) {
-      currentSection = sectionName;
-      continue;
-    }
-
-    const classList = node.className;
-    if (classList.includes('groupFooter-')) continue;
-
-    // Inline row parameters (e.g. Take-Profit, date range rows)
-    if (classList.includes('inlineRow-')) {
-      const groupsToParse = resolveInlineGroups(node);
-
-      for (const group of groupsToParse) {
-        const groupCells = getVisibleCellChildren(group);
-
-        for (let cellIndex = 0; cellIndex < groupCells.length - 1; cellIndex += 1) {
-          const labelCell = groupCells[cellIndex];
-          if (!labelCell.className.includes('first-')) continue;
-
-          const valueCell = groupCells[cellIndex + 1];
-          if (!valueCell || !valueCell.className.includes('cell-')) continue;
-
-          const label = getCellInnerLabelText(labelCell);
-          if (!label) continue;
-
-          const numInput = findNumericInputInCell(valueCell);
-          if (!numInput) continue;
-
-          const value = parseNumericInputValue(numInput.value);
-          pushParam(createNumericParam(label, currentSection, value, nextParamId), 'inline_numeric');
-          cellIndex += 1;
-        }
-      }
-      continue;
-    }
-
-    if (!classList.includes('cell-')) continue;
-
-    // Checkbox rows in fill cells
-    if (classList.includes('fill-')) {
-      const checkboxInput = node.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
-      if (!checkboxInput) continue;
-
-      const checkboxLabel = getInnerText(node.querySelector('[class*="label-"]'));
-      if (!checkboxLabel) continue;
-
-      // M2: Check both aria-checked and the native .checked property
-      const isChecked = getCheckboxCheckedState(checkboxInput);
-
-      pushParam(
-        {
-          id: nextParamId(checkboxLabel, currentSection),
-          label: checkboxLabel,
-          section: currentSection,
-          type: 'checkbox',
-          enabled: false,
-          currentValue: isChecked,
-          optimize: false,
-        } as CheckboxParameter,
-        'fill_checkbox',
-      );
-      continue;
-    }
-
-    // Standard two-cell rows: label (first) + value (next cell)
-    if (classList.includes('first-')) {
-      const label = getCellInnerLabelText(node);
-      if (!label) continue;
-
-      const valueCellIndex = findNextValueCellIndex(directChildren, i);
-      if (valueCellIndex === -1) continue;
-      const valueCell = directChildren[valueCellIndex];
-
-      // Dropdown
-      const combobox = valueCell.querySelector('button[role="combobox"]') as HTMLButtonElement | null;
-      if (combobox) {
-        const currentValue = combobox.querySelector('[class*="middleSlot-"]')?.textContent?.trim() ?? '';
-        const options = await scrapeDropdownOptions(combobox);
-        const finalOptions = options.length > 0 ? options : [currentValue];
-
-        pushParam(
-          {
-            id: nextParamId(label, currentSection),
-            label,
-            section: currentSection,
-            type: 'dropdown',
-            enabled: false,
-            currentValue,
-            options: finalOptions,
-            selectedOptions: [currentValue],
-          } as DropdownParameter,
-          'first_dropdown',
-        );
-        i = valueCellIndex;
-        continue;
-      }
-
-      // Numeric
-      const numInput = findNumericInputInCell(valueCell);
-      if (numInput) {
-        const value = parseNumericInputValue(numInput.value);
-        pushParam(createNumericParam(label, currentSection, value, nextParamId), 'first_numeric');
-        i = valueCellIndex;
-      }
-    }
+  const directChildren = getDialogContentChildren(content);
+  let index = 0;
+  while (index < directChildren.length) {
+    index = await parseDialogNode(state, directChildren, index);
   }
 
-  logParameterDetectionSummary(params, parsedMeta);
-  return params;
+  logParameterDetectionSummary(state.params, state.parsedMeta);
+  return state.params;
 }
 
 /**

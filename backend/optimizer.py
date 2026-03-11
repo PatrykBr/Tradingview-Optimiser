@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 import logging
 import math
 from pathlib import Path
 import re
 from threading import Lock
 import time
-from typing import Any, Literal, Mapping, TypeAlias, cast
+from typing import Any, Literal, TypeAlias, cast
 
 import optuna
 try:
-    import optunahub
+    import optunahub  # pyright: ignore[reportMissingImports]
 except Exception:  # pragma: no cover - optional dependency at runtime
     optunahub = None
 from .models import (
@@ -54,6 +55,13 @@ _auto_sampler_module: Any | None = None
 _AUTO_SAMPLER_LOCK = Lock()
 
 
+@dataclass
+class WarmStartImportResult:
+    added_trials: int = 0
+    skipped_incompatible: int = 0
+    skipped_duplicate: int = 0
+
+
 def _create_auto_sampler() -> optuna.samplers.BaseSampler:
     """Build an AutoSampler from OptunaHub with a deterministic TPE fallback."""
     global _auto_sampler_module
@@ -81,6 +89,7 @@ def _create_auto_sampler() -> optuna.samplers.BaseSampler:
                     AUTO_SAMPLER_FALLBACK_SEED,
                 )
                 return optuna.samplers.TPESampler(seed=AUTO_SAMPLER_FALLBACK_SEED)
+    assert _auto_sampler_module is not None
     return _auto_sampler_module.AutoSampler()
 
 
@@ -95,6 +104,7 @@ def _create_storage(storage_url: str) -> RDBStorage:
 SamplerChoice: TypeAlias = Literal["auto", "tpe", "random", "gp", "qmc", "cmaes"]
 RunMode: TypeAlias = Literal["resume", "fresh", "warm_start"]
 SearchSpaceParamInput: TypeAlias = FloatParam | IntParam | CategoricalParam
+ParamKey: TypeAlias = tuple[tuple[str, str], ...]
 
 
 def _create_optional_sampler(
@@ -492,85 +502,29 @@ class OptunaOptimizer:
         total_added = 0
         source_successes = 0
         for source_study_name in source_candidates:
-            if total_added >= MAX_WARM_START_IMPORTED_TRIALS:
-                logger.info(
-                    "Warm start import cap reached (%d). Remaining source studies will be skipped.",
-                    MAX_WARM_START_IMPORTED_TRIALS,
-                )
-                break
-
             source_data = _load_completed_trials_if_exists(source_study_name)
             if source_data is None:
                 continue
-            source_direction, source_trials = source_data
 
-            if source_direction != self.study.direction:
-                logger.warning(
-                    "Warm start source '%s' skipped: direction=%s differs from target direction=%s",
-                    source_study_name,
-                    source_direction,
-                    self.study.direction,
-                )
+            source_trials = self._prepare_family_source_trials(
+                source_study_name=source_study_name,
+                source_data=source_data,
+            )
+            if source_trials is None:
                 continue
 
-            if len(source_trials) > MAX_WARM_START_TRIALS_PER_SOURCE:
-                logger.info(
-                    "Warm start source '%s' completed trials capped at %d (from %d).",
-                    source_study_name,
-                    MAX_WARM_START_TRIALS_PER_SOURCE,
-                    len(source_trials),
-                )
-                source_trials = source_trials[-MAX_WARM_START_TRIALS_PER_SOURCE:]
-
-            added_trials = 0
-            skipped_incompatible = 0
-            skipped_duplicate = 0
-            for source_trial in source_trials:
-                if total_added >= MAX_WARM_START_IMPORTED_TRIALS:
-                    break
-
-                seeded_trial = self._convert_completed_trial_for_target(
-                    source_trial=source_trial,
-                    source_study_name=source_study_name,
-                )
-                if seeded_trial is None:
-                    skipped_incompatible += 1
-                    continue
-
-                param_key = self._trial_param_key(seeded_trial.params)
-                if param_key in seen_param_keys:
-                    skipped_duplicate += 1
-                    continue
-
-                try:
-                    self.study.add_trial(seeded_trial)
-                    seen_param_keys.add(param_key)
-                    added_trials += 1
-                    total_added += 1
-                except Exception:
-                    logger.debug(
-                        "Skipping warm-start add_trial for source=%s trial=%d",
-                        source_study_name,
-                        source_trial.number,
-                        exc_info=True,
-                    )
-
-            if added_trials > 0:
-                source_successes += 1
-                logger.info(
-                    "Warm start imported %d completed trials from '%s' (duplicates=%d, incompatible=%d).",
-                    added_trials,
-                    source_study_name,
-                    skipped_duplicate,
-                    skipped_incompatible,
-                )
-            else:
-                logger.info(
-                    "Warm start source '%s' had no importable completed trials (duplicates=%d, incompatible=%d).",
-                    source_study_name,
-                    skipped_duplicate,
-                    skipped_incompatible,
-                )
+            import_result = self._import_family_source_trials(
+                source_study_name=source_study_name,
+                source_trials=source_trials,
+                seen_param_keys=seen_param_keys,
+                remaining_capacity=MAX_WARM_START_IMPORTED_TRIALS - total_added,
+            )
+            total_added += import_result.added_trials
+            source_successes += int(import_result.added_trials > 0)
+            self._log_family_source_import_result(
+                source_study_name=source_study_name,
+                import_result=import_result,
+            )
 
             if total_added >= MAX_WARM_START_IMPORTED_TRIALS:
                 logger.info(
@@ -579,6 +533,109 @@ class OptunaOptimizer:
                 )
                 break
 
+        self._log_family_seed_summary(
+            total_added=total_added,
+            source_successes=source_successes,
+            candidate_count=len(source_candidates),
+        )
+        return total_added
+
+    def _prepare_family_source_trials(
+        self,
+        *,
+        source_study_name: str,
+        source_data: tuple[Any, list[FrozenTrial]],
+    ) -> list[FrozenTrial] | None:
+        source_direction, source_trials = source_data
+        if source_direction != self.study.direction:
+            logger.warning(
+                "Warm start source '%s' skipped: direction=%s differs from target direction=%s",
+                source_study_name,
+                source_direction,
+                self.study.direction,
+            )
+            return None
+
+        if len(source_trials) <= MAX_WARM_START_TRIALS_PER_SOURCE:
+            return source_trials
+
+        logger.info(
+            "Warm start source '%s' completed trials capped at %d (from %d).",
+            source_study_name,
+            MAX_WARM_START_TRIALS_PER_SOURCE,
+            len(source_trials),
+        )
+        return source_trials[-MAX_WARM_START_TRIALS_PER_SOURCE:]
+
+    def _import_family_source_trials(
+        self,
+        *,
+        source_study_name: str,
+        source_trials: list[FrozenTrial],
+        seen_param_keys: set[ParamKey],
+        remaining_capacity: int,
+    ) -> WarmStartImportResult:
+        result = WarmStartImportResult()
+        for source_trial in source_trials[:remaining_capacity]:
+            seeded_trial = self._convert_completed_trial_for_target(
+                source_trial=source_trial,
+                source_study_name=source_study_name,
+            )
+            if seeded_trial is None:
+                result.skipped_incompatible += 1
+                continue
+
+            param_key = self._trial_param_key(seeded_trial.params)
+            if param_key in seen_param_keys:
+                result.skipped_duplicate += 1
+                continue
+
+            try:
+                self.study.add_trial(seeded_trial)
+            except Exception:
+                logger.debug(
+                    "Skipping warm-start add_trial for source=%s trial=%d",
+                    source_study_name,
+                    source_trial.number,
+                    exc_info=True,
+                )
+                continue
+
+            seen_param_keys.add(param_key)
+            result.added_trials += 1
+
+        return result
+
+    def _log_family_source_import_result(
+        self,
+        *,
+        source_study_name: str,
+        import_result: WarmStartImportResult,
+    ) -> None:
+        if import_result.added_trials > 0:
+            logger.info(
+                "Warm start imported %d completed trials from '%s' (duplicates=%d, incompatible=%d).",
+                import_result.added_trials,
+                source_study_name,
+                import_result.skipped_duplicate,
+                import_result.skipped_incompatible,
+            )
+            return
+
+        logger.info(
+            "Warm start source '%s' had no importable completed trials (duplicates=%d, incompatible=%d).",
+            source_study_name,
+            import_result.skipped_duplicate,
+            import_result.skipped_incompatible,
+        )
+
+    def _log_family_seed_summary(
+        self,
+        *,
+        total_added: int,
+        source_successes: int,
+        candidate_count: int,
+    ) -> None:
         if total_added > 0:
             logger.info(
                 "Warm started study '%s' with %d completed trials from %d source studies.",
@@ -586,14 +643,13 @@ class OptunaOptimizer:
                 total_added,
                 source_successes,
             )
-        else:
-            logger.info(
-                "Warm start for study '%s' found 0 compatible unique completed trials across %d candidates.",
-                self.study_name,
-                len(source_candidates),
-            )
+            return
 
-        return total_added
+        logger.info(
+            "Warm start for study '%s' found 0 compatible unique completed trials across %d candidates.",
+            self.study_name,
+            candidate_count,
+        )
 
     def _seed_from_external_trials(
         self,
@@ -698,7 +754,7 @@ class OptunaOptimizer:
             value = float(seed.value)
         except (TypeError, ValueError):
             return None
-        if not (value == value and value not in (float("inf"), float("-inf"))):
+        if not math.isfinite(value):
             return None
 
         target_params: dict[str, Any] = {}
@@ -718,7 +774,7 @@ class OptunaOptimizer:
             user_attrs={"warm_start_source": "extension_history"},
         )
 
-    def _trial_param_key(self, params: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    def _trial_param_key(self, params: dict[str, Any]) -> ParamKey:
         key_parts: list[tuple[str, str]] = []
         for param_name, distribution in self._base_distributions.items():
             if param_name not in params:
@@ -731,7 +787,7 @@ class OptunaOptimizer:
         key_parts.sort(key=lambda item: item[0])
         return tuple(key_parts)
 
-    def _completed_param_keys(self) -> set[tuple[tuple[str, str], ...]]:
+    def _completed_param_keys(self) -> set[ParamKey]:
         return {
             self._trial_param_key(existing_trial.params)
             for existing_trial in self.study.get_trials(
@@ -779,14 +835,29 @@ class OptunaOptimizer:
         for key, value in attrs.items():
             if "sampler" not in key.lower():
                 continue
-            if isinstance(value, str) and value:
-                return value
-            if isinstance(value, dict):
-                nested = cast(Mapping[str, object], value)
-                for candidate in ("sampler_name", "sampler", "name", "class_name", "type"):
-                    candidate_value = nested.get(candidate)
-                    if isinstance(candidate_value, str) and candidate_value:
-                        return candidate_value
+            sampler_label = OptunaOptimizer._extract_sampler_label_value(value)
+            if sampler_label:
+                return sampler_label
+        return None
+
+    @staticmethod
+    def _extract_sampler_label_value(value: object) -> str | None:
+        if isinstance(value, str) and value:
+            return value
+        if not isinstance(value, dict):
+            return None
+        return OptunaOptimizer._extract_sampler_label_from_mapping(
+            cast(Mapping[str, object], value),
+        )
+
+    @staticmethod
+    def _extract_sampler_label_from_mapping(
+        attrs: Mapping[str, object],
+    ) -> str | None:
+        for candidate in ("sampler_name", "sampler", "name", "class_name", "type"):
+            candidate_value = attrs.get(candidate)
+            if isinstance(candidate_value, str) and candidate_value:
+                return candidate_value
         return None
 
     @staticmethod
@@ -795,35 +866,78 @@ class OptunaOptimizer:
         value: Any,
     ) -> bool:
         if isinstance(distribution, optuna.distributions.FloatDistribution):
-            try:
-                cast_value = float(value)
-            except (TypeError, ValueError):
-                return False
-            if not math.isfinite(cast_value):
-                return False
-            if cast_value < distribution.low or cast_value > distribution.high:
-                return False
-            if distribution.step is None:
-                return True
-            k = (cast_value - distribution.low) / distribution.step
-            return abs(k - round(k)) < 1.0e-8
+            return OptunaOptimizer._float_distribution_contains_external_value(
+                distribution,
+                value,
+            )
 
         if isinstance(distribution, optuna.distributions.IntDistribution):
-            if isinstance(value, bool):
-                return False
-            try:
-                cast_value = int(value)
-            except (TypeError, ValueError):
-                return False
-            if cast_value < distribution.low or cast_value > distribution.high:
-                return False
-            step = distribution.step or 1
-            return (cast_value - distribution.low) % step == 0
+            return OptunaOptimizer._int_distribution_contains_external_value(
+                distribution,
+                value,
+            )
 
         if isinstance(distribution, optuna.distributions.CategoricalDistribution):
             return value in distribution.choices
 
         # Fallback: any value that can be represented by the distribution is accepted.
+        return OptunaOptimizer._distribution_can_represent_value(
+            distribution,
+            value,
+        )
+
+    @staticmethod
+    def _float_distribution_contains_external_value(
+        distribution: optuna.distributions.FloatDistribution,
+        value: Any,
+    ) -> bool:
+        try:
+            cast_value = float(value)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(cast_value):
+            return False
+        if cast_value < distribution.low or cast_value > distribution.high:
+            return False
+        if distribution.step is None:
+            return True
+        return OptunaOptimizer._is_float_step_aligned(
+            low=distribution.low,
+            step=distribution.step,
+            cast_value=cast_value,
+        )
+
+    @staticmethod
+    def _is_float_step_aligned(
+        *,
+        low: float,
+        step: float,
+        cast_value: float,
+    ) -> bool:
+        k = (cast_value - low) / step
+        return abs(k - round(k)) < 1.0e-8
+
+    @staticmethod
+    def _int_distribution_contains_external_value(
+        distribution: optuna.distributions.IntDistribution,
+        value: Any,
+    ) -> bool:
+        if isinstance(value, bool):
+            return False
+        try:
+            cast_value = int(value)
+        except (TypeError, ValueError):
+            return False
+        if cast_value < distribution.low or cast_value > distribution.high:
+            return False
+        step = distribution.step or 1
+        return (cast_value - distribution.low) % step == 0
+
+    @staticmethod
+    def _distribution_can_represent_value(
+        distribution: optuna.distributions.BaseDistribution,
+        value: Any,
+    ) -> bool:
         try:
             distribution.to_internal_repr(value)
         except Exception:

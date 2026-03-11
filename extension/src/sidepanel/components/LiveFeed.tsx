@@ -130,7 +130,7 @@ const TrialRow = memo(function TrialRow({
     <div
       className={`flex items-center gap-2.5 px-4 py-2.5 border-b border-border/30 text-[12px] transition-colors ${
         getRowBackgroundClass(isBest, isEven)
-      } ${!trial.passedFilters ? 'opacity-45' : ''}`}
+      } ${trial.passedFilters ? '' : 'opacity-45'}`}
     >
       {/* Trial number */}
       <span className="w-7 text-text-muted font-mono text-[11px] shrink-0">#{displayTrialNumber}</span>

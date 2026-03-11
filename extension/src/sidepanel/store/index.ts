@@ -82,6 +82,56 @@ function logDetectedParameterDiagnostics(source: string, strategyName: string, p
   }
 }
 
+function mapConfigToStoreState(config: OptimizationState['config']): Partial<OptimizationStore> {
+  if (!config) {
+    return {};
+  }
+
+  return {
+    selectedStrategyIndex: config.strategyIndex,
+    strategyName: config.strategyName,
+    runMode: config.runMode,
+    selectedHistoryRunIds: config.selectedHistoryRunIds ?? [],
+    sampler: config.sampler,
+    targetMetric: config.targetMetric,
+    targetMetricDirection: config.targetMetricDirection,
+    targetMetricColumn: config.targetMetricColumn,
+    totalTrials: config.totalTrials,
+    parameters: config.parameters,
+    filters: config.filters,
+    antiDetection: config.antiDetection,
+  };
+}
+
+function mapStatePatchToStoreState(patch: Partial<OptimizationState>): Partial<OptimizationStore> {
+  const next: Partial<OptimizationStore> = {};
+  if (patch.status !== undefined) next.status = patch.status;
+  if (patch.currentTrial !== undefined) next.currentTrial = patch.currentTrial;
+  if (patch.trials !== undefined) next.trials = patch.trials;
+  if (patch.historyTrials !== undefined) next.historyTrials = patch.historyTrials;
+  if (patch.historyRuns !== undefined) next.historyRuns = patch.historyRuns;
+  if (patch.resumeAvailable !== undefined) next.resumeAvailable = patch.resumeAvailable;
+  if (patch.bestTrial !== undefined) next.bestTrial = patch.bestTrial;
+  if (patch.error !== undefined) next.error = patch.error;
+  if (patch.startTime !== undefined) next.startTime = patch.startTime;
+  if (patch.config !== undefined) Object.assign(next, mapConfigToStoreState(patch.config));
+  return next;
+}
+
+function tryPostMessage(port: chrome.runtime.Port, message: SidePanelMessage): boolean {
+  try {
+    port.postMessage(message);
+    return true;
+  } catch (err) {
+    console.warn('[Store] Failed to post message to service worker:', err);
+    return false;
+  }
+}
+
+function hasTrialWithNumber(trials: TrialResult[], trialNumber: number): boolean {
+  return trials.some((trial) => trial.trialNumber === trialNumber);
+}
+
 interface OptimizationStore {
   backendStatus: BackendStatus;
   port: chrome.runtime.Port | null;
@@ -147,52 +197,6 @@ interface OptimizationStore {
 }
 
 export const useOptimizationStore = create<OptimizationStore>((set, get) => {
-  function mapConfigToStoreState(config: OptimizationState['config']): Partial<OptimizationStore> {
-    if (!config) {
-      return {};
-    }
-
-    return {
-      selectedStrategyIndex: config.strategyIndex,
-      strategyName: config.strategyName,
-      runMode: config.runMode,
-      selectedHistoryRunIds: config.selectedHistoryRunIds ?? [],
-      sampler: config.sampler,
-      targetMetric: config.targetMetric,
-      targetMetricDirection: config.targetMetricDirection,
-      targetMetricColumn: config.targetMetricColumn,
-      totalTrials: config.totalTrials,
-      parameters: config.parameters,
-      filters: config.filters,
-      antiDetection: config.antiDetection,
-    };
-  }
-
-  function mapStatePatchToStoreState(patch: Partial<OptimizationState>): Partial<OptimizationStore> {
-    const next: Partial<OptimizationStore> = {};
-    if (patch.status !== undefined) next.status = patch.status;
-    if (patch.currentTrial !== undefined) next.currentTrial = patch.currentTrial;
-    if (patch.trials !== undefined) next.trials = patch.trials;
-    if (patch.historyTrials !== undefined) next.historyTrials = patch.historyTrials;
-    if (patch.historyRuns !== undefined) next.historyRuns = patch.historyRuns;
-    if (patch.resumeAvailable !== undefined) next.resumeAvailable = patch.resumeAvailable;
-    if (patch.bestTrial !== undefined) next.bestTrial = patch.bestTrial;
-    if (patch.error !== undefined) next.error = patch.error;
-    if (patch.startTime !== undefined) next.startTime = patch.startTime;
-    if (patch.config !== undefined) Object.assign(next, mapConfigToStoreState(patch.config));
-    return next;
-  }
-
-  function tryPostMessage(port: chrome.runtime.Port, message: SidePanelMessage): boolean {
-    try {
-      port.postMessage(message);
-      return true;
-    } catch (err) {
-      console.warn('[Store] Failed to post message to service worker:', err);
-      return false;
-    }
-  }
-
   function connectPort(options?: {
     requestState?: boolean;
     requestBackendCheck?: boolean;
@@ -233,7 +237,7 @@ export const useOptimizationStore = create<OptimizationStore>((set, get) => {
 
     const handleTrialCompleteMessage = (msg: Extract<ServiceWorkerMessage, { type: 'TRIAL_COMPLETE' }>) => {
       set((s) => {
-        const exists = s.trials.some((t) => t.trialNumber === msg.trial.trialNumber);
+        const exists = hasTrialWithNumber(s.trials, msg.trial.trialNumber);
         if (exists) return s;
         return { trials: [...s.trials, msg.trial] };
       });

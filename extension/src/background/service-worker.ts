@@ -18,6 +18,7 @@ import {
   STORAGE_KEYS,
 } from '../shared/constants';
 import type {
+  BackendIncomingMessage,
   SidePanelMessage,
   ServiceWorkerMessage,
   ContentScriptCommand,
@@ -161,8 +162,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // Side Panel Lifecycle
 // ============================================================
 
-// Open side panel when the action button is clicked
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
+// Open side panel when the action button is clicked.
+// MV3 service workers cannot use top-level await during registration.
+void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
+  console.error('[SW] Failed to set side panel behavior:', error);
+});
 
 // Note: Side panel is enabled on all pages. The content script and UI handle
 // the "not on TradingView" case with appropriate error messages.
@@ -762,7 +766,7 @@ function upsertCurrentRunIntoHistory() {
   if (!familyName) return;
 
   const startedAt = optimizationState.startTime ?? optimizationState.trials[0]?.timestamp ?? Date.now();
-  const completedAt = optimizationState.trials[optimizationState.trials.length - 1]?.timestamp ?? Date.now();
+  const completedAt = optimizationState.trials.at(-1)?.timestamp ?? Date.now();
   const runId = `${familyName}_${startedAt}_${completedAt}`;
   const runEntry: TrialHistoryRun = {
     id: runId,
@@ -781,19 +785,133 @@ function upsertCurrentRunIntoHistory() {
   );
 }
 
+interface PreparedOptimizationRun {
+  effectiveConfig: OptimizationConfig;
+  studyIdentity: ReturnType<typeof resolveStudyIdentity>;
+  warmStartSeedTrials: WarmStartTrialSeed[] | undefined;
+}
+
+function buildNormalizedOptimizationConfig(config: OptimizationConfig, now: number): OptimizationConfig {
+  const sanitizedCore = sanitizeOptimizationConfigInput(config);
+  return {
+    id: typeof config.id === 'string' && config.id.length > 0 ? config.id : `opt_${now}`,
+    ...sanitizedCore,
+    createdAt: Number.isFinite(config.createdAt) ? config.createdAt : now,
+    updatedAt: now,
+  };
+}
+
+function resetOptimizationStateForRun(config: OptimizationConfig, now: number) {
+  optimizationState.status = 'running';
+  optimizationState.config = config;
+  optimizationState.currentTrial = 0;
+  optimizationState.trials = [];
+  optimizationState.historyTrials = [];
+  optimizationState.resumeAvailable = false;
+  optimizationState.bestTrial = null;
+  optimizationState.error = null;
+  optimizationState.startTime = now;
+  optimizationState.pausedAt = null;
+  sendStateUpdate();
+}
+
+async function initializeOptimizationTab(): Promise<number | null> {
+  try {
+    const tabId = await resolveTradingViewTabId();
+    optimizationTabId = tabId;
+    logDebug('[SW] Active tab ID:', tabId);
+    return tabId;
+  } catch (err) {
+    console.error('[SW] Failed to get active tab ID:', err);
+    optimizationState.status = 'error';
+    optimizationState.error = toErrorMessage(err, 'No active tab found');
+    sendToSidePanel({ type: 'OPTIMIZATION_ERROR', error: optimizationState.error });
+    sendStateUpdate();
+    return null;
+  }
+}
+
+function ensureSearchSpaceAvailable(searchSpace: SearchSpaceParam[]) {
+  if (searchSpace.length === 0) {
+    throw new Error('No parameters enabled for optimization. Enable at least one parameter.');
+  }
+}
+
+function prepareOptimizationRun(
+  normalizedConfig: OptimizationConfig,
+  searchSpace: SearchSpaceParam[],
+): PreparedOptimizationRun {
+  let effectiveConfig = normalizedConfig;
+  const normalizedSelectedHistoryRunIds = (normalizedConfig.selectedHistoryRunIds ?? []).filter(
+    (id) => typeof id === 'string' && id.length > 0,
+  );
+  if (normalizedConfig.runMode === 'warm_start' && normalizedSelectedHistoryRunIds.length === 0) {
+    logDebug('[SW] Warm-start requested without selected history; switching to fresh mode.');
+    effectiveConfig = forceFreshRunMode(effectiveConfig);
+    optimizationState.config = effectiveConfig;
+  }
+
+  let studyIdentity = resolveStudyIdentity(effectiveConfig, searchSpace);
+  setCurrentStudyIdentity(studyIdentity);
+  let warmStartSeedTrials: WarmStartTrialSeed[] | undefined;
+  if (effectiveConfig.runMode === 'warm_start') {
+    const sourceRuns = resolveWarmStartSourceRuns(effectiveConfig, studyIdentity.familyName);
+    if (sourceRuns.length === 0) {
+      console.warn('[SW] No compatible selected runs for warm-start; switching to fresh mode.');
+      effectiveConfig = forceFreshRunMode(effectiveConfig);
+      optimizationState.config = effectiveConfig;
+      studyIdentity = resolveStudyIdentity(effectiveConfig, searchSpace);
+      setCurrentStudyIdentity(studyIdentity);
+      optimizationState.historyTrials = [];
+    } else {
+      optimizationState.historyTrials = sourceRuns
+        .flatMap((run) => run.trials)
+        .sort((a, b) => a.timestamp - b.timestamp);
+      warmStartSeedTrials = buildWarmStartSeedTrials(sourceRuns);
+      logDebug(
+        `[SW] Warm-start selected runs matched: ${sourceRuns.length}/${effectiveConfig.selectedHistoryRunIds.length}`,
+      );
+      logDebug(
+        `[SW] Retained previous run history: ${optimizationState.historyTrials.length} trials across ${sourceRuns.length} runs`,
+      );
+      logDebug(`[SW] Warm-start seed payload: ${warmStartSeedTrials.length} compatible completed trials`);
+    }
+  } else {
+    optimizationState.historyTrials = [];
+  }
+
+  optimizationState.config = effectiveConfig;
+  return { effectiveConfig, studyIdentity, warmStartSeedTrials };
+}
+
+function assertInitAckResponse(
+  initAck: BackendIncomingMessage,
+): asserts initAck is Extract<BackendIncomingMessage, { type: 'init_ack' }> {
+  if (initAck.type === 'error') {
+    throw new Error(initAck.message);
+  }
+  if (initAck.type !== 'init_ack') {
+    throw new Error(`Unexpected init response type: ${initAck.type}`);
+  }
+}
+
+function buildApplyParamsResult(response: ContentScriptResponse): { success: boolean; error?: string } {
+  if (response.type === 'PARAMS_INJECTED') {
+    return { success: response.success, error: response.error };
+  }
+  if (response.type === 'ERROR') {
+    return { success: false, error: response.error };
+  }
+  return { success: false, error: 'Unexpected response from content script' };
+}
+
 // ============================================================
 // Optimization Loop
 // ============================================================
 
 async function startOptimization(config: OptimizationConfig) {
   const now = Date.now();
-  const sanitizedCore = sanitizeOptimizationConfigInput(config);
-  const normalizedConfig: OptimizationConfig = {
-    id: typeof config.id === 'string' && config.id.length > 0 ? config.id : `opt_${now}`,
-    ...sanitizedCore,
-    createdAt: Number.isFinite(config.createdAt) ? config.createdAt : now,
-    updatedAt: now,
-  };
+  const normalizedConfig = buildNormalizedOptimizationConfig(config, now);
 
   logDebug(
     '[SW] startOptimization called with strategy:',
@@ -804,32 +922,14 @@ async function startOptimization(config: OptimizationConfig) {
 
   shouldStop = false;
   pauseController.reset();
-
-  optimizationState.status = 'running';
-  optimizationState.config = normalizedConfig;
-  optimizationState.currentTrial = 0;
-  optimizationState.trials = [];
-  optimizationState.historyTrials = [];
-  optimizationState.resumeAvailable = false;
-  optimizationState.bestTrial = null;
-  optimizationState.error = null;
-  optimizationState.startTime = now;
-  optimizationState.pausedAt = null;
-  sendStateUpdate();
+  resetOptimizationStateForRun(normalizedConfig, now);
 
   // Start keepalive (C3)
   startKeepalive();
 
   // Store the active tab ID at start (H4)
-  try {
-    optimizationTabId = await resolveTradingViewTabId();
-    logDebug('[SW] Active tab ID:', optimizationTabId);
-  } catch (err) {
-    console.error('[SW] Failed to get active tab ID:', err);
-    optimizationState.status = 'error';
-    optimizationState.error = toErrorMessage(err, 'No active tab found');
-    sendToSidePanel({ type: 'OPTIMIZATION_ERROR', error: optimizationState.error });
-    sendStateUpdate();
+  const tabId = await initializeOptimizationTab();
+  if (tabId === null) {
     stopKeepalive();
     return;
   }
@@ -839,50 +939,12 @@ async function startOptimization(config: OptimizationConfig) {
   try {
     const searchSpace = buildSearchSpace(normalizedConfig.parameters);
     logDebug('[SW] Search space built:', searchSpace.length, 'parameters');
+    ensureSearchSpaceAvailable(searchSpace);
 
-    if (searchSpace.length === 0) {
-      throw new Error('No parameters enabled for optimization. Enable at least one parameter.');
-    }
-
-    let effectiveConfig = normalizedConfig;
-    const normalizedSelectedHistoryRunIds = (normalizedConfig.selectedHistoryRunIds ?? []).filter(
-      (id) => typeof id === 'string' && id.length > 0,
+    const { effectiveConfig, studyIdentity, warmStartSeedTrials } = prepareOptimizationRun(
+      normalizedConfig,
+      searchSpace,
     );
-    if (normalizedConfig.runMode === 'warm_start' && normalizedSelectedHistoryRunIds.length === 0) {
-      logDebug('[SW] Warm-start requested without selected history; switching to fresh mode.');
-      effectiveConfig = forceFreshRunMode(effectiveConfig);
-      optimizationState.config = effectiveConfig;
-    }
-
-    let studyIdentity = resolveStudyIdentity(effectiveConfig, searchSpace);
-    setCurrentStudyIdentity(studyIdentity);
-    let warmStartSeedTrials: WarmStartTrialSeed[] | undefined;
-    if (effectiveConfig.runMode === 'warm_start') {
-      const sourceRuns = resolveWarmStartSourceRuns(effectiveConfig, studyIdentity.familyName);
-      if (sourceRuns.length === 0) {
-        console.warn('[SW] No compatible selected runs for warm-start; switching to fresh mode.');
-        effectiveConfig = forceFreshRunMode(effectiveConfig);
-        optimizationState.config = effectiveConfig;
-        studyIdentity = resolveStudyIdentity(effectiveConfig, searchSpace);
-        setCurrentStudyIdentity(studyIdentity);
-        optimizationState.historyTrials = [];
-      } else {
-        optimizationState.historyTrials = sourceRuns
-          .flatMap((run) => run.trials)
-          .sort((a, b) => a.timestamp - b.timestamp);
-        warmStartSeedTrials = buildWarmStartSeedTrials(sourceRuns);
-        logDebug(
-          `[SW] Warm-start selected runs matched: ${sourceRuns.length}/${effectiveConfig.selectedHistoryRunIds.length}`,
-        );
-        logDebug(
-          `[SW] Retained previous run history: ${optimizationState.historyTrials.length} trials across ${sourceRuns.length} runs`,
-        );
-        logDebug(`[SW] Warm-start seed payload: ${warmStartSeedTrials.length} compatible completed trials`);
-      }
-    } else {
-      optimizationState.historyTrials = [];
-    }
-    optimizationState.config = effectiveConfig;
     sendStateUpdate();
 
     logDebug(
@@ -913,18 +975,12 @@ async function startOptimization(config: OptimizationConfig) {
 
     const initAck = await backend.request(initPayloadBudget.payload, 45000);
     logDebug('[SW] Received init ack:', initAck.type);
-    if (initAck.type === 'error') {
-      throw new Error(initAck.message);
-    }
-    if (initAck.type !== 'init_ack') {
-      throw new Error(`Unexpected init response type: ${initAck.type}`);
-    }
+    assertInitAckResponse(initAck);
     logDebug(`[SW] Study ready (${effectiveConfig.runMode}). Existing/seeded trials: ${initAck.n_existing_trials}`);
 
     // Start WebSocket keepalive AFTER init handshake succeeds
     startWsKeepalive();
 
-    const tabId = optimizationTabId!;
     logDebug('[SW] Starting optimization loop (%d trials)...', effectiveConfig.totalTrials);
     let lastBestTrialNumber: number | null = null;
     const runState: {
@@ -1012,12 +1068,7 @@ async function applyParams(params: TrialParams) {
       strategyIndex: config?.strategyIndex ?? 0,
     });
 
-    const result =
-      response.type === 'PARAMS_INJECTED'
-        ? { success: response.success, error: response.error }
-        : response.type === 'ERROR'
-          ? { success: false, error: response.error }
-          : { success: false, error: 'Unexpected response from content script' };
+    const result = buildApplyParamsResult(response);
     sendToSidePanel({ type: 'PARAMS_APPLIED', ...result });
   } catch (err) {
     sendToSidePanel({

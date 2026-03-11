@@ -416,36 +416,36 @@ code,
 }
 
 .ui-btn-danger {
-  color: #ffd7d5;
-  border-color: rgba(255, 119, 115, 0.46);
-  background: rgba(255, 119, 115, 0.12);
+  color: #fff4f3;
+  border-color: rgba(255, 119, 115, 0.52);
+  background: rgba(130, 34, 31, 0.46);
 }
 
 .ui-btn-danger:not(:disabled):hover {
-  border-color: rgba(255, 136, 132, 0.68);
-  background: rgba(255, 119, 115, 0.18);
+  border-color: rgba(255, 136, 132, 0.72);
+  background: rgba(150, 40, 36, 0.56);
 }
 
 .ui-btn-warning {
-  color: #f9d7a5;
-  border-color: rgba(241, 184, 94, 0.45);
-  background: rgba(241, 184, 94, 0.14);
+  color: #fff4df;
+  border-color: rgba(241, 184, 94, 0.52);
+  background: rgba(128, 83, 21, 0.48);
 }
 
 .ui-btn-warning:not(:disabled):hover {
-  border-color: rgba(241, 184, 94, 0.72);
-  background: rgba(241, 184, 94, 0.2);
+  border-color: rgba(241, 184, 94, 0.76);
+  background: rgba(145, 94, 24, 0.58);
 }
 
 .ui-btn-success {
-  color: #c9f4dd;
-  border-color: rgba(87, 217, 146, 0.46);
-  background: rgba(87, 217, 146, 0.14);
+  color: #f1fff7;
+  border-color: rgba(87, 217, 146, 0.52);
+  background: rgba(22, 99, 61, 0.48);
 }
 
 .ui-btn-success:not(:disabled):hover {
-  border-color: rgba(87, 217, 146, 0.7);
-  background: rgba(87, 217, 146, 0.2);
+  border-color: rgba(87, 217, 146, 0.74);
+  background: rgba(25, 115, 70, 0.58);
 }
 
 .ui-icon-btn {

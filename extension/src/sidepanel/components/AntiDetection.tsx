@@ -3,6 +3,10 @@ import { useShallow } from 'zustand/react/shallow';
 import PanelCardHeader from './PanelCardHeader';
 import { parseIntegerOr } from '../utils/number';
 
+const ANTI_DETECTION_ENABLED_ID = 'anti-detection-enabled';
+const ANTI_DETECTION_MIN_DELAY_ID = 'anti-detection-min-delay';
+const ANTI_DETECTION_MAX_DELAY_ID = 'anti-detection-max-delay';
+
 export default function AntiDetection() {
   const { antiDetection, setAntiDetection } = useOptimizationStore(
     useShallow((s) => ({
@@ -25,14 +29,16 @@ export default function AntiDetection() {
           </svg>
         }
         right={
-          <label className="relative inline-flex items-center cursor-pointer">
+          <label htmlFor={ANTI_DETECTION_ENABLED_ID} className="relative inline-flex cursor-pointer items-center">
+            <span className="sr-only">Enable anti-detection</span>
             <input
+              id={ANTI_DETECTION_ENABLED_ID}
               type="checkbox"
               checked={antiDetection.enabled}
               onChange={(e) => setAntiDetection({ ...antiDetection, enabled: e.target.checked })}
               className="sr-only peer"
             />
-            <div className="ui-toggle-track" />
+            <div aria-hidden="true" className="ui-toggle-track" />
           </label>
         }
       />
@@ -41,12 +47,15 @@ export default function AntiDetection() {
         <div className="panel-card-body panel-stack">
           <div className="panel-field">
             <div className="flex items-center justify-between">
-              <label className="ui-field-label">Min Delay</label>
+              <label htmlFor={ANTI_DETECTION_MIN_DELAY_ID} className="ui-field-label">
+                Min Delay
+              </label>
               <span className="rounded-md border border-border/50 bg-bg-tertiary/75 px-2 py-0.5 text-[12px] font-mono text-text-secondary">
                 {antiDetection.minDelay}ms
               </span>
             </div>
             <input
+              id={ANTI_DETECTION_MIN_DELAY_ID}
               type="range"
               min={100}
               max={5000}
@@ -70,12 +79,15 @@ export default function AntiDetection() {
 
           <div className="panel-field panel-divider">
             <div className="flex items-center justify-between">
-              <label className="ui-field-label">Max Delay</label>
+              <label htmlFor={ANTI_DETECTION_MAX_DELAY_ID} className="ui-field-label">
+                Max Delay
+              </label>
               <span className="rounded-md border border-border/50 bg-bg-tertiary/75 px-2 py-0.5 text-[12px] font-mono text-text-secondary">
                 {antiDetection.maxDelay}ms
               </span>
             </div>
             <input
+              id={ANTI_DETECTION_MAX_DELAY_ID}
               type="range"
               min={100}
               max={10000}

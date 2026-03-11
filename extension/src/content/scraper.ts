@@ -21,6 +21,38 @@ const SUMMARY_TABLE_SPECS = [
   { id: 'drawdowns-table', section: 'Drawdowns' },
 ] as const;
 
+const METRIC_VALUE_TOKENS = [
+  'CAD',
+  'USD',
+  'EUR',
+  'GBP',
+  'JPY',
+  'AUD',
+  'CHF',
+  'NZD',
+  'HKD',
+  'SGD',
+  'SEK',
+  'NOK',
+  'DKK',
+  'ZAR',
+  'TRY',
+  'BRL',
+  'INR',
+  'KRW',
+  'TWD',
+  'MXN',
+  'PLN',
+  'CZK',
+  'HUF',
+  'ILS',
+  'RUB',
+  'CNY',
+  '%',
+] as const;
+
+const METRIC_TOKEN_REGEX = new RegExp(METRIC_VALUE_TOKENS.join('|'), 'g');
+
 /**
  * Parse a numeric value from a TradingView metric string.
  * Handles formats like "+0.03", "42.31%", "1,000,000.00", "-22,915.29"
@@ -28,20 +60,16 @@ const SUMMARY_TABLE_SPECS = [
 function parseMetricValue(raw: string): number {
   if (!raw || raw === '∅' || raw === '—' || raw === 'N/A') return 0;
 
-  // Remove currency symbols, commas, and whitespace
-  let cleaned = raw
-    .replace(
-      /(CAD|USD|EUR|GBP|JPY|AUD|CHF|NZD|HKD|SGD|SEK|NOK|DKK|ZAR|TRY|BRL|INR|KRW|TWD|MXN|PLN|CZK|HUF|ILS|RUB|CNY|%)/g,
-      '',
-    )
-    .replace(/,/g, '')
+  let cleaned = raw.replace(METRIC_TOKEN_REGEX, '');
+
+  cleaned = cleaned
+    .replaceAll(',', '')
+    .replaceAll('−', '-')
+    .replaceAll('–', '-')
     .trim();
 
-  // Handle special characters
-  cleaned = cleaned.replace(/[−–]/g, '-'); // normalize minus signs
-
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : num;
+  const num = Number.parseFloat(cleaned);
+  return Number.isNaN(num) ? 0 : num;
 }
 
 /**
@@ -135,6 +163,50 @@ function scrapeAllSummaryTables(panel: HTMLElement): Metric[] {
   return SUMMARY_TABLE_SPECS.flatMap((table) => scrapeTable(panel, table.id, table.section));
 }
 
+async function ensureMetricsTabSelected(panel: HTMLElement): Promise<void> {
+  const metricsTab = panel.querySelector('button[id="Strategy report"]');
+  if (metricsTab instanceof HTMLButtonElement && metricsTab.getAttribute('aria-selected') !== 'true') {
+    metricsTab.click();
+    await sleep(150);
+  }
+}
+
+async function expandCollapsedSections(panel: HTMLElement): Promise<void> {
+  const sectionButtons = panel.querySelectorAll('[data-qa-id$="-button"]');
+  for (const btn of sectionButtons) {
+    if (btn.getAttribute('aria-expanded') === 'false') {
+      (btn as HTMLElement).click();
+      await sleep(50);
+    }
+  }
+}
+
+async function collectPanelMetrics(panel: HTMLElement): Promise<Metric[]> {
+  await expandCollapsedSections(panel);
+  return [...scrapeTopBar(panel), ...scrapeAllSummaryTables(panel)];
+}
+
+async function collectPanelMetricsWithRetry(panel: HTMLElement, maxAttempts = 3): Promise<Metric[]> {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const metrics = await collectPanelMetrics(panel);
+    if (metrics.length > 0) {
+      return metrics;
+    }
+    if (attempt < maxAttempts - 1) {
+      await sleep(300);
+    }
+  }
+  return [];
+}
+
+async function recoverPanelMetrics(): Promise<Metric[]> {
+  const recoveredPanel = await ensureBacktestingPanelOpen({ timeoutMs: 1500, pollIntervalMs: 80 });
+  if (!recoveredPanel) {
+    return [];
+  }
+  return [...scrapeTopBar(recoveredPanel), ...scrapeAllSummaryTables(recoveredPanel)];
+}
+
 /**
  * Main scraper: reads all metrics from the strategy tester panel.
  */
@@ -150,50 +222,10 @@ export async function scrapeResults(): Promise<ContentScriptResponse> {
       };
     }
 
-    // Ensure we're on the Metrics tab
-    const metricsTab = panel.querySelector('button[id="Strategy report"]') as HTMLButtonElement;
-    if (metricsTab && metricsTab.getAttribute('aria-selected') !== 'true') {
-      metricsTab.click();
-      await sleep(150);
-    }
-
-    // Retry loop: wait for table content to render after tab switch
-    let allMetrics: Metric[] = [];
-    const maxAttempts = 3;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      allMetrics = [];
-
-      // Top bar cards
-      allMetrics.push(...scrapeTopBar(panel));
-
-      // Expand all sections if collapsed
-      const sectionButtons = panel.querySelectorAll('[data-qa-id$="-button"]');
-      for (const btn of sectionButtons) {
-        if (btn.getAttribute('aria-expanded') === 'false') {
-          (btn as HTMLElement).click();
-          await sleep(50);
-        }
-      }
-
-      allMetrics.push(...scrapeAllSummaryTables(panel));
-
-      if (allMetrics.length > 0) break;
-
-      // Wait before retrying
-      if (attempt < maxAttempts - 1) {
-        await sleep(300);
-      }
-    }
-
+    await ensureMetricsTabSelected(panel);
+    let allMetrics = await collectPanelMetricsWithRetry(panel);
     if (allMetrics.length === 0) {
-      // One more recovery attempt: panel may have collapsed or re-rendered during recalculation.
-      const recoveredPanel = await ensureBacktestingPanelOpen({ timeoutMs: 1500, pollIntervalMs: 80 });
-      if (recoveredPanel) {
-        allMetrics = [];
-        allMetrics.push(...scrapeTopBar(recoveredPanel));
-        allMetrics.push(...scrapeAllSummaryTables(recoveredPanel));
-      }
+      allMetrics = await recoverPanelMetrics();
     }
 
     if (allMetrics.length === 0) {

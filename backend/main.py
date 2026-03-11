@@ -7,7 +7,7 @@ uvicorn backend.main:app --host 127.0.0.1 --port 8765 --reload
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from collections import deque
 from dataclasses import dataclass
 import json
@@ -294,6 +294,275 @@ async def _run_delete_and_ack(
     )
 
 
+def _extract_request_id(body: Mapping[str, object]) -> str | None:
+    request_id = body.get("request_id")
+    return request_id if isinstance(request_id, str) else None
+
+
+async def _receive_websocket_text(websocket: WebSocket) -> str | None:
+    try:
+        return await asyncio.wait_for(
+            websocket.receive_text(),
+            timeout=WS_RECEIVE_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        METRICS.total_timeouts += 1
+        logger.warning(
+            "WebSocket idle timeout (%ds); closing connection",
+            int(WS_RECEIVE_TIMEOUT),
+        )
+        await websocket.close(code=1000, reason="Idle timeout")
+        return None
+
+
+async def _validate_websocket_text(
+    websocket: WebSocket,
+    raw: str,
+    message_timestamps: deque[float],
+) -> bool:
+    if len(raw.encode("utf-8")) > MAX_WS_MESSAGE_BYTES:
+        METRICS.total_errors += 1
+        await websocket.close(code=1009, reason="Message too large")
+        return False
+
+    message_timestamps.append(time.monotonic())
+    if _within_rate_limit(message_timestamps):
+        return True
+
+    METRICS.total_errors += 1
+    await websocket.close(code=1008, reason="Rate limit exceeded")
+    return False
+
+
+async def _parse_websocket_body(
+    websocket: WebSocket,
+    raw: str,
+) -> dict[str, object] | None:
+    try:
+        return _parse_json_object(raw)
+    except ValueError:
+        METRICS.total_errors += 1
+        await _send(websocket, ErrorResponse(message="Invalid JSON"))
+        return None
+
+
+async def _handle_init_message(
+    websocket: WebSocket,
+    body: Mapping[str, object],
+    study_name: str,
+    optimizer: OptunaOptimizer | None,
+) -> OptunaOptimizer | None:
+    msg = InitMessage.model_validate(body)
+    if msg.study_name != study_name:
+        logger.warning("Init study_name differs from URL value; using URL study name")
+
+    next_optimizer = await asyncio.to_thread(
+        OptunaOptimizer,
+        study_name=study_name,
+        study_family=msg.study_family,
+        direction=msg.direction,
+        sampler=msg.sampler,
+        run_mode=msg.run_mode,
+        search_space=msg.search_space,
+        warm_start_trials=msg.warm_start_trials,
+    )
+    await _send(
+        websocket,
+        InitAck(
+            request_id=msg.request_id,
+            study_name=study_name,
+            n_existing_trials=next_optimizer.n_existing_trials,
+        ),
+    )
+    return next_optimizer
+
+
+async def _handle_ask_message(
+    websocket: WebSocket,
+    body: Mapping[str, object],
+    study_name: str,
+    optimizer: OptunaOptimizer | None,
+) -> OptunaOptimizer | None:
+    msg = AskMessage.model_validate(body)
+    ready_optimizer = await _require_optimizer(
+        websocket,
+        optimizer,
+        msg.request_id,
+    )
+    if ready_optimizer is None:
+        return optimizer
+
+    t0 = time.monotonic()
+    trial_number, params, sampler = await asyncio.to_thread(
+        ready_optimizer.ask,
+        msg.search_space,
+    )
+    METRICS.total_asks += 1
+    METRICS.ask_latency_ms_sum += (time.monotonic() - t0) * 1000.0
+    await _send(
+        websocket,
+        TrialSuggestion(
+            request_id=msg.request_id,
+            trial_number=trial_number,
+            params=params,
+            sampler=sampler,
+        ),
+    )
+    return ready_optimizer
+
+
+async def _handle_tell_message(
+    websocket: WebSocket,
+    body: Mapping[str, object],
+    study_name: str,
+    optimizer: OptunaOptimizer | None,
+) -> OptunaOptimizer | None:
+    msg = TellMessage.model_validate(body)
+    ready_optimizer = await _require_optimizer(
+        websocket,
+        optimizer,
+        msg.request_id,
+    )
+    if ready_optimizer is None:
+        return optimizer
+
+    t0 = time.monotonic()
+    result = await asyncio.to_thread(
+        ready_optimizer.tell,
+        trial_number=msg.trial_number,
+        value=msg.value,
+        state=msg.state,
+    )
+    METRICS.total_tells += 1
+    METRICS.tell_latency_ms_sum += (time.monotonic() - t0) * 1000.0
+    await _send(
+        websocket,
+        TellAck(
+            request_id=msg.request_id,
+            trial_number=msg.trial_number,
+            best_value=result["best_value"],
+            best_params=result["best_params"],
+            n_complete=result["n_complete"],
+        ),
+    )
+    return ready_optimizer
+
+
+async def _handle_status_message(
+    websocket: WebSocket,
+    body: Mapping[str, object],
+    study_name: str,
+    optimizer: OptunaOptimizer | None,
+) -> OptunaOptimizer | None:
+    msg = StatusMessage.model_validate(body)
+    if optimizer is None:
+        await _send(websocket, _status_without_trials(msg.request_id))
+        return optimizer
+
+    stat = await asyncio.to_thread(optimizer.status)
+    await _send(
+        websocket,
+        StatusResponse(
+            request_id=msg.request_id,
+            n_trials=stat["n_trials"],
+            best_value=stat["best_value"],
+            best_params=stat["best_params"],
+        ),
+    )
+    return optimizer
+
+
+async def _handle_delete_study_message(
+    websocket: WebSocket,
+    body: Mapping[str, object],
+    study_name: str,
+    optimizer: OptunaOptimizer | None,
+) -> OptunaOptimizer | None:
+    msg = DeleteStudyMessage.model_validate(body)
+    study_name_to_delete = msg.study_name
+    await _run_delete_and_ack(
+        websocket=websocket,
+        request_id=msg.request_id,
+        deleted="study",
+        target=study_name_to_delete,
+        operation=lambda study_name=study_name_to_delete: OptunaOptimizer.delete_study(
+            study_name,
+        ),
+    )
+    return optimizer
+
+
+async def _handle_delete_study_family_message(
+    websocket: WebSocket,
+    body: Mapping[str, object],
+    study_name: str,
+    optimizer: OptunaOptimizer | None,
+) -> OptunaOptimizer | None:
+    msg = DeleteStudyFamilyMessage.model_validate(body)
+    study_family_to_delete = msg.study_family
+    await _run_delete_and_ack(
+        websocket=websocket,
+        request_id=msg.request_id,
+        deleted="study_family",
+        target=study_family_to_delete,
+        operation=lambda study_family=study_family_to_delete: OptunaOptimizer.delete_study_family(
+            study_family,
+        ),
+    )
+    return optimizer
+
+
+MessageHandler: TypeAlias = Callable[
+    [WebSocket, Mapping[str, object], str, OptunaOptimizer | None],
+    Awaitable[OptunaOptimizer | None],
+]
+
+
+MESSAGE_HANDLERS: dict[IncomingMessageType, MessageHandler] = {
+    "init": _handle_init_message,
+    "ask": _handle_ask_message,
+    "tell": _handle_tell_message,
+    "status": _handle_status_message,
+    "delete_study": _handle_delete_study_message,
+    "delete_study_family": _handle_delete_study_family_message,
+}
+
+
+async def _handle_websocket_message(
+    websocket: WebSocket,
+    body: Mapping[str, object],
+    study_name: str,
+    optimizer: OptunaOptimizer | None,
+) -> OptunaOptimizer | None:
+    request_id = _extract_request_id(body)
+    msg_type = _extract_message_type(body)
+    if msg_type is None:
+        await _send(
+            websocket,
+            ErrorResponse(
+                request_id=request_id,
+                message=f"Unknown message type: {body.get('type')}",
+            ),
+        )
+        return optimizer
+
+    handler = MESSAGE_HANDLERS[msg_type]
+    try:
+        return await handler(websocket, body, study_name, optimizer)
+    except Exception as exc:
+        METRICS.total_errors += 1
+        METRICS.last_error = f"{type(exc).__name__}: {exc}"
+        logger.exception("Error processing WebSocket message")
+        await _send(
+            websocket,
+            ErrorResponse(
+                request_id=request_id,
+                message=_sanitize_error(exc),
+            ),
+        )
+        return optimizer
+
+
 # ============================================================
 # WebSocket Optimization Endpoint
 # ============================================================
@@ -304,205 +573,40 @@ async def websocket_optimize(websocket: WebSocket, study_name: str):
     await websocket.accept()
     METRICS.active_connections += 1
     METRICS.total_connections += 1
-    logger.info("WebSocket connected for study: %s", study_name)
+    logger.info("WebSocket connected")
 
     optimizer: OptunaOptimizer | None = None
     message_timestamps: deque[float] = deque()
 
     try:
         while True:
-            try:
-                raw = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=WS_RECEIVE_TIMEOUT,
-                )
-            except asyncio.TimeoutError:
-                METRICS.total_timeouts += 1
-                logger.warning(
-                    "WebSocket idle timeout (%ds) for study '%s' — closing",
-                    int(WS_RECEIVE_TIMEOUT),
-                    study_name,
-                )
-                await websocket.close(code=1000, reason="Idle timeout")
+            raw = await _receive_websocket_text(websocket)
+            if raw is None:
                 break
 
-            if len(raw.encode("utf-8")) > MAX_WS_MESSAGE_BYTES:
-                METRICS.total_errors += 1
-                await websocket.close(code=1009, reason="Message too large")
+            if not await _validate_websocket_text(
+                websocket,
+                raw,
+                message_timestamps,
+            ):
                 break
 
-            message_timestamps.append(time.monotonic())
-            if not _within_rate_limit(message_timestamps):
-                METRICS.total_errors += 1
-                await websocket.close(code=1008, reason="Rate limit exceeded")
-                break
-
-            try:
-                body = _parse_json_object(raw)
-            except (json.JSONDecodeError, ValueError):
-                METRICS.total_errors += 1
-                await _send(websocket, ErrorResponse(message="Invalid JSON"))
+            body = await _parse_websocket_body(websocket, raw)
+            if body is None:
                 continue
 
             METRICS.total_messages += 1
-            msg_type = _extract_message_type(body)
-            request_id = body.get("request_id")
-            if not isinstance(request_id, str):
-                request_id = None
-
-            try:
-                if msg_type == "init":
-                    msg = InitMessage.model_validate(body)
-                    effective_name = study_name
-                    if msg.study_name != study_name:
-                        logger.warning(
-                            "Init study_name '%s' differs from URL '%s' — using URL value",
-                            msg.study_name,
-                            study_name,
-                        )
-                    optimizer = await asyncio.to_thread(
-                        OptunaOptimizer,
-                        study_name=effective_name,
-                        study_family=msg.study_family,
-                        direction=msg.direction,
-                        sampler=msg.sampler,
-                        run_mode=msg.run_mode,
-                        search_space=msg.search_space,
-                        warm_start_trials=msg.warm_start_trials,
-                    )
-                    assert optimizer is not None
-                    await _send(
-                        websocket,
-                        InitAck(
-                            request_id=msg.request_id,
-                            study_name=effective_name,
-                            n_existing_trials=optimizer.n_existing_trials,
-                        ),
-                    )
-
-                elif msg_type == "ask":
-                    msg = AskMessage.model_validate(body)
-                    ready_optimizer = await _require_optimizer(
-                        websocket,
-                        optimizer,
-                        msg.request_id,
-                    )
-                    if ready_optimizer is None:
-                        continue
-                    t0 = time.monotonic()
-                    trial_number, params, sampler = await asyncio.to_thread(
-                        ready_optimizer.ask,
-                        msg.search_space,
-                    )
-                    METRICS.total_asks += 1
-                    METRICS.ask_latency_ms_sum += (time.monotonic() - t0) * 1000.0
-                    await _send(
-                        websocket,
-                        TrialSuggestion(
-                            request_id=msg.request_id,
-                            trial_number=trial_number,
-                            params=params,
-                            sampler=sampler,
-                        ),
-                    )
-
-                elif msg_type == "tell":
-                    msg = TellMessage.model_validate(body)
-                    ready_optimizer = await _require_optimizer(
-                        websocket,
-                        optimizer,
-                        msg.request_id,
-                    )
-                    if ready_optimizer is None:
-                        continue
-                    t0 = time.monotonic()
-                    result = await asyncio.to_thread(
-                        ready_optimizer.tell,
-                        trial_number=msg.trial_number,
-                        value=msg.value,
-                        state=msg.state,
-                    )
-                    METRICS.total_tells += 1
-                    METRICS.tell_latency_ms_sum += (time.monotonic() - t0) * 1000.0
-                    await _send(
-                        websocket,
-                        TellAck(
-                            request_id=msg.request_id,
-                            trial_number=msg.trial_number,
-                            best_value=result["best_value"],
-                            best_params=result["best_params"],
-                            n_complete=result["n_complete"],
-                        ),
-                    )
-
-                elif msg_type == "status":
-                    msg = StatusMessage.model_validate(body)
-                    if optimizer is None:
-                        # Allow status pre-init for keepalive calls.
-                        await _send(websocket, _status_without_trials(msg.request_id))
-                        continue
-                    stat = await asyncio.to_thread(optimizer.status)
-                    await _send(
-                        websocket,
-                        StatusResponse(
-                            request_id=msg.request_id,
-                            n_trials=stat["n_trials"],
-                            best_value=stat["best_value"],
-                            best_params=stat["best_params"],
-                        ),
-                    )
-
-                elif msg_type == "delete_study":
-                    msg = DeleteStudyMessage.model_validate(body)
-                    study_name_to_delete = msg.study_name
-                    await _run_delete_and_ack(
-                        websocket=websocket,
-                        request_id=msg.request_id,
-                        deleted="study",
-                        target=study_name_to_delete,
-                        operation=lambda: OptunaOptimizer.delete_study(
-                            study_name_to_delete,
-                        ),
-                    )
-
-                elif msg_type == "delete_study_family":
-                    msg = DeleteStudyFamilyMessage.model_validate(body)
-                    study_family_to_delete = msg.study_family
-                    await _run_delete_and_ack(
-                        websocket=websocket,
-                        request_id=msg.request_id,
-                        deleted="study_family",
-                        target=study_family_to_delete,
-                        operation=lambda: OptunaOptimizer.delete_study_family(
-                            study_family_to_delete,
-                        ),
-                    )
-
-                else:
-                    await _send(
-                        websocket,
-                        ErrorResponse(
-                            request_id=request_id,
-                            message=f"Unknown message type: {msg_type}",
-                        ),
-                    )
-
-            except Exception as exc:
-                METRICS.total_errors += 1
-                METRICS.last_error = f"{type(exc).__name__}: {exc}"
-                logger.exception("Error processing message type '%s'", msg_type)
-                await _send(
-                    websocket,
-                    ErrorResponse(
-                        request_id=request_id,
-                        message=_sanitize_error(exc),
-                    ),
-                )
+            optimizer = await _handle_websocket_message(
+                websocket=websocket,
+                body=body,
+                study_name=study_name,
+                optimizer=optimizer,
+            )
 
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected for study: %s", study_name)
+        logger.info("WebSocket disconnected")
     except Exception:
-        logger.exception("WebSocket error for study: %s", study_name)
+        logger.exception("WebSocket error")
     finally:
         METRICS.active_connections = max(0, METRICS.active_connections - 1)
-        logger.info("Cleanup complete for study: %s", study_name)
+        logger.info("Cleanup complete")

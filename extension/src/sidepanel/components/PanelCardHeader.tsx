@@ -11,7 +11,7 @@ function joinClasses(...classes: Array<string | undefined>): string {
   return classes.filter((value): value is string => Boolean(value)).join(' ');
 }
 
-export default function PanelCardHeader({ title, icon, right, className }: PanelCardHeaderProps) {
+export default function PanelCardHeader({ title, icon, right, className }: Readonly<PanelCardHeaderProps>) {
   return (
     <div
       className={joinClasses(

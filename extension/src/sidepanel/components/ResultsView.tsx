@@ -76,7 +76,20 @@ function getObjectiveValueClassName(isBestTrial: boolean): string {
   return 'text-text-primary';
 }
 
-function SortIcon({ active, dir }: SortIconProps): ReactElement {
+function renderFilterFailures(trial: TrialResult): ReactElement[] {
+  const occurrenceCounts = new Map<string, number>();
+  return trial.filterFailures.map((failure) => {
+    const nextOccurrence = (occurrenceCounts.get(failure) ?? 0) + 1;
+    occurrenceCounts.set(failure, nextOccurrence);
+    return (
+      <div key={`${trial.trialNumber}-${failure}-${nextOccurrence}`} className="pl-3 text-danger/80">
+        - {failure}
+      </div>
+    );
+  });
+}
+
+function SortIcon({ active, dir }: Readonly<SortIconProps>): ReactElement {
   if (!active) return <span className="text-text-muted/40 ml-0.5">↕</span>;
   return <span className="text-accent ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>;
 }
@@ -292,11 +305,7 @@ export default function ResultsView() {
                     {!trial.passedFilters && trial.filterFailures.length > 0 && (
                       <div className="mt-3 text-[11px] text-danger">
                         <div className="font-medium mb-1">Filter failures:</div>
-                        {trial.filterFailures.map((f, i) => (
-                          <div key={i} className="text-danger/80 pl-3">
-                            - {f}
-                          </div>
-                        ))}
+                        {renderFilterFailures(trial)}
                       </div>
                     )}
                   </div>

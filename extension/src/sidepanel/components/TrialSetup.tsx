@@ -53,6 +53,20 @@ const SAMPLER_OPTIONS: Array<{ value: SamplerChoice; label: string; description:
 ];
 
 const RESUME_RUN_MODE_DESCRIPTION = 'Resumes the exact previous study for this objective and search space.';
+const STRATEGY_SELECT_ID = 'trial-setup-strategy';
+const TOTAL_TRIALS_ID = 'trial-setup-total-trials';
+const RUN_MODE_SELECT_ID = 'trial-setup-run-mode';
+const SAMPLER_SELECT_ID = 'trial-setup-sampler';
+
+function getDetectActionLabel(isDetecting: boolean, hasParameters: boolean, strategyName: string): string {
+  if (isDetecting) {
+    return 'Detecting parameters...';
+  }
+  if (hasParameters) {
+    return `Rescan Parameters (${strategyName})`;
+  }
+  return 'Detect Parameters';
+}
 
 export default function TrialSetup() {
   const {
@@ -105,11 +119,8 @@ export default function TrialSetup() {
   const selectedSamplerOption = SAMPLER_OPTIONS.find((option) => option.value === sampler) ?? SAMPLER_OPTIONS[0];
   const canStart = enabledParams.length > 0 && backendStatus === 'connected' && totalTrials > 0 && !isDetecting;
   const canResume = canStart && resumeAvailable;
-  const detectActionLabel = isDetecting
-    ? 'Detecting parameters...'
-    : hasParameters
-      ? `Rescan Parameters (${strategyName})`
-      : 'Detect Parameters';
+  const detectActionLabel = getDetectActionLabel(isDetecting, hasParameters, strategyName);
+  const parameterCountSuffix = parameters.length === 1 ? '' : 's';
 
   return (
     <div className="panel-card overflow-hidden">
@@ -128,11 +139,12 @@ export default function TrialSetup() {
 
       <div className="panel-card-body panel-stack">
         {/* Strategy Discovery */}
-        <div className="panel-field">
-          <label className="ui-field-label">Strategy</label>
+        <fieldset className="panel-field">
+          <legend className="ui-field-label">Strategy</legend>
 
           {strategies.length === 0 ? (
             <button
+              type="button"
               onClick={listStrategies}
               disabled={isListingStrategies}
               className="ui-btn ui-btn-primary w-full"
@@ -150,6 +162,7 @@ export default function TrialSetup() {
             <div className="panel-stack-tight">
               <div className="flex gap-2">
                 <select
+                  id={STRATEGY_SELECT_ID}
                   value={selectedStrategyIndex ?? ''}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -168,6 +181,7 @@ export default function TrialSetup() {
                   ))}
                 </select>
                 <button
+                  type="button"
                   onClick={listStrategies}
                   disabled={isListingStrategies}
                   className="ui-btn ui-btn-ghost ui-icon-btn shrink-0 text-[13px] disabled:opacity-50"
@@ -179,6 +193,7 @@ export default function TrialSetup() {
 
               {selectedStrategyIndex !== null && (
                 <button
+                  type="button"
                   onClick={detectParams}
                   disabled={isDetecting}
                   className="ui-btn ui-btn-secondary w-full disabled:opacity-50"
@@ -195,7 +210,7 @@ export default function TrialSetup() {
               )}
             </div>
           )}
-        </div>
+        </fieldset>
 
         {(hasParameters || error) && (
           <div className="panel-divider panel-stack">
@@ -204,7 +219,7 @@ export default function TrialSetup() {
                 <div className="text-[12px] text-text-muted">
                   <span className="text-text-primary font-medium">{strategyName}</span>
                   {' \u2014 '}
-                  {parameters.length} parameter{parameters.length !== 1 ? 's' : ''} found,{' '}
+                  {parameters.length} parameter{parameterCountSuffix} found,{' '}
                   <span className="text-accent font-medium">{enabledParams.length} enabled</span>
                 </div>
               </div>
@@ -212,8 +227,11 @@ export default function TrialSetup() {
 
             {hasParameters && (
               <div className="panel-field">
-                <label className="ui-field-label">Number of Trials</label>
+                <label htmlFor={TOTAL_TRIALS_ID} className="ui-field-label">
+                  Number of Trials
+                </label>
                 <input
+                  id={TOTAL_TRIALS_ID}
                   type="number"
                   value={totalTrials}
                   onChange={(e) => setTotalTrials(clampNumber(parseNumberOr(e.target.value, 1), 1, 10000))}
@@ -225,12 +243,15 @@ export default function TrialSetup() {
             )}
 
             {hasParameters && (
-              <div className="panel-field">
+              <fieldset className="panel-field">
                 <div className="flex items-center justify-between">
-                  <label className="ui-field-label">Run Mode</label>
+                  <label htmlFor={RUN_MODE_SELECT_ID} className="ui-field-label">
+                    Run Mode
+                  </label>
                   <span className="text-[10px] text-text-muted">Advanced</span>
                 </div>
                 <select
+                  id={RUN_MODE_SELECT_ID}
                   value={runMode}
                   onChange={(e) => setRunMode(e.target.value as RunMode)}
                   className="ui-select"
@@ -250,16 +271,19 @@ export default function TrialSetup() {
                     <HistoryManager />
                   </div>
                 )}
-              </div>
+              </fieldset>
             )}
 
             {hasParameters && (
-              <div className="panel-field">
+              <fieldset className="panel-field">
                 <div className="flex items-center justify-between">
-                  <label className="ui-field-label">Sampler</label>
+                  <label htmlFor={SAMPLER_SELECT_ID} className="ui-field-label">
+                    Sampler
+                  </label>
                   <span className="text-[10px] text-text-muted">Advanced</span>
                 </div>
                 <select
+                  id={SAMPLER_SELECT_ID}
                   value={sampler}
                   onChange={(e) => setSampler(e.target.value as SamplerChoice)}
                   className="ui-select"
@@ -271,7 +295,7 @@ export default function TrialSetup() {
                   ))}
                 </select>
                 <p className="ui-note mt-1.5">{selectedSamplerOption.description}</p>
-              </div>
+              </fieldset>
             )}
 
             {error && (
@@ -284,6 +308,7 @@ export default function TrialSetup() {
               <div className="panel-stack-tight">
                 <div className={`grid gap-2 ${resumeAvailable ? 'grid-cols-2' : 'grid-cols-1'}`}>
                   <button
+                    type="button"
                     onClick={() => startOptimization()}
                     disabled={!canStart}
                     className="ui-btn ui-btn-primary w-full disabled:opacity-40"
@@ -292,6 +317,7 @@ export default function TrialSetup() {
                   </button>
                   {resumeAvailable && (
                     <button
+                      type="button"
                       onClick={() => startOptimization('resume')}
                       disabled={!canResume}
                       className="ui-btn ui-btn-secondary w-full disabled:opacity-40"

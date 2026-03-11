@@ -20,7 +20,7 @@ export function simulatePointerClick(el: HTMLElement): void {
 }
 
 export function findBacktestingPanel(): HTMLElement | null {
-  return document.querySelector(SELECTORS.backtestingPanel) as HTMLElement | null;
+  return document.querySelector<HTMLElement>(SELECTORS.backtestingPanel);
 }
 
 export async function ensureBacktestingPanelOpen(options: EnsurePanelOpenOptions = {}): Promise<HTMLElement | null> {
@@ -30,12 +30,10 @@ export async function ensureBacktestingPanelOpen(options: EnsurePanelOpenOptions
   let panel = findBacktestingPanel();
   if (panel) return panel;
 
-  const toggleBtn = document.querySelector(SELECTORS.backtestingToggle) as HTMLButtonElement | null;
+  const toggleBtn = document.querySelector<HTMLButtonElement>(SELECTORS.backtestingToggle);
   if (!toggleBtn) return null;
 
-  const isActive =
-    toggleBtn.getAttribute('data-active') === 'true' ||
-    /close strategy report/i.test(toggleBtn.getAttribute('aria-label') ?? '');
+  const isActive = toggleBtn.dataset.active === 'true' || /close strategy report/i.test(toggleBtn.getAttribute('aria-label') ?? '');
   if (!isActive) {
     toggleBtn.click();
   }
