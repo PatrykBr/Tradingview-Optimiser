@@ -9,7 +9,7 @@ export function getRandomDelay(config: AntiDetectionConfig): number {
   const max = Math.max(config.minDelay, config.maxDelay);
   const randomValue = new Uint32Array(1);
   globalThis.crypto.getRandomValues(randomValue);
-  const randomFraction = randomValue[0] / 0x1_0000_0000;
+  const randomFraction = randomValue[0] / 2 ** 32;
   return min + randomFraction * (max - min);
 }
 
