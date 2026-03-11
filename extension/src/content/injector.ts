@@ -309,27 +309,63 @@ function applyInlineRowParameters(
 ): void {
   const groupsToParse = resolveInlineGroups(node);
   for (const group of groupsToParse) {
-    const groupCells = getVisibleCellChildren(group);
-    for (let cellIndex = 0; cellIndex < groupCells.length - 1; cellIndex += 1) {
-      const labelCell = groupCells[cellIndex];
-      if (!labelCell.className.includes('first-')) continue;
+    applyInlineGroupParameters(params, state, group);
+  }
+}
 
-      const valueCell = groupCells[cellIndex + 1];
-      if (!valueCell?.className.includes('cell-')) continue;
-
-      const label = getCellInnerLabelText(labelCell);
-      if (!label) continue;
-
-      const numInput = findNumericInputInCell(valueCell);
-      if (!numInput) continue;
-
-      const paramId = state.nextParamId(label, state.currentSection);
-      const trialValue = params[paramId];
-      if (typeof trialValue === 'number') {
-        setNumericValue(numInput, trialValue);
-      }
+function applyInlineGroupParameters(
+  params: TrialParams,
+  state: InjectionState,
+  group: HTMLElement,
+): void {
+  const groupCells = getVisibleCellChildren(group);
+  for (let cellIndex = 0; cellIndex < groupCells.length - 1; cellIndex += 1) {
+    if (applyInlineGroupCellParameters(params, state, groupCells, cellIndex)) {
       cellIndex += 1;
     }
+  }
+}
+
+function applyInlineGroupCellParameters(
+  params: TrialParams,
+  state: InjectionState,
+  groupCells: HTMLElement[],
+  cellIndex: number,
+): boolean {
+  const labelCell = groupCells[cellIndex];
+  if (!labelCell.className.includes('first-')) {
+    return false;
+  }
+
+  const valueCell = groupCells[cellIndex + 1];
+  if (!valueCell?.className.includes('cell-')) {
+    return false;
+  }
+
+  const label = getCellInnerLabelText(labelCell);
+  if (!label) {
+    return false;
+  }
+
+  const numInput = findNumericInputInCell(valueCell);
+  if (!numInput) {
+    return false;
+  }
+
+  applyInlineNumericTrialValue(params, state, label, numInput);
+  return true;
+}
+
+function applyInlineNumericTrialValue(
+  params: TrialParams,
+  state: InjectionState,
+  label: string,
+  numInput: HTMLInputElement,
+): void {
+  const paramId = state.nextParamId(label, state.currentSection);
+  const trialValue = params[paramId];
+  if (typeof trialValue === 'number') {
+    setNumericValue(numInput, trialValue);
   }
 }
 
@@ -483,7 +519,7 @@ export async function injectParameters(
     }
     const submitBtn = dialog.querySelector('[data-qa-id="submit-button"]');
     if (!(submitBtn instanceof HTMLButtonElement)) {
-      throw new Error('Could not find OK/Submit button');
+      throw new TypeError('Could not find OK/Submit button');
     }
     const beforeSubmitFingerprint = getCurrentReturnsSummaryFingerprint();
     submitBtn.click();

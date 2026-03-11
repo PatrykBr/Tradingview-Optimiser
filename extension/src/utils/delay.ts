@@ -1,13 +1,16 @@
 import type { AntiDetectionConfig } from '../shared/types';
 
 /**
- * Returns a random delay between min and max (inclusive).
+ * Returns a random delay between min and max using the Web Crypto API.
  */
 export function getRandomDelay(config: AntiDetectionConfig): number {
   if (!config.enabled) return 0;
   const min = Math.min(config.minDelay, config.maxDelay);
   const max = Math.max(config.minDelay, config.maxDelay);
-  return min + Math.random() * (max - min);
+  const randomValue = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(randomValue);
+  const randomFraction = randomValue[0] / 0x1_0000_0000;
+  return min + randomFraction * (max - min);
 }
 
 /**

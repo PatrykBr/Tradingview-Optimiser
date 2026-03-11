@@ -60,7 +60,7 @@ const METRIC_TOKEN_REGEX = new RegExp(METRIC_VALUE_TOKENS.join('|'), 'g');
 function parseMetricValue(raw: string): number {
   if (!raw || raw === '∅' || raw === '—' || raw === 'N/A') return 0;
 
-  let cleaned = raw.replace(METRIC_TOKEN_REGEX, '');
+  let cleaned = raw.replaceAll(METRIC_TOKEN_REGEX, '');
 
   cleaned = cleaned
     .replaceAll(',', '')
