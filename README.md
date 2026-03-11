@@ -1,5 +1,10 @@
 # TradingView Strategy Optimizer
 
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=PatrykBr_Tradingview-Optimiser&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=PatrykBr_Tradingview-Optimiser)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=PatrykBr_Tradingview-Optimiser&metric=bugs)](https://sonarcloud.io/summary/new_code?id=PatrykBr_Tradingview-Optimiser)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=PatrykBr_Tradingview-Optimiser&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=PatrykBr_Tradingview-Optimiser)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=PatrykBr_Tradingview-Optimiser&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=PatrykBr_Tradingview-Optimiser)
+
 A Chrome extension and local Python backend that optimizes TradingView strategy parameters using [Optuna](https://optuna.org/)-powered Bayesian optimization. The extension runs as a side panel on TradingView chart pages, communicates with a local FastAPI backend over WebSocket, and iteratively tunes your strategy inputs to find optimal parameter combinations.
 
 <p align="center">
