@@ -1,7 +1,6 @@
 import type {
   CreateRun,
   NextTrial,
-  RunAnalysis,
   RunProgress,
   TrialResult,
 } from './protocol/types';
