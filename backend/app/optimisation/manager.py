@@ -91,7 +91,7 @@ class OptimisationManager:
                     skip_if_exists=True,
                 )
 
-                        persisted_status = study.user_attrs.get("run_status")
+            persisted_status = study.user_attrs.get("run_status")
             if self._complete_count_for_study(study) >= config.target_trials:
                 status = RunStatus.COMPLETED
             elif persisted_status == RunStatus.STOPPED.value:
