@@ -44,6 +44,13 @@ const configs = (): Record<string, ParameterConfig> =>
   );
 
 describe('buildSearchSpace', () => {
+  it('defaults numeric steps to Auto', () => {
+    const config = configs();
+
+    expect(config.in_1?.step).toBe('');
+    expect(config.in_2?.step).toBe('');
+  });
+
   it('builds mixed Optuna parameters', () => {
     const config = configs();
     config.in_0!.enabled = true;
@@ -78,6 +85,86 @@ describe('buildSearchSpace', () => {
         log: false,
       },
     ]);
+  });
+
+  it('uses Pine-declared steps automatically', () => {
+    const config = configs();
+    config.in_1!.enabled = true;
+    config.in_1!.low = '5';
+    config.in_1!.high = '30';
+    config.in_2!.enabled = true;
+    config.in_2!.low = '0.5';
+    config.in_2!.high = '2.5';
+
+    expect(buildSearchSpace(inputs, config)).toEqual([
+      {
+        type: 'int',
+        name: 'in_1',
+        low: 5,
+        high: 30,
+        step: 1,
+        log: false,
+      },
+      {
+        type: 'float',
+        name: 'in_2',
+        low: 0.5,
+        high: 2.5,
+        step: 0.1,
+        log: false,
+      },
+    ]);
+  });
+
+  it('uses continuous float search when Pine exposes no step', () => {
+    const continuousInputs: StrategyInput[] = [
+      {
+        id: 'in_0',
+        label: 'Multiplier',
+        type: 'float',
+        currentValue: 1,
+        min: 0.1,
+        max: 3,
+      },
+    ];
+    const config = {
+      in_0: {
+        ...defaultParameterConfig(
+          continuousInputs[0]!,
+        ),
+        enabled: true,
+        low: '0.1',
+        high: '3',
+      },
+    };
+
+    expect(
+      buildSearchSpace(
+        continuousInputs,
+        config,
+      )[0],
+    ).toEqual({
+      type: 'float',
+      name: 'in_0',
+      low: 0.1,
+      high: 3,
+      log: false,
+    });
+  });
+
+  it('lets a custom step override Auto', () => {
+    const config = configs();
+    config.in_2!.enabled = true;
+    config.in_2!.low = '0.5';
+    config.in_2!.high = '2.5';
+    config.in_2!.step = '0.25';
+
+    expect(
+      buildSearchSpace(inputs, config)[0],
+    ).toMatchObject({
+      type: 'float',
+      step: 0.25,
+    });
   });
 
   it('builds a baseline from current chart values', () => {
