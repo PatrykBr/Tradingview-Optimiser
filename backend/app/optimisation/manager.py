@@ -43,16 +43,40 @@ class OptimisationManager:
                     raise ValueError("run_id already exists with a different configuration")
                 return self._progress(existing)
 
-            # Optuna v5's default sampler is intentionally used. In v5 single-objective
-            # studies default to the enhanced multivariate TPE + constant liar strategy.
+            # Optuna v5's default sampler is intentional. For a single-objective study,
+            # v5 defaults to the enhanced multivariate TPE sampler with constant liar.
             study = optuna.create_study(
                 study_name=config.run_id,
                 storage=self._storage_url,
                 direction=config.direction.value,
                 load_if_exists=True,
             )
-            study.set_user_attr("config", config.model_dump(mode="json"))
-            run = ActiveRun(config=config, study=study)
+
+            config_json = config.model_dump(mode="json")
+            persisted_config = study.user_attrs.get("config")
+            if persisted_config is None:
+                study.set_user_attr("config", config_json)
+            elif persisted_config != config_json:
+                raise ValueError(
+                    "run_id already exists in persistent storage with a different configuration"
+                )
+
+            # This service evaluates one browser trial at a time. If the process was
+            # restarted, any persisted RUNNING trial no longer has a live browser
+            # evaluator attached to it and must not remain as a zombie trial.
+            stale_running = study.get_trials(
+                deepcopy=False,
+                states=(TrialState.RUNNING,),
+            )
+            for stale_trial in stale_running:
+                study.tell(stale_trial.number, state=TrialState.FAIL)
+
+            status = (
+                RunStatus.COMPLETED
+                if self._complete_count_for_study(study) >= config.target_trials
+                else RunStatus.CREATED
+            )
+            run = ActiveRun(config=config, study=study, status=status)
             self._runs[config.run_id] = run
             return self._progress(run)
 
@@ -83,7 +107,9 @@ class OptimisationManager:
 
             for metric_filter in run.config.filters:
                 if metric_filter.metric not in result.metrics:
-                    raise ValueError(f"filter metric {metric_filter.metric!r} missing from trial metrics")
+                    raise ValueError(
+                        f"filter metric {metric_filter.metric!r} missing from trial metrics"
+                    )
                 actual = result.metrics[metric_filter.metric]
                 if metric_filter.operator == "lte":
                     violation = actual - metric_filter.value
@@ -198,8 +224,12 @@ class OptimisationManager:
         )
 
     @staticmethod
-    def _complete_count(run: ActiveRun) -> int:
-        return sum(t.state == TrialState.COMPLETE for t in run.study.trials)
+    def _complete_count_for_study(study: optuna.Study) -> int:
+        return sum(t.state == TrialState.COMPLETE for t in study.trials)
+
+    @classmethod
+    def _complete_count(cls, run: ActiveRun) -> int:
+        return cls._complete_count_for_study(run.study)
 
     @staticmethod
     def _best(run: ActiveRun) -> BestTrial | None:
