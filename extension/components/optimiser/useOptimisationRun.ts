@@ -16,6 +16,10 @@ import {
   buildTrialsCsv,
 } from '../../lib/optimisation/export';
 import {
+  createStudyTrialRunner,
+  type StudyTrialRunner,
+} from '../../lib/optimisation/study-trial-runner';
+import {
   evaluateOptimisationTrial,
   type TrialExecutionUpdate,
 } from '../../lib/optimisation/trial-executor';
@@ -30,7 +34,6 @@ import {
 } from '../../lib/optimisation/storage';
 import type {
   CreateRun,
-  NextTrial,
   RunAnalysis,
   RunProgress,
 } from '../../lib/protocol/types';
@@ -55,13 +58,6 @@ interface UseOptimisationRunOptions {
   selectedStrategyId: string;
   setError: Dispatch<SetStateAction<string | undefined>>;
 }
-
-const isBackendTransportError = (
-  message: string,
-): boolean =>
-  /backend (is not connected|connection closed|request timed out)|backend client disconnected/i.test(
-    message,
-  );
 
 const safeFilename = (value: string): string =>
   value
@@ -115,12 +111,9 @@ export function useOptimisationRun({
   const originalParametersRef = useRef<
     Record<string, unknown> | null
   >(null);
-  const executingTrialRef = useRef<number | null>(null);
-  const pendingTrialRef = useRef<NextTrial | null>(null);
-  const abortControllerRef =
-    useRef<AbortController | null>(null);
+  const trialRunnerRef =
+    useRef<StudyTrialRunner | null>(null);
   const recoveringBackendRef = useRef(false);
-  const consecutiveExecutionFailuresRef = useRef(0);
 
   const assertCompatibility =
     useCallback(
@@ -240,184 +233,118 @@ export function useOptimisationRun({
       }
     }, [sendRequest, setError]);
 
-  const executeTrial = useCallback(
-    async (trial: NextTrial) => {
-      if (
-        trial.run_id !== activeRunIdRef.current
-      ) {
-        return;
-      }
+  const configureTrialRunner =
+    useCallback(
+      (
+        strategyId: string,
+        config: CreateRun,
+        originalParameters:
+          Record<string, unknown> | null,
+      ) => {
+        trialRunnerRef.current?.dispose();
 
-      if (
-        executingTrialRef.current ===
-          trial.trial_number ||
-        pendingTrialRef.current?.trial_number ===
-          trial.trial_number
-      ) {
-        return;
-      }
-
-      if (executingTrialRef.current !== null) {
-        pendingTrialRef.current = trial;
-        return;
-      }
-
-      const strategyId =
-        activeStrategyIdRef.current;
-      const config = activeConfigRef.current;
-      if (!strategyId || !config) return;
-
-      executingTrialRef.current =
-        trial.trial_number;
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-      try {
-        const result =
-          await evaluateOptimisationTrial({
-            adapter,
-            strategyId,
-            config,
-            trial,
-            originalParameters:
-              originalParametersRef.current,
-            signal: controller.signal,
-            onPhase:
-              setCurrentTrial,
-          });
-
-        await sendRequest({
-          type: 'TRIAL_RESULT',
-          payload: result,
-        });
-
-        consecutiveExecutionFailuresRef.current = 0;
-        setWatchdog((current) => ({
-          status: 'healthy',
-          lastSuccessfulTrialAt:
-            Date.now(),
-          lastFailure: null,
-        }));
-      } catch (cause) {
-        const aborted =
-          cause instanceof DOMException &&
-          cause.name === 'AbortError';
-
-        const reason = aborted
-          ? 'Trial cancelled by user'
-          : cause instanceof Error
-            ? cause.message
-            : String(cause);
-
-        if (isBackendTransportError(reason)) {
-          setError(
-            'Backend connection was interrupted. The run is saved and will recover when the backend reconnects.',
-          );
-        } else if (
-          /not the outstanding trial|unknown run_id/i.test(
-            reason,
-          )
-        ) {
-          // The backend restarted while this browser evaluation
-          // was in flight. Recovery will issue the correct trial.
-        } else {
-          const parameterSpecificRuntimeError =
-            /strategy runtime error/i.test(reason);
-
-          if (
-            !parameterSpecificRuntimeError &&
-            !aborted
-          ) {
-            consecutiveExecutionFailuresRef.current += 1;
-          }
-
-          const fatalIntegrationFailure =
-            reason.startsWith('SAFETY:') ||
-            /deep backtesting.*(could not|not available|failed)|could not open tradingview strategy tester/i.test(
-              reason,
-            ) ||
-            consecutiveExecutionFailuresRef.current >= 3;
-
-          if (fatalIntegrationFailure) {
-            setWatchdog((current) => ({
-              status: 'failed',
-              lastSuccessfulTrialAt:
-                current.lastSuccessfulTrialAt,
-              lastFailure: reason,
-            }));
-          }
-
-          try {
-            if (fatalIntegrationFailure) {
-              await sendRequest({
-                type: 'STOP_RUN',
-                payload: {
-                  runId: trial.run_id,
-                },
-              });
-            }
-
-            await sendRequest({
-              type: 'TRIAL_FAILED',
-              payload: {
-                runId: trial.run_id,
-                trialNumber:
-                  trial.trial_number,
-                reason,
+        trialRunnerRef.current =
+          createStudyTrialRunner({
+            runId: config.run_id,
+            evaluate: (
+              trial,
+              signal,
+            ) =>
+              evaluateOptimisationTrial({
+                adapter,
+                strategyId,
+                config,
+                trial,
+                originalParameters,
+                signal,
+                onPhase:
+                  setCurrentTrial,
+              }),
+            transport: {
+              submitResult: async (
+                result,
+              ) => {
+                await sendRequest({
+                  type: 'TRIAL_RESULT',
+                  payload: result,
+                });
               },
-            });
-          } catch (failureCause) {
-            const failureMessage =
-              failureCause instanceof Error
-                ? failureCause.message
-                : String(failureCause);
+              submitFailure: async (
+                trial,
+                reason,
+              ) => {
+                await sendRequest({
+                  type: 'TRIAL_FAILED',
+                  payload: {
+                    runId:
+                      trial.run_id,
+                    trialNumber:
+                      trial.trial_number,
+                    reason,
+                  },
+                });
+              },
+              stopRun: async (
+                runId,
+              ) => {
+                await sendRequest({
+                  type: 'STOP_RUN',
+                  payload: {
+                    runId,
+                  },
+                });
+              },
+            },
+            onSuccess: () => {
+              setWatchdog({
+                status: 'healthy',
+                lastSuccessfulTrialAt:
+                  Date.now(),
+                lastFailure: null,
+              });
+            },
+            onFailure: (
+              failure,
+            ) => {
+              if (failure.fatal) {
+                setWatchdog(
+                  (current) => ({
+                    status: 'failed',
+                    lastSuccessfulTrialAt:
+                      current.lastSuccessfulTrialAt,
+                    lastFailure:
+                      failure.reason,
+                  }),
+                );
+              }
 
-            if (
-              !/not the outstanding trial/i.test(
-                failureMessage,
-              )
-            ) {
-              setError(failureMessage);
-            }
-          }
-
-          if (!aborted) setError(reason);
-        }
-      } finally {
-        if (
-          executingTrialRef.current ===
-          trial.trial_number
-        ) {
-          executingTrialRef.current = null;
-        }
-
-        if (
-          abortControllerRef.current ===
-          controller
-        ) {
-          abortControllerRef.current = null;
-        }
-
-        const pending =
-          pendingTrialRef.current;
-        if (
-          pending &&
-          pending.run_id ===
-            activeRunIdRef.current &&
-          executingTrialRef.current === null
-        ) {
-          pendingTrialRef.current = null;
-          queueMicrotask(() => {
-            void executeTrial(pending);
+              if (!failure.aborted) {
+                setError(
+                  failure.reason,
+                );
+              }
+            },
+            onTransportError: () => {
+              setError(
+                'Backend connection was interrupted. The run is saved and will recover when the backend reconnects.',
+              );
+            },
+            onStaleTrial: () => {
+              // Recovery will issue the current backend trial.
+            },
+            onReportError: (
+              error,
+            ) => {
+              setError(error.message);
+            },
           });
-        }
-      }
-    },
-    [
-      adapter,
-      sendRequest,
-      setError,
-    ],
-  );
+      },
+      [
+        adapter,
+        sendRequest,
+        setError,
+      ],
+    );
 
   const beginPreparedRun = useCallback(
     async (
@@ -466,8 +393,12 @@ export function useOptimisationRun({
         prepared.config;
       originalParametersRef.current =
         prepared.originalParameters;
-      pendingTrialRef.current = null;
-      consecutiveExecutionFailuresRef.current = 0;
+
+      configureTrialRunner(
+        prepared.strategyId,
+        prepared.config,
+        prepared.originalParameters,
+      );
 
       setRunConfig(prepared.config);
       setStartedAt(now);
@@ -496,6 +427,7 @@ export function useOptimisationRun({
       assertCompatibility,
       backend.backendVersion,
       backend.optunaVersion,
+      configureTrialRunner,
       sendRequest,
     ],
   );
@@ -507,7 +439,8 @@ export function useOptimisationRun({
       activeStrategyIdRef.current = null;
       activeConfigRef.current = null;
       originalParametersRef.current = null;
-      pendingTrialRef.current = null;
+      trialRunnerRef.current?.dispose();
+      trialRunnerRef.current = null;
       setActiveRunId(null);
     }, []);
 
@@ -630,8 +563,12 @@ export function useOptimisationRun({
           strategyId;
         activeConfigRef.current =
           candidate.config;
-        pendingTrialRef.current = null;
-        consecutiveExecutionFailuresRef.current = 0;
+
+        configureTrialRunner(
+          strategyId,
+          candidate.config,
+          candidate.originalParameters,
+        );
 
         setRunConfig(candidate.config);
         setProgress(
@@ -678,6 +615,7 @@ export function useOptimisationRun({
       connected,
       pairingRequired,
       assertCompatibility,
+      configureTrialRunner,
       restorePersistedRun,
       resumeCandidate,
       sendRequest,
@@ -708,7 +646,6 @@ export function useOptimisationRun({
       if (!runId) return;
 
       setError(undefined);
-      pendingTrialRef.current = null;
 
       try {
         await sendRequest({
@@ -722,7 +659,7 @@ export function useOptimisationRun({
             : String(cause),
         );
       } finally {
-        abortControllerRef.current?.abort();
+        trialRunnerRef.current?.cancel();
       }
     }, [sendRequest, setError]);
 
@@ -1023,7 +960,8 @@ export function useOptimisationRun({
           );
 
           activeRunIdRef.current = null;
-          pendingTrialRef.current = null;
+          trialRunnerRef.current?.dispose();
+          trialRunnerRef.current = null;
           setProgress(message.progress);
           setFinishedAt(Date.now());
           setActiveRunId(null);
@@ -1051,7 +989,9 @@ export function useOptimisationRun({
       }
 
       if (message.type === 'NEXT_TRIAL') {
-        void executeTrial(message.trial);
+        trialRunnerRef.current?.enqueue(
+          message.trial,
+        );
       }
     };
 
@@ -1062,7 +1002,7 @@ export function useOptimisationRun({
       browser.runtime.onMessage.removeListener(
         listener,
       );
-  }, [executeTrial, sendRequest]);
+  }, [sendRequest]);
 
   useEffect(() => {
     if (activeRunId === null) return;
