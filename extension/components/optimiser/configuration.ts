@@ -363,54 +363,71 @@ export const buildResearchPlan = (
 ): ResearchPlan => {
   const fullRange = buildBacktestRange(form);
 
-  const convergence = {
-    enabled: form.convergenceEnabled,
-    min_trials: parseBoundedInteger(
-      form.convergenceMinTrials,
-      'Convergence minimum trials',
-      5,
-      targetTrials,
-    ),
-    patience: parseBoundedInteger(
-      form.convergencePatience,
-      'Convergence patience',
-      5,
-      targetTrials,
-    ),
-    min_improvement_percent: parseBoundedNumber(
-      form.convergenceMinImprovementPercent,
-      'Minimum convergence improvement',
-      0,
-      100,
-    ),
-  };
+  const convergence = form.convergenceEnabled
+    ? {
+        enabled: true,
+        min_trials: parseBoundedInteger(
+          form.convergenceMinTrials,
+          'Convergence minimum trials',
+          5,
+          targetTrials,
+        ),
+        patience: parseBoundedInteger(
+          form.convergencePatience,
+          'Convergence patience',
+          5,
+          targetTrials,
+        ),
+        min_improvement_percent:
+          parseBoundedNumber(
+            form.convergenceMinImprovementPercent,
+            'Minimum convergence improvement',
+            0,
+            100,
+          ),
+      }
+    : {
+        enabled: false,
+        min_trials: 50,
+        patience: 30,
+        min_improvement_percent: 1,
+      };
 
   const validationFraction =
-    parseBoundedNumber(
-      form.robustnessValidationPercent,
-      'Validation percentage',
-      10,
-      50,
-    ) / 100;
-  const folds = parseBoundedInteger(
-    form.robustnessFolds,
-    'Validation folds',
-    1,
-    10,
-  );
-  const topCandidates = parseBoundedInteger(
-    form.robustnessTopCandidates,
-    'Top candidates',
-    1,
-    20,
-  );
+    form.robustnessEnabled
+      ? parseBoundedNumber(
+          form.robustnessValidationPercent,
+          'Validation percentage',
+          10,
+          50,
+        ) / 100
+      : 0.3;
+  const folds = form.robustnessEnabled
+    ? parseBoundedInteger(
+        form.robustnessFolds,
+        'Validation folds',
+        1,
+        10,
+      )
+    : 3;
+  const topCandidates =
+    form.robustnessEnabled
+      ? parseBoundedInteger(
+          form.robustnessTopCandidates,
+          'Top candidates',
+          1,
+          20,
+        )
+      : 5;
   const perturbationPercent =
-    parseBoundedNumber(
-      form.stabilityPerturbationPercent,
-      'Stability perturbation',
-      0.1,
-      25,
-    );
+    form.stabilityEnabled
+      ? parseBoundedNumber(
+          form.stabilityPerturbationPercent,
+          'Stability perturbation',
+          0.1,
+          25,
+        )
+      : 5;
 
   let optimisationRange = fullRange;
   if (form.robustnessEnabled) {
