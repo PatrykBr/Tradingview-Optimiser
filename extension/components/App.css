@@ -968,3 +968,20 @@ code {
   margin-top: 8px;
   color: #ffaaa4;
 }
+
+
+.comparisonDivider {
+  padding: 7px 8px;
+  border-top: 1px solid #2f3540;
+  background: #141820;
+  color: #8f98a8;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.researchImportanceHint {
+  margin-top: 3px;
+  font-size: 9px;
+}
