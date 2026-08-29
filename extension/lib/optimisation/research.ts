@@ -5,7 +5,9 @@ import type {
   SearchParameter,
   TrialSummary,
 } from '../protocol/types';
+import type { MonteCarloResult } from './monte-carlo';
 import { isFeasibleTrial } from './results';
+import type { WalkForwardResult } from './walk-forward';
 
 export interface ValidationWindow {
   index: number;
@@ -66,6 +68,8 @@ export interface StabilityResult {
 export interface ResearchEvaluation {
   robustness?: RobustnessResult;
   stability?: StabilityResult;
+  walkForward?: WalkForwardResult;
+  monteCarlo?: MonteCarloResult;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
