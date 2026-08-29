@@ -144,6 +144,16 @@ class BestTrial(BaseModel):
     constraints: dict[str, float]
 
 
+class TrialSummary(BaseModel):
+    trial_number: int
+    state: Literal["complete", "failed"]
+    objective_value: float | None
+    parameters: dict[str, Any]
+    metrics: dict[str, float]
+    constraints: dict[str, float]
+    failure_reason: str | None = None
+
+
 class RunProgress(BaseModel):
     run_id: str
     status: RunStatus
@@ -151,3 +161,4 @@ class RunProgress(BaseModel):
     target_trials: int
     failed_trials: int
     best: BestTrial | None
+    trials: list[TrialSummary] = Field(default_factory=list)
