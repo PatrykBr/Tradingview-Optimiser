@@ -18,7 +18,8 @@ export default function OptimisationSettingsSection({
   onStart,
   onStop,
 }: OptimisationSettingsSectionProps) {
-  const locked = activeRunId !== null;
+  const locked =
+    activeRunId !== null || busy;
   const { form } = model;
 
   return (
