@@ -8,7 +8,7 @@ export default defineConfig({
   manifest: {
     name: 'TradingView Optuna Optimiser',
     description: 'Optimise the Pine strategy on your current TradingView chart with Optuna v5.',
-    permissions: ['storage', 'activeTab', 'downloads'],
+    permissions: ['storage', 'downloads'],
     host_permissions: [
       'https://*.tradingview.com/*',
       'http://127.0.0.1:8765/*',
