@@ -52,6 +52,14 @@ const normalisePreset = (
   }
 
   const version = value.version;
+
+  if (
+    version === 2 &&
+    !isRecord(value.draft)
+  ) {
+    return null;
+  }
+
   const draftSource =
     version === 2
       ? value.draft
