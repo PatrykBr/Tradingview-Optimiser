@@ -13,7 +13,6 @@ from app.version import BACKEND_VERSION
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = Settings()
-    app.state.settings = settings
     app.state.pairing_manager = PairingManager(
         settings.extension_token_path,
         configured_token=settings.extension_token,
