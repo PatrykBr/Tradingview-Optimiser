@@ -147,7 +147,9 @@ export function useStrategyConfiguration(
   );
 
   const currentStrategySignatureRef =
-    useRef<string>();
+    useRef<string | undefined>(
+      undefined,
+    );
   const [savedPresets, setSavedPresets] = useState<
     SavedOptimisationPreset[]
   >([]);
