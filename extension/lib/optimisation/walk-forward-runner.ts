@@ -3,7 +3,7 @@ import type {
   RunProgress,
 } from '../protocol/types';
 import type {
-  TradingViewAdapter,
+  TradingViewBacktestRange,
 } from '../tradingview/adapter';
 import {
   passesMetricFilters,
@@ -37,8 +37,31 @@ export interface WalkForwardStudyRunner {
   ): Promise<RunProgress>;
 }
 
+export interface WalkForwardBacktestAdapter {
+  prepareBacktest(
+    strategyId: string,
+    range: TradingViewBacktestRange | null,
+  ): Promise<void>;
+  evaluateParameters(
+    strategyId: string,
+    parameters: Record<string, unknown>,
+    range: TradingViewBacktestRange | null,
+    signal?: AbortSignal,
+  ): Promise<Record<string, number>>;
+  assertRunContext(
+    strategyId: string,
+    config: CreateRun,
+    originalParameters:
+      Record<string, unknown> | null,
+  ): Promise<void>;
+  applyParameters(
+    strategyId: string,
+    parameters: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
+}
+
 export interface WalkForwardExecutionRequest {
-  adapter: TradingViewAdapter;
+  adapter: WalkForwardBacktestAdapter;
   runStudy: WalkForwardStudyRunner;
   strategyId: string;
   config: CreateRun;
