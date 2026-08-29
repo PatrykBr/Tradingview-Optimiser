@@ -53,6 +53,29 @@ const parseTrialSort = (
   }
 };
 
+const terminationLabel = (
+  reason:
+    | 'target_trials'
+    | 'converged'
+    | 'search_space_exhausted'
+    | 'user'
+    | null
+    | undefined,
+): string | null => {
+  switch (reason) {
+    case 'target_trials':
+      return 'target reached';
+    case 'converged':
+      return 'converged';
+    case 'search_space_exhausted':
+      return 'search space exhausted';
+    case 'user':
+      return 'stopped by user';
+    default:
+      return null;
+  }
+};
+
 const formatDuration = (
   milliseconds: number | null,
 ): string => {
@@ -205,6 +228,17 @@ export default function RunProgressSection({
                 ' · ' +
                   reusedTrials +
                   ' reused'}
+              {run.progress?.status ===
+                  'completed' &&
+                terminationLabel(
+                  run.progress
+                    .termination_reason,
+                ) &&
+                ' · ' +
+                  terminationLabel(
+                    run.progress
+                      .termination_reason,
+                  )}
             </span>
           </div>
 
