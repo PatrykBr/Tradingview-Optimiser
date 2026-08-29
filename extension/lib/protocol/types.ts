@@ -74,6 +74,7 @@ export interface StabilityConfig {
 
 export interface WalkForwardConfig {
   enabled: boolean;
+  full_range?: BacktestRange | null;
   folds: number;
   trials_per_fold: number;
   initial_training_fraction: number;
