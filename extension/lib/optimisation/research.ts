@@ -190,15 +190,31 @@ export const topFeasibleCandidates = (
     })
     .slice(0, count);
 
-export const median = (values: number[]): number | null => {
+export const median = (
+  values: number[],
+): number | null => {
   if (values.length === 0) return null;
 
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
+  const sorted = [...values].sort(
+    (a, b) => a - b,
+  );
+  const middle = Math.floor(
+    sorted.length / 2,
+  );
+  const right = sorted[middle];
 
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1]! + sorted[middle]!) / 2
-    : sorted[middle]!;
+  if (right === undefined) {
+    return null;
+  }
+
+  if (sorted.length % 2 !== 0) {
+    return right;
+  }
+
+  const left = sorted[middle - 1];
+  return left === undefined
+    ? null
+    : (left + right) / 2;
 };
 
 export const degradationPercent = (
