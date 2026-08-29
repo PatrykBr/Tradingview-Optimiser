@@ -946,6 +946,9 @@ export default defineUnlistedScript(() => {
           result = getStrategySignature(payload.strategyId);
           break;
         }
+        case 'getBacktestMode':
+          result = isDeepBacktestingActive() ? 'deep' : 'chart';
+          break;
         case 'resetToChartSession':
           result = await resetToChartSession();
           break;
