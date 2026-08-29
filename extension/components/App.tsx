@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 
 import BackendSection from './optimiser/BackendSection';
+import ResearchSection from './optimiser/ResearchSection';
 import RunProgressSection from './optimiser/RunProgressSection';
 import StrategyConfigurationSection from './optimiser/StrategyConfigurationSection';
 import { useOptimisationRun } from './optimiser/useOptimisationRun';
+import { useResearchValidation } from './optimiser/useResearchValidation';
 import { useStrategyConfiguration } from './optimiser/useStrategyConfiguration';
 import { TradingViewAdapter } from '../lib/tradingview/adapter';
 import type { TradingViewBridge } from '../lib/tradingview/bridge';
@@ -32,7 +34,17 @@ export default function App({ bridge }: AppProps) {
     setError,
   });
 
-  const busy = configuration.busy || run.busy;
+  const research = useResearchValidation({
+    adapter,
+    run,
+    strategyId: configuration.selectedStrategyId,
+    setError,
+  });
+
+  const busy =
+    configuration.busy ||
+    run.busy ||
+    research.busy;
 
   const changeStrategy = (strategyId: string) => {
     setError(undefined);
@@ -68,6 +80,12 @@ export default function App({ bridge }: AppProps) {
           configuration.form.targetTrials
         }
         busy={busy}
+      />
+
+      <ResearchSection
+        run={run}
+        research={research}
+        inputLabel={configuration.inputLabel}
       />
 
       {error && (
