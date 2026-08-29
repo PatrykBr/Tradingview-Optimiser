@@ -122,6 +122,85 @@ async def test_no_trade_trial_is_completed_with_poor_objective(tmp_path: Path) -
     assert progress.best.objective_value == pytest.approx(-1.0e12)
 
 
+def test_conditional_controller_can_appear_after_child() -> None:
+    config = CreateRun.model_validate(
+        {
+            "run_id": "later-controller",
+            "objective_metric": "profitFactor",
+            "direction": "maximize",
+            "target_trials": 1,
+            "parameters": [
+                {
+                    "type": "int",
+                    "name": "atr_period",
+                    "low": 5,
+                    "high": 50,
+                    "condition": {
+                        "parameter": "stop_type",
+                        "values": ["ATR Bars"],
+                    },
+                },
+                {
+                    "type": "categorical",
+                    "name": "stop_type",
+                    "choices": ["ATR Bars", "Percent", "Swing H/L"],
+                },
+            ],
+            "filters": [],
+            "chart": {
+                "symbol": "OANDA:XAUUSD",
+                "timeframe": "5",
+                "strategy_name": "Test Strategy",
+                "strategy_signature": "signature-123",
+            },
+        }
+    )
+
+    assert [parameter.name for parameter in config.parameters] == [
+        "stop_type",
+        "atr_period",
+    ]
+
+
+def test_conditional_dependency_cycles_are_rejected() -> None:
+    with pytest.raises(ValueError, match="contain a cycle"):
+        CreateRun.model_validate(
+            {
+                "run_id": "condition-cycle",
+                "objective_metric": "profitFactor",
+                "direction": "maximize",
+                "target_trials": 1,
+                "parameters": [
+                    {
+                        "type": "categorical",
+                        "name": "mode_a",
+                        "choices": [True, False],
+                        "condition": {
+                            "parameter": "mode_b",
+                            "values": [True],
+                        },
+                    },
+                    {
+                        "type": "categorical",
+                        "name": "mode_b",
+                        "choices": [True, False],
+                        "condition": {
+                            "parameter": "mode_a",
+                            "values": [True],
+                        },
+                    },
+                ],
+                "filters": [],
+                "chart": {
+                    "symbol": "OANDA:XAUUSD",
+                    "timeframe": "5",
+                    "strategy_name": "Test Strategy",
+                    "strategy_signature": "signature-123",
+                },
+            }
+        )
+
+
 def test_conditional_parameter_matches_sampled_parent() -> None:
     config = CreateRun.model_validate(
         {
