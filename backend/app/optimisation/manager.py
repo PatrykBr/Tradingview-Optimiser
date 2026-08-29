@@ -14,8 +14,10 @@ from app.models import (
     FloatParameter,
     IntParameter,
     NextTrial,
+    ObjectiveDirection,
     RunProgress,
     RunStatus,
+    SearchParameter,
     TrialFailure,
     TrialResult,
     TrialSummary,
@@ -44,8 +46,8 @@ class OptimisationManager:
                     raise ValueError("run_id already exists with a different configuration")
                 return self._progress(existing)
 
-            # Optuna v5's default sampler is intentional. For a single-objective study,
-            # v5 defaults to the enhanced multivariate TPE sampler with constant liar.
+            # Optuna v5's default sampler is intentional. Single-objective studies
+            # use the enhanced multivariate TPE sampler with constant liar.
             study = optuna.create_study(
                 study_name=config.run_id,
                 storage=self._storage_url,
@@ -62,9 +64,9 @@ class OptimisationManager:
                     "run_id already exists in persistent storage with a different configuration"
                 )
 
-            # This service evaluates one browser trial at a time. If the process was
-            # restarted, any persisted RUNNING trial no longer has a live browser
-            # evaluator attached to it and must not remain as a zombie trial.
+            # Browser-evaluated RUNNING trials cannot survive a backend/browser
+            # process restart. Mark them failed so the sampler is never blocked by
+            # an orphaned external evaluation.
             stale_running = study.get_trials(
                 deepcopy=False,
                 states=(TrialState.RUNNING,),
@@ -72,13 +74,19 @@ class OptimisationManager:
             for stale_trial in stale_running:
                 study.tell(stale_trial.number, state=TrialState.FAIL)
 
-            status = (
-                RunStatus.COMPLETED
-                if self._complete_count_for_study(study) >= config.target_trials
-                else RunStatus.CREATED
-            )
+            persisted_status = study.user_attrs.get("run_status")
+            if self._complete_count_for_study(study) >= config.target_trials:
+                status = RunStatus.COMPLETED
+            elif persisted_status == RunStatus.STOPPED.value:
+                status = RunStatus.STOPPED
+            else:
+                # A previously RUNNING/STOP_REQUESTED study is resumable after a
+                # restart. Expose it as CREATED until the browser explicitly resumes.
+                status = RunStatus.CREATED
+
             run = ActiveRun(config=config, study=study, status=status)
             self._runs[config.run_id] = run
+            self._persist_status(run)
             return self._progress(run)
 
     async def start(self, run_id: str) -> tuple[RunProgress, NextTrial | None]:
@@ -86,7 +94,7 @@ class OptimisationManager:
             run = self._require(run_id)
             if run.status in {RunStatus.COMPLETED, RunStatus.STOPPED}:
                 return self._progress(run), None
-            run.status = RunStatus.RUNNING
+            self._set_status(run, RunStatus.RUNNING)
             return self._progress(run), self._next_trial_locked(run)
 
     async def next_trial(self, run_id: str) -> NextTrial | None:
@@ -99,23 +107,41 @@ class OptimisationManager:
             run = self._require(result.run_id)
             trial = self._require_outstanding(run, result.trial_number)
 
-            try:
-                objective = float(result.metrics[run.config.objective_metric])
-            except KeyError as exc:
-                raise ValueError(
-                    f"objective metric {run.config.objective_metric!r} missing from trial metrics"
-                ) from exc
+            total_trades = result.metrics.get("totalTrades")
+            objective_value = result.metrics.get(run.config.objective_metric)
+
+            if objective_value is None:
+                if total_trades == 0:
+                    # No-trade parameter combinations are valid strategy outcomes,
+                    # not browser failures. Give them a deliberately poor finite
+                    # objective so TPE learns away from that region.
+                    objective = (
+                        -1.0e12
+                        if run.config.direction == ObjectiveDirection.MAXIMIZE
+                        else 1.0e12
+                    )
+                    trial.set_user_attr("objective_fallback", "no_trades")
+                else:
+                    raise ValueError(
+                        f"objective metric {run.config.objective_metric!r} "
+                        "missing from trial metrics"
+                    )
+            else:
+                objective = float(objective_value)
 
             for metric_filter in run.config.filters:
-                if metric_filter.metric not in result.metrics:
-                    raise ValueError(
-                        f"filter metric {metric_filter.metric!r} missing from trial metrics"
-                    )
-                actual = result.metrics[metric_filter.metric]
-                if metric_filter.operator == "lte":
+                actual = result.metrics.get(metric_filter.metric)
+
+                if actual is None:
+                    # Missing constraint metrics are treated as infeasible rather
+                    # than as an execution failure. This covers valid no-trade
+                    # outcomes where TradingView leaves ratios such as PF undefined.
+                    violation = 1.0e12
+                elif metric_filter.operator == "lte":
                     violation = actual - metric_filter.value
                 else:
                     violation = metric_filter.value - actual
+
                 trial.set_constraint(
                     f"{metric_filter.metric}:{metric_filter.operator}:{metric_filter.value}",
                     violation,
@@ -129,11 +155,11 @@ class OptimisationManager:
             run.outstanding_trial = None
 
             if self._complete_count(run) >= run.config.target_trials:
-                run.status = RunStatus.COMPLETED
+                self._set_status(run, RunStatus.COMPLETED)
                 return self._progress(run), None
 
             if run.status == RunStatus.STOP_REQUESTED:
-                run.status = RunStatus.STOPPED
+                self._set_status(run, RunStatus.STOPPED)
                 return self._progress(run), None
 
             return self._progress(run), self._next_trial_locked(run)
@@ -147,7 +173,7 @@ class OptimisationManager:
             run.outstanding_trial = None
 
             if run.status == RunStatus.STOP_REQUESTED:
-                run.status = RunStatus.STOPPED
+                self._set_status(run, RunStatus.STOPPED)
                 return self._progress(run), None
 
             return self._progress(run), self._next_trial_locked(run)
@@ -157,10 +183,12 @@ class OptimisationManager:
             run = self._require(run_id)
             if run.status not in {RunStatus.RUNNING, RunStatus.STOP_REQUESTED}:
                 return self._progress(run)
+
             if run.outstanding_trial is None:
-                run.status = RunStatus.STOPPED
+                self._set_status(run, RunStatus.STOPPED)
             else:
-                run.status = RunStatus.STOP_REQUESTED
+                self._set_status(run, RunStatus.STOP_REQUESTED)
+
             return self._progress(run)
 
     async def progress(self, run_id: str) -> RunProgress:
@@ -170,19 +198,25 @@ class OptimisationManager:
     def _next_trial_locked(self, run: ActiveRun) -> NextTrial | None:
         if run.status != RunStatus.RUNNING:
             return None
+
         if run.outstanding_trial is not None:
             return NextTrial(
                 run_id=run.config.run_id,
                 trial_number=run.outstanding_trial.number,
                 parameters=dict(run.outstanding_trial.params),
             )
+
         if self._complete_count(run) >= run.config.target_trials:
-            run.status = RunStatus.COMPLETED
+            self._set_status(run, RunStatus.COMPLETED)
             return None
 
         trial = run.study.ask()
         parameters: dict[str, Any] = {}
+
         for parameter in run.config.parameters:
+            if not self._condition_matches(parameter, parameters):
+                continue
+
             if isinstance(parameter, FloatParameter):
                 parameters[parameter.name] = trial.suggest_float(
                     parameter.name,
@@ -214,6 +248,21 @@ class OptimisationManager:
             parameters=parameters,
         )
 
+    @staticmethod
+    def _condition_matches(
+        parameter: SearchParameter,
+        sampled_parameters: dict[str, Any],
+    ) -> bool:
+        condition = parameter.condition
+        if condition is None:
+            return True
+
+        if condition.parameter not in sampled_parameters:
+            return False
+
+        actual = sampled_parameters[condition.parameter]
+        return any(actual == expected for expected in condition.values)
+
     def _progress(self, run: ActiveRun) -> RunProgress:
         return RunProgress(
             run_id=run.config.run_id,
@@ -236,6 +285,7 @@ class OptimisationManager:
     @staticmethod
     def _trial_summaries(run: ActiveRun) -> list[TrialSummary]:
         summaries: list[TrialSummary] = []
+
         for trial in run.study.trials:
             if trial.state not in {TrialState.COMPLETE, TrialState.FAIL}:
                 continue
@@ -246,32 +296,39 @@ class OptimisationManager:
                 if isinstance(metrics, dict)
                 else {}
             )
-            constraints = dict(trial.constraints)
 
             summaries.append(
                 TrialSummary(
                     trial_number=trial.number,
-                    state="complete" if trial.state == TrialState.COMPLETE else "failed",
-                    objective_value=float(trial.value) if trial.value is not None else None,
+                    state="complete"
+                    if trial.state == TrialState.COMPLETE
+                    else "failed",
+                    objective_value=float(trial.value)
+                    if trial.value is not None
+                    else None,
                     parameters=dict(trial.params),
                     metrics=metrics_dict,
-                    constraints=constraints,
+                    constraints=dict(trial.constraints),
                     failure_reason=trial.user_attrs.get("failure_reason"),
+                    duration_ms=trial.user_attrs.get("duration_ms"),
                 )
             )
+
         return summaries
 
     @staticmethod
     def _best(run: ActiveRun) -> BestTrial | None:
-        # In Optuna v5 best_trial honours native constraints. If there is no feasible
-        # completed trial, accessing it can raise ValueError.
+        # Optuna v5 best_trial honours native constraints. If no feasible
+        # completed trial exists, accessing it raises ValueError.
         try:
             best = run.study.best_trial
         except ValueError:
             return None
+
         metrics = best.user_attrs.get("metrics")
         if not isinstance(metrics, dict):
             return None
+
         return BestTrial(
             trial_number=best.number,
             objective_value=float(best.value),
@@ -279,6 +336,14 @@ class OptimisationManager:
             metrics={key: float(value) for key, value in metrics.items()},
             constraints=dict(best.constraints),
         )
+
+    def _set_status(self, run: ActiveRun, status: RunStatus) -> None:
+        run.status = status
+        self._persist_status(run)
+
+    @staticmethod
+    def _persist_status(run: ActiveRun) -> None:
+        run.study.set_user_attr("run_status", run.status.value)
 
     def _require(self, run_id: str) -> ActiveRun:
         try:
