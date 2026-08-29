@@ -35,6 +35,35 @@ const experimentLabel = (
   );
 };
 
+const comparisonResearchValue = (
+  experiment: ExperimentRecord | undefined,
+  key: 'oos' | 'stability',
+): string => {
+  if (!experiment?.research) return '—';
+
+  if (key === 'oos') {
+    const winner =
+      experiment.research.robustness
+        ?.candidates[0];
+    if (
+      !winner ||
+      winner.validationObjective === null
+    ) {
+      return '—';
+    }
+
+    return formatMetric(
+      experiment.config.objective_metric,
+      winner.validationObjective,
+    );
+  }
+
+  return (
+    experiment.research.stability
+      ?.overallRating ?? '—'
+  );
+};
+
 const comparisonValue = (
   experiment: ExperimentRecord | undefined,
   key: string,
@@ -445,6 +474,38 @@ export default function ResearchSection({
                   </code>
                 </div>
               ))}
+
+              <div className="comparisonRow">
+                <span>OOS objective</span>
+                <code>
+                  {comparisonResearchValue(
+                    left,
+                    'oos',
+                  )}
+                </code>
+                <code>
+                  {comparisonResearchValue(
+                    right,
+                    'oos',
+                  )}
+                </code>
+              </div>
+
+              <div className="comparisonRow">
+                <span>Stability</span>
+                <code>
+                  {comparisonResearchValue(
+                    left,
+                    'stability',
+                  )}
+                </code>
+                <code>
+                  {comparisonResearchValue(
+                    right,
+                    'stability',
+                  )}
+                </code>
+              </div>
 
               <div className="comparisonRow">
                 <span>Trials</span>
