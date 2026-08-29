@@ -913,7 +913,7 @@ const runDiagnostics = (strategyId: string | null) => {
       id: 'metrics-readable',
       label: 'Strategy Tester metrics',
       ok: Boolean(snapshot.metrics),
-      detail: snapshot.error ?? undefined,
+      ...(snapshot.error ? { detail: snapshot.error } : {}),
     });
 
     try {
