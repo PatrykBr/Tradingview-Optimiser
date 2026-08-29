@@ -49,9 +49,8 @@ export interface WalkForwardExecutionRequest {
   onPhase?: (phase: string) => void;
 }
 
-const disabledResearch = (
-  config: CreateRun,
-): NonNullable<CreateRun['research']> => ({
+const disabledResearch =
+  (): NonNullable<CreateRun['research']> => ({
   convergence: {
     enabled: false,
     min_trials: 50,
@@ -95,7 +94,7 @@ const childConfig = (
   target_trials: trials,
   backtest_range: trainingRange,
   research:
-    disabledResearch(parent),
+    disabledResearch(),
 });
 
 const testConfig = (
@@ -106,7 +105,7 @@ const testConfig = (
   ...parent,
   backtest_range: testRange,
   research:
-    disabledResearch(parent),
+    disabledResearch(),
 });
 
 export const runWalkForwardValidation =
@@ -143,6 +142,8 @@ export const runWalkForwardValidation =
         .baseline_parameters ??
       {};
 
+    let primaryFailure: unknown;
+
     try {
       for (
         const [
@@ -171,6 +172,16 @@ export const runWalkForwardValidation =
             crypto.randomUUID(),
           fold.trainingRange,
           settings.trials_per_fold,
+        );
+
+        await request.adapter.prepareBacktest(
+          request.strategyId,
+          {
+            startDate:
+              fold.trainingRange.start_date,
+            endDate:
+              fold.trainingRange.end_date,
+          },
         );
 
         const progress =
@@ -272,32 +283,41 @@ export const runWalkForwardValidation =
         request.config.parameters,
         request.config.direction,
       );
+    } catch (cause) {
+      primaryFailure = cause;
+      throw cause;
     } finally {
-      await request.adapter.prepareBacktest(
-        request.strategyId,
-        request.config.backtest_range
-          ? {
-              startDate:
-                request.config
-                  .backtest_range
-                  .start_date,
-              endDate:
-                request.config
-                  .backtest_range
-                  .end_date,
-            }
-          : null,
-      );
-
-      if (
-        Object.keys(
-          restoreParameters,
-        ).length > 0
-      ) {
-        await request.adapter.applyParameters(
+      try {
+        await request.adapter.prepareBacktest(
           request.strategyId,
-          restoreParameters,
+          request.config.backtest_range
+            ? {
+                startDate:
+                  request.config
+                    .backtest_range
+                    .start_date,
+                endDate:
+                  request.config
+                    .backtest_range
+                    .end_date,
+              }
+            : null,
         );
+
+        if (
+          Object.keys(
+            restoreParameters,
+          ).length > 0
+        ) {
+          await request.adapter.applyParameters(
+            request.strategyId,
+            restoreParameters,
+          );
+        }
+      } catch (restoreFailure) {
+        if (primaryFailure === undefined) {
+          throw restoreFailure;
+        }
       }
     }
   };
