@@ -384,9 +384,43 @@ const unwrapValue = (value: unknown): unknown => {
   return value;
 };
 
-const asFiniteNumber = (value: unknown): number | undefined => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+const normaliseMetricNumber = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
+  if (value === Number.POSITIVE_INFINITY) return 1.0e12;
+  if (value === Number.NEGATIVE_INFINITY) return -1.0e12;
   return value;
+};
+
+const hashString = (value: string): string => {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+};
+
+const stableStringify = (value: unknown): string => {
+  const seen = new WeakSet<object>();
+
+  const normalise = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(normalise);
+    if (item === null || typeof item !== 'object') return item;
+    if (seen.has(item as object)) return '[Circular]';
+    seen.add(item as object);
+
+    return Object.fromEntries(
+      Object.entries(item as UnknownRecord)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, normalise(child)]),
+    );
+  };
+
+  try {
+    return JSON.stringify(normalise(value));
+  } catch {
+    return String(value);
+  }
 };
 
 const readStrategyMetrics = (strategyId: string) => {
@@ -412,7 +446,7 @@ const readStrategyMetrics = (strategyId: string) => {
   const metrics: Record<string, number> = {};
 
   const put = (key: string, value: unknown) => {
-    const numeric = asFiniteNumber(value);
+    const numeric = normaliseMetricNumber(value);
     if (numeric !== undefined) metrics[key] = numeric;
   };
 
@@ -461,6 +495,356 @@ const readStrategyMetrics = (strategyId: string) => {
   return Object.keys(metrics).length > 0 ? metrics : null;
 };
 
+const readStrategyReportSnapshot = (strategyId: string) => {
+  const chart = getChart();
+  const source = getStrategySource(chart, strategyId);
+  if (!source || typeof source.reportData !== 'function') {
+    return {
+      metrics: null,
+      token: null,
+      error: 'TradingView strategy report source is unavailable',
+    };
+  }
+
+  let rawReport: unknown;
+  try {
+    rawReport = unwrapValue(source.reportData());
+  } catch (error) {
+    return {
+      metrics: null,
+      token: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const report = asRecord(rawReport);
+  const runtimeError =
+    report.error ??
+    report.runtimeError ??
+    report.errorMessage ??
+    report.message;
+
+  const metrics = readStrategyMetrics(strategyId);
+  const performance = asRecord(report.performance);
+
+  const revisionFields: UnknownRecord = {};
+  for (const key of [
+    'calculationId',
+    'calculation_id',
+    'reportId',
+    'report_id',
+    'updatedAt',
+    'lastUpdate',
+    'status',
+    'state',
+    'from',
+    'to',
+    'startTime',
+    'endTime',
+  ]) {
+    if (key in report) revisionFields[key] = report[key];
+  }
+
+  const token = hashString(
+    stableStringify({
+      revisionFields,
+      performance,
+    }),
+  );
+
+  return {
+    metrics,
+    token,
+    error:
+      typeof runtimeError === 'string' && runtimeError.trim()
+        ? runtimeError.trim()
+        : null,
+  };
+};
+
+const getStrategySignature = (strategyId: string): string => {
+  const chart = getChart();
+  const study = chart.getStudyById?.(strategyId);
+  if (!study) throw new Error('TradingView strategy is no longer on the chart');
+
+  const publicMeta = readMeta(study);
+  const internalMeta = getInternalStudyMeta(chart, strategyId);
+  const inputs = readStrategyInputs(strategyId).map((input) => ({
+    id: input.id,
+    label: input.label,
+    type: input.type,
+    options: input.options ?? null,
+  }));
+
+  const signatureSource = {
+    description:
+      internalMeta.description ??
+      publicMeta.description ??
+      study.name ??
+      study.title ??
+      null,
+    shortDescription:
+      internalMeta.shortDescription ??
+      publicMeta.shortDescription ??
+      null,
+    scriptIdPart:
+      internalMeta.scriptIdPart ??
+      publicMeta.scriptIdPart ??
+      null,
+    pineId:
+      internalMeta.pineId ??
+      publicMeta.pineId ??
+      null,
+    pineVersion:
+      internalMeta.pineVersion ??
+      publicMeta.pineVersion ??
+      null,
+    id:
+      internalMeta.id ??
+      publicMeta.id ??
+      null,
+    inputs,
+  };
+
+  return hashString(stableStringify(signatureSource));
+};
+
+const findClickableByText = (pattern: RegExp): HTMLElement | null => {
+  const candidates = document.querySelectorAll<HTMLElement>(
+    'button, [role="button"], [role="tab"]',
+  );
+
+  for (const candidate of candidates) {
+    if (candidate.offsetParent === null) continue;
+    const text = (candidate.textContent ?? candidate.getAttribute('aria-label') ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (pattern.test(text)) return candidate;
+  }
+
+  return null;
+};
+
+const setNativeInputValue = (input: HTMLInputElement, value: string): void => {
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value',
+  )?.set;
+
+  if (setter) setter.call(input, value);
+  else input.value = value;
+
+  input.dispatchEvent(
+    new InputEvent('input', {
+      bubbles: true,
+      inputType: 'insertText',
+      data: value,
+    }),
+  );
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  input.blur();
+};
+
+const visibleDateInputs = (): HTMLInputElement[] => {
+  const candidates = [...document.querySelectorAll<HTMLInputElement>('input')];
+
+  const score = (input: HTMLInputElement): number => {
+    if (input.offsetParent === null) return -1;
+
+    const text = [
+      input.type,
+      input.getAttribute('aria-label'),
+      input.getAttribute('placeholder'),
+      input.getAttribute('name'),
+      input.closest('label')?.textContent,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    let value = 0;
+    if (input.type === 'date') value += 20;
+    if (/date|from|to|start|end/.test(text)) value += 10;
+    return value;
+  };
+
+  return candidates
+    .map((input) => ({ input, score: score(input) }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)
+    .map(({ input }) => input);
+};
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const deepBacktestingCapability = () => {
+  const button = findClickableByText(/deep backtesting/i);
+  return {
+    available: button !== null,
+    reason:
+      button === null
+        ? 'Deep Backtesting control was not found. It may be unavailable on this TradingView plan or build.'
+        : null,
+  };
+};
+
+const configureDeepBacktestRange = async (
+  startDate: string,
+  endDate: string,
+) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    throw new Error('Backtest dates must use YYYY-MM-DD');
+  }
+
+  if (startDate >= endDate) {
+    throw new Error('Backtest start date must be before the end date');
+  }
+
+  ensureStrategyTester();
+  await sleep(250);
+
+  const deepButton = findClickableByText(/deep backtesting/i);
+  if (!deepButton) {
+    return {
+      supported: false,
+      applied: false,
+      reason:
+        'Deep Backtesting is not available in the current TradingView interface.',
+    };
+  }
+
+  deepButton.click();
+  await sleep(350);
+
+  const inputs = visibleDateInputs();
+  if (inputs.length < 2) {
+    return {
+      supported: true,
+      applied: false,
+      reason: 'Could not locate TradingView Deep Backtesting date fields.',
+    };
+  }
+
+  const startInput = inputs[0]!;
+  const endInput = inputs[1]!;
+
+  setNativeInputValue(startInput, startDate);
+  setNativeInputValue(endInput, endDate);
+  await sleep(100);
+
+  const updateButton = findClickableByText(
+    /generate report|update report|apply|calculate/i,
+  );
+
+  if (!updateButton) {
+    return {
+      supported: true,
+      applied: false,
+      reason: 'Could not locate the Deep Backtesting report button.',
+    };
+  }
+
+  updateButton.click();
+
+  return {
+    supported: true,
+    applied: true,
+    reason: null,
+  };
+};
+
+const runDiagnostics = (strategyId: string | null) => {
+  const checks: Array<{
+    id: string;
+    label: string;
+    ok: boolean;
+    detail?: string;
+  }> = [];
+
+  let chart: ChartLike | null = null;
+  try {
+    chart = getChart();
+    checks.push({ id: 'chart-api', label: 'TradingView chart API', ok: true });
+  } catch (error) {
+    checks.push({
+      id: 'chart-api',
+      label: 'TradingView chart API',
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  if (!chart) return { checks, deepBacktesting: deepBacktestingCapability() };
+
+  const strategies = detectStrategies();
+  checks.push({
+    id: 'strategy-detection',
+    label: 'Strategy detection',
+    ok: strategies.length > 0,
+    detail:
+      strategies.length > 0
+        ? strategies.length + ' strategy source(s) found'
+        : 'No Pine strategy sources found',
+  });
+
+  if (strategyId) {
+    try {
+      const inputs = readStrategyInputs(strategyId);
+      checks.push({
+        id: 'inputs-readable',
+        label: 'Readable Pine inputs',
+        ok: inputs.length > 0,
+        detail: inputs.length + ' user inputs',
+      });
+    } catch (error) {
+      checks.push({
+        id: 'inputs-readable',
+        label: 'Readable Pine inputs',
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const source = getStrategySource(chart, strategyId);
+    checks.push({
+      id: 'report-source',
+      label: 'Strategy report source',
+      ok: Boolean(source?.reportData),
+    });
+
+    const snapshot = readStrategyReportSnapshot(strategyId);
+    checks.push({
+      id: 'metrics-readable',
+      label: 'Strategy Tester metrics',
+      ok: Boolean(snapshot.metrics),
+      detail: snapshot.error ?? undefined,
+    });
+
+    try {
+      const signature = getStrategySignature(strategyId);
+      checks.push({
+        id: 'strategy-signature',
+        label: 'Strategy signature',
+        ok: Boolean(signature),
+        detail: signature,
+      });
+    } catch (error) {
+      checks.push({
+        id: 'strategy-signature',
+        label: 'Strategy signature',
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    checks,
+    deepBacktesting: deepBacktestingCapability(),
+  };
+};
+
 const ensureStrategyTester = () => {
   const tradingView = (
     window as typeof window & {
@@ -473,8 +857,18 @@ const ensureStrategyTester = () => {
   ).TradingView;
 
   try {
-    tradingView?.bottomWidgetBar?.showWidget?.('backtesting');
-    return true;
+    if (typeof tradingView?.bottomWidgetBar?.showWidget === 'function') {
+      tradingView.bottomWidgetBar.showWidget('backtesting');
+      return true;
+    }
+
+    const button = findClickableByText(/strategy tester/i);
+    if (button) {
+      button.click();
+      return true;
+    }
+
+    return false;
   } catch {
     return false;
   }
@@ -492,7 +886,7 @@ export default defineUnlistedScript(() => {
   const script = document.currentScript;
   if (!(script instanceof HTMLScriptElement)) return;
 
-  script.addEventListener(REQUEST_EVENT, (event) => {
+  script.addEventListener(REQUEST_EVENT, async (event) => {
     if (!(event instanceof CustomEvent)) return;
 
     const request = event.detail as BridgeRequest;
@@ -532,6 +926,45 @@ export default defineUnlistedScript(() => {
             throw new Error('strategyId is required');
           }
           result = readStrategyMetrics(payload.strategyId);
+          break;
+        }
+        case 'readReportSnapshot': {
+          const payload = asRecord(request.payload);
+          if (typeof payload.strategyId !== 'string') {
+            throw new Error('strategyId is required');
+          }
+          result = readStrategyReportSnapshot(payload.strategyId);
+          break;
+        }
+        case 'getStrategySignature': {
+          const payload = asRecord(request.payload);
+          if (typeof payload.strategyId !== 'string') {
+            throw new Error('strategyId is required');
+          }
+          result = getStrategySignature(payload.strategyId);
+          break;
+        }
+        case 'configureDeepBacktestRange': {
+          const payload = asRecord(request.payload);
+          if (
+            typeof payload.startDate !== 'string' ||
+            typeof payload.endDate !== 'string'
+          ) {
+            throw new Error('startDate and endDate are required');
+          }
+          result = await configureDeepBacktestRange(
+            payload.startDate,
+            payload.endDate,
+          );
+          break;
+        }
+        case 'diagnostics': {
+          const payload = asRecord(request.payload);
+          result = runDiagnostics(
+            typeof payload.strategyId === 'string'
+              ? payload.strategyId
+              : null,
+          );
           break;
         }
         case 'ensureStrategyTester':
