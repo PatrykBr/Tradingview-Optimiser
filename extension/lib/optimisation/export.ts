@@ -99,7 +99,7 @@ export const buildRunJson = (
   );
 
 
-export interface RunExport {
+interface RunExport {
   filename: string;
   mimeType: string;
   content: string;
