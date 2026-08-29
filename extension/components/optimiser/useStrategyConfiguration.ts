@@ -21,6 +21,7 @@ import {
   conditionCandidatesFor,
   defaultParameterConfig,
   isOptimisableInput,
+  isPrimitive,
   type ParameterConfig,
 } from '../../lib/optimisation/search-space';
 import { metricDefinition } from '../../lib/optimisation/metrics';
@@ -450,15 +451,40 @@ export function useStrategyConfiguration(
 
   const setParameterEnabled = useCallback(
     (id: string, enabled: boolean) => {
-      updateParameterConfig(
-        id,
-        (config) => ({
-          ...config,
-          enabled,
-        }),
-      );
+      setParameterConfigs((current) => {
+        const config = current[id];
+        if (!config) return current;
+
+        const next: Record<string, ParameterConfig> = {
+          ...current,
+          [id]: {
+            ...config,
+            enabled,
+          },
+        };
+
+        if (!enabled) {
+          for (const [childId, child] of Object.entries(
+            next,
+          )) {
+            if (
+              child.conditionParameter !== id
+            ) {
+              continue;
+            }
+
+            next[childId] = {
+              ...child,
+              conditionParameter: '',
+              conditionValues: [],
+            };
+          }
+        }
+
+        return next;
+      });
     },
-    [updateParameterConfig],
+    [],
   );
 
   const setParameterField = useCallback(
@@ -494,25 +520,54 @@ export function useStrategyConfiguration(
 
   const toggleChoice = useCallback(
     (id: string, choice: Primitive) => {
-      updateParameterConfig(
-        id,
-        (config) => {
-          const exists = config.choices.some(
-            (value) => value === choice,
-          );
+      setParameterConfigs((current) => {
+        const config = current[id];
+        if (!config) return current;
 
-          return {
+        const exists = config.choices.some(
+          (value) => value === choice,
+        );
+        const choices = exists
+          ? config.choices.filter(
+              (value) => value !== choice,
+            )
+          : [...config.choices, choice];
+
+        const next: Record<string, ParameterConfig> = {
+          ...current,
+          [id]: {
             ...config,
-            choices: exists
-              ? config.choices.filter(
+            choices,
+          },
+        };
+
+        if (exists) {
+          for (const [childId, child] of Object.entries(
+            next,
+          )) {
+            if (
+              child.conditionParameter !== id ||
+              !child.conditionValues.some(
+                (value) => value === choice,
+              )
+            ) {
+              continue;
+            }
+
+            next[childId] = {
+              ...child,
+              conditionValues:
+                child.conditionValues.filter(
                   (value) => value !== choice,
-                )
-              : [...config.choices, choice],
-          };
-        },
-      );
+                ),
+            };
+          }
+        }
+
+        return next;
+      });
     },
-    [updateParameterConfig],
+    [],
   );
 
   const setConditionParameter = useCallback(
@@ -521,25 +576,51 @@ export function useStrategyConfiguration(
         const config = current[id];
         if (!config) return current;
 
+        if (!parameterId) {
+          return {
+            ...current,
+            [id]: {
+              ...config,
+              conditionParameter: '',
+              conditionValues: [],
+            },
+          };
+        }
+
         const parent = current[parameterId];
-        const firstChoice =
-          parent?.choices[0];
+        if (!parent) return current;
+
+        const parentInput = inputs.find(
+          (input) => input.id === parameterId,
+        );
+        const currentValue =
+          parentInput?.currentValue;
+        const preferredValue =
+          isPrimitive(currentValue) &&
+          parent.choices.some(
+            (choice) => choice === currentValue,
+          )
+            ? currentValue
+            : parent.choices[0];
 
         return {
           ...current,
+          [parameterId]: {
+            ...parent,
+            enabled: true,
+          },
           [id]: {
             ...config,
             conditionParameter: parameterId,
             conditionValues:
-              parameterId &&
-              firstChoice !== undefined
-                ? [firstChoice]
+              preferredValue !== undefined
+                ? [preferredValue]
                 : [],
           },
         };
       });
     },
-    [],
+    [inputs],
   );
 
   const toggleConditionValue = useCallback(
