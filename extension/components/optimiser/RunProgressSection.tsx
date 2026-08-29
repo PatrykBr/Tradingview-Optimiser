@@ -199,6 +199,11 @@ export default function RunProgressSection({
               /
               {run.progress?.target_trials ??
                 fallbackTargetTrials}
+              {(run.progress?.reused_trials ?? 0) >
+                0 &&
+                ' · ' +
+                  run.progress!.reused_trials +
+                  ' reused'}
             </span>
           </div>
 
@@ -460,6 +465,20 @@ export default function RunProgressSection({
                   }
                 </div>
               )}
+
+              {selectedTrial.reused_from_trial !==
+                undefined &&
+                selectedTrial.reused_from_trial !==
+                  null && (
+                  <div className="muted">
+                    Result reused from trial #
+                    {
+                      selectedTrial.reused_from_trial
+                    }
+                    . No duplicate TradingView
+                    backtest was run.
+                  </div>
+                )}
 
               <h3>Parameters</h3>
               <div className="metricsList">
