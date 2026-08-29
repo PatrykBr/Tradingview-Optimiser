@@ -578,6 +578,13 @@ const runDiagnostics = (strategyId: string | null) => {
       });
     }
 
+    const study = chart.getStudyById?.(strategyId);
+    checks.push({
+      id: 'inputs-writable',
+      label: 'Writable Pine inputs',
+      ok: typeof study?.setInputValues === 'function',
+    });
+
     const source = getStrategySource(chart, strategyId);
     checks.push({
       id: 'report-source',
