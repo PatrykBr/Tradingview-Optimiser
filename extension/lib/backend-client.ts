@@ -1,3 +1,4 @@
+import type { BackendState } from './messages';
 import type {
   CreateRun,
   Envelope,
@@ -8,13 +9,7 @@ import type {
 } from './protocol/types';
 
 export type BackendEvent =
-  | {
-      type: 'connection';
-      connected: boolean;
-      backendVersion?: string;
-      optunaVersion?: string;
-      pairingRequired?: boolean;
-    }
+  | ({ type: 'connection' } & BackendState)
   | { type: 'progress'; progress: RunProgress }
   | { type: 'trial'; trial: NextTrial }
   | { type: 'error'; message: string };
@@ -50,12 +45,7 @@ export class BackendClient {
     return () => this.#listeners.delete(listener);
   }
 
-  get state(): {
-    connected: boolean;
-    backendVersion?: string;
-    optunaVersion?: string;
-    pairingRequired: boolean;
-  } {
+  get state(): BackendState {
     return {
       connected: this.#authenticated,
       ...(this.#backendVersion
@@ -80,7 +70,7 @@ export class BackendClient {
 
     if (!this.#token) {
       this.#pairingRequired = true;
-      this.#emitConnection(false);
+      this.#emitConnection();
       return;
     }
 
@@ -112,11 +102,11 @@ export class BackendClient {
 
       if (event.code === 1008) {
         this.#pairingRequired = true;
-        this.#emitConnection(false);
+        this.#emitConnection();
         return;
       }
 
-      this.#emitConnection(false);
+      this.#emitConnection();
       if (!this.#manualClose && !this.#pairingRequired) {
         this.#scheduleReconnect();
       }
@@ -313,7 +303,7 @@ export class BackendClient {
           payload.optuna_version;
         this.#authenticated = true;
         this.#pairingRequired = false;
-        this.#emitConnection(true);
+        this.#emitConnection();
         this.#startHeartbeat();
         break;
       }
@@ -381,20 +371,10 @@ export class BackendClient {
     this.#pendingRequests.clear();
   }
 
-  #emitConnection(connected: boolean): void {
+  #emitConnection(): void {
     this.#emit({
       type: 'connection',
-      connected,
-      ...(this.#backendVersion
-        ? {
-            backendVersion:
-              this.#backendVersion,
-          }
-        : {}),
-      ...(this.#optunaVersion
-        ? { optunaVersion: this.#optunaVersion }
-        : {}),
-      pairingRequired: this.#pairingRequired,
+      ...this.state,
     });
   }
 
