@@ -524,3 +524,74 @@ async def test_exact_duplicate_trials_reuse_completed_results(tmp_path: Path) ->
         assert trial.constraints == source.constraints
         assert trial.duration_ms is None
 
+@pytest.mark.asyncio
+async def test_duplicate_reuse_survives_backend_restart(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+    config = CreateRun.model_validate(
+        {
+            "run_id": "duplicate-restart-test",
+            "objective_metric": "profitFactor",
+            "direction": "maximize",
+            "target_trials": 4,
+            "parameters": [
+                {
+                    "type": "categorical",
+                    "name": "enabled",
+                    "choices": [True, False],
+                }
+            ],
+            "filters": [],
+            "chart": {
+                "symbol": "OANDA:XAUUSD",
+                "timeframe": "5",
+                "strategy_name": "Test Strategy",
+                "strategy_signature": "signature-123",
+            },
+            "baseline_parameters": {"enabled": True},
+        }
+    )
+
+    first_manager = OptimisationManager(database_url)
+    await first_manager.create_run(config)
+    _, first = await first_manager.start(config.run_id)
+    assert first is not None
+    assert first.parameters == {"enabled": True}
+
+    progress, _ = await first_manager.submit_result(
+        TrialResult(
+            run_id=config.run_id,
+            trial_number=first.trial_number,
+            metrics={
+                "profitFactor": 1.8,
+                "totalTrades": 150,
+            },
+        )
+    )
+    assert progress.completed_trials >= 1
+
+    restarted = OptimisationManager(database_url)
+    progress = await restarted.create_run(config)
+    assert progress.completed_trials >= 1
+
+    progress, active = await restarted.start(config.run_id)
+    post_restart_evaluations = 0
+
+    while active is not None:
+        post_restart_evaluations += 1
+        profit_factor = 1.8 if active.parameters["enabled"] else 1.4
+        progress, active = await restarted.submit_result(
+            TrialResult(
+                run_id=config.run_id,
+                trial_number=active.trial_number,
+                metrics={
+                    "profitFactor": profit_factor,
+                    "totalTrades": 150,
+                },
+            )
+        )
+
+    assert progress.status == "completed"
+    assert progress.completed_trials == config.target_trials
+    assert progress.reused_trials >= 2
+    assert post_restart_evaluations <= 1
+
