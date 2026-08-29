@@ -86,6 +86,14 @@ export class TradingViewAdapter {
     });
   }
 
+  async resetToChartSession(): Promise<void> {
+    await this.bridge.request<{ reset: boolean; changed: boolean }>(
+      'resetToChartSession',
+      undefined,
+      5_000,
+    );
+  }
+
   configureDeepBacktestRange(
     startDate: string,
     endDate: string,
