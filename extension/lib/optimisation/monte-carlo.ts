@@ -30,6 +30,11 @@ export interface MonteCarloResult {
     | null;
 }
 
+export interface MonteCarloContext {
+  source: 'oos' | 'optimisation';
+  range: BacktestRange | null;
+}
+
 const hashTrades = (
   trades: ClosedTrade[],
 ): number => {
@@ -162,4 +167,197 @@ const interval = (
   };
 };
 
-3260
+const unavailable = (
+  snapshot: ClosedTradeSnapshot,
+  simulations: number,
+  confidence: number,
+  context: MonteCarloContext,
+  reason?: string,
+): MonteCarloResult => ({
+  available: false,
+  source: context.source,
+  range: context.range,
+  reason:
+    reason ??
+    snapshot.reason ??
+    'Trade-level data is unavailable.',
+  sampleSize: 0,
+  simulations,
+  confidence,
+  unit: 'pnl',
+  probabilityOfLoss: null,
+  total: null,
+  maxDrawdown: null,
+  profitFactor: null,
+});
+
+const finiteTrades = (
+  snapshot: ClosedTradeSnapshot,
+): ClosedTrade[] =>
+  snapshot.trades.filter(
+    (trade) =>
+      Number.isFinite(trade.pnl),
+  );
+
+export const runTradeMonteCarlo = (
+  snapshot: ClosedTradeSnapshot,
+  requestedSimulations: number,
+  requestedConfidence: number,
+  context: MonteCarloContext,
+): MonteCarloResult => {
+  const simulations = Math.max(
+    1,
+    Math.floor(
+      Number.isFinite(requestedSimulations)
+        ? requestedSimulations
+        : 1,
+    ),
+  );
+  const confidence = Math.min(
+    0.99,
+    Math.max(
+      0.5,
+      Number.isFinite(requestedConfidence)
+        ? requestedConfidence
+        : 0.9,
+    ),
+  );
+
+  if (!snapshot.available) {
+    return unavailable(
+      snapshot,
+      simulations,
+      confidence,
+      context,
+    );
+  }
+
+  const trades = finiteTrades(snapshot);
+  if (trades.length < 2) {
+    return unavailable(
+      snapshot,
+      simulations,
+      confidence,
+      context,
+      'At least two finite closed trades are required for Monte Carlo analysis.',
+    );
+  }
+
+  const seed =
+    hashTrades(trades) ^
+    Math.imul(
+      simulations,
+      0x9e3779b1,
+    ) ^
+    Math.round(confidence * 1_000_000);
+  const random = mulberry32(seed);
+
+  const totals: number[] = [];
+  const drawdowns: number[] = [];
+  const profitFactors: number[] = [];
+  let losingSimulations = 0;
+
+  for (
+    let simulation = 0;
+    simulation < simulations;
+    simulation += 1
+  ) {
+    let cumulativePnl = 0;
+    let peakPnl = 0;
+    let maxDrawdown = 0;
+    let grossProfit = 0;
+    let grossLoss = 0;
+
+    for (
+      let index = 0;
+      index < trades.length;
+      index += 1
+    ) {
+      const sampledIndex = Math.min(
+        trades.length - 1,
+        Math.floor(
+          random() * trades.length,
+        ),
+      );
+      const sampledTrade =
+        trades[sampledIndex];
+
+      if (!sampledTrade) continue;
+
+      const pnl = sampledTrade.pnl;
+      cumulativePnl += pnl;
+
+      if (cumulativePnl > peakPnl) {
+        peakPnl = cumulativePnl;
+      }
+
+      maxDrawdown = Math.max(
+        maxDrawdown,
+        peakPnl - cumulativePnl,
+      );
+
+      if (pnl > 0) {
+        grossProfit += pnl;
+      } else if (pnl < 0) {
+        grossLoss += Math.abs(pnl);
+      }
+    }
+
+    totals.push(cumulativePnl);
+    drawdowns.push(maxDrawdown);
+
+    if (cumulativePnl < 0) {
+      losingSimulations += 1;
+    }
+
+    if (grossLoss > 0) {
+      profitFactors.push(
+        grossProfit / grossLoss,
+      );
+    }
+  }
+
+  const sortedDrawdowns = [
+    ...drawdowns,
+  ].sort(
+    (left, right) => left - right,
+  );
+  const medianDrawdown = quantile(
+    sortedDrawdowns,
+    0.5,
+  );
+  const p95Drawdown = quantile(
+    sortedDrawdowns,
+    0.95,
+  );
+
+  return {
+    available: true,
+    source: context.source,
+    range: context.range,
+    reason: null,
+    sampleSize: trades.length,
+    simulations,
+    confidence,
+    unit: 'pnl',
+    probabilityOfLoss:
+      losingSimulations /
+      simulations,
+    total: interval(
+      totals,
+      confidence,
+    ),
+    maxDrawdown:
+      medianDrawdown === null ||
+      p95Drawdown === null
+        ? null
+        : {
+            median: medianDrawdown,
+            p95: p95Drawdown,
+          },
+    profitFactor: interval(
+      profitFactors,
+      confidence,
+    ),
+  };
+};
