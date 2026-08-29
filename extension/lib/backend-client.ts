@@ -19,13 +19,21 @@ export type BackendEvent =
 
 type Listener = (event: BackendEvent) => void;
 
+interface PendingRequest {
+  resolve: (message: Envelope) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
 const BACKEND_WS_URL = 'ws://127.0.0.1:8765/ws';
 const BACKEND_HTTP_URL = 'http://127.0.0.1:8765';
 const HEARTBEAT_MS = 20_000;
+const REQUEST_TIMEOUT_MS = 15_000;
 
 export class BackendClient {
   #socket: WebSocket | null = null;
   #listeners = new Set<Listener>();
+  #pendingRequests = new Map<string, PendingRequest>();
   #heartbeat: ReturnType<typeof setInterval> | null = null;
   #reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   #token: string | null = null;
@@ -86,6 +94,10 @@ export class BackendClient {
       this.#stopHeartbeat();
       if (this.#socket === socket) this.#socket = null;
 
+      this.#rejectPending(
+        new Error('Backend connection closed before the request completed'),
+      );
+
       if (event.code === 1008) {
         this.#pairingRequired = true;
         this.#emitConnection(false);
@@ -141,51 +153,91 @@ export class BackendClient {
   disconnect(): void {
     this.#manualClose = true;
     this.#stopHeartbeat();
+
     if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
     this.#reconnectTimer = null;
+
+    this.#rejectPending(new Error('Backend client disconnected'));
     this.#socket?.close();
     this.#socket = null;
   }
 
-  createRun(run: CreateRun): void {
-    this.#send('CREATE_RUN', run);
+  async createRun(run: CreateRun): Promise<void> {
+    await this.#request('CREATE_RUN', run);
   }
 
-  startRun(runId: string): void {
-    this.#send('START_RUN', { run_id: runId });
+  async startRun(runId: string): Promise<void> {
+    await this.#request('START_RUN', { run_id: runId });
   }
 
-  stopRun(runId: string): void {
-    this.#send('STOP_RUN', { run_id: runId });
+  async stopRun(runId: string): Promise<void> {
+    await this.#request('STOP_RUN', { run_id: runId });
   }
 
-  submitTrialResult(result: TrialResult): void {
-    this.#send('TRIAL_RESULT', result);
+  async submitTrialResult(result: TrialResult): Promise<void> {
+    await this.#request('TRIAL_RESULT', result);
   }
 
-  submitTrialFailure(
+  async submitTrialFailure(
     runId: string,
     trialNumber: number,
     reason: string,
-  ): void {
-    this.#send('TRIAL_FAILED', {
+  ): Promise<void> {
+    await this.#request('TRIAL_FAILED', {
       run_id: runId,
       trial_number: trialNumber,
       reason,
     });
   }
 
-  #send(type: string, payload: unknown): void {
+  #request(type: string, payload: unknown): Promise<Envelope> {
     if (this.#socket?.readyState !== WebSocket.OPEN) {
-      throw new Error('Backend is not connected');
+      return Promise.reject(new Error('Backend is not connected'));
     }
 
+    const requestId = crypto.randomUUID();
     const envelope: Envelope = {
       type,
-      request_id: crypto.randomUUID(),
+      request_id: requestId,
       payload,
     };
-    this.#socket.send(JSON.stringify(envelope));
+
+    return new Promise<Envelope>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.#pendingRequests.delete(requestId);
+        reject(
+          new Error(
+            'Backend request timed out: ' + type,
+          ),
+        );
+      }, REQUEST_TIMEOUT_MS);
+
+      this.#pendingRequests.set(requestId, {
+        resolve,
+        reject,
+        timeout,
+      });
+
+      try {
+        this.#socket!.send(JSON.stringify(envelope));
+      } catch (error) {
+        clearTimeout(timeout);
+        this.#pendingRequests.delete(requestId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  #sendPing(): void {
+    if (this.#socket?.readyState !== WebSocket.OPEN) return;
+
+    this.#socket.send(
+      JSON.stringify({
+        type: 'PING',
+        request_id: crypto.randomUUID(),
+        payload: {},
+      } satisfies Envelope),
+    );
   }
 
   #handleMessage(raw: string): void {
@@ -199,6 +251,23 @@ export class BackendClient {
         message: 'Backend returned invalid JSON.',
       });
       return;
+    }
+
+    if (message.request_id) {
+      const pending = this.#pendingRequests.get(message.request_id);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        this.#pendingRequests.delete(message.request_id);
+
+        if (message.type === 'ERROR') {
+          const payload = message.payload as { message?: string };
+          pending.reject(
+            new Error(payload.message ?? 'Backend rejected the request'),
+          );
+        } else {
+          pending.resolve(message);
+        }
+      }
     }
 
     switch (message.type) {
@@ -247,9 +316,7 @@ export class BackendClient {
     this.#stopHeartbeat();
 
     this.#heartbeat = setInterval(() => {
-      if (this.#socket?.readyState === WebSocket.OPEN) {
-        this.#send('PING', {});
-      }
+      this.#sendPing();
     }, HEARTBEAT_MS);
   }
 
@@ -265,6 +332,14 @@ export class BackendClient {
       this.#reconnectTimer = null;
       void this.connect();
     }, 1_500);
+  }
+
+  #rejectPending(error: Error): void {
+    for (const pending of this.#pendingRequests.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
+    this.#pendingRequests.clear();
   }
 
   #emitConnection(connected: boolean): void {
