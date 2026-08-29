@@ -3,6 +3,15 @@ type UnknownRecord = Record<string, unknown>;
 interface StudyInputValue {
   id: string;
   value: unknown;
+  name?: string;
+  type?: string;
+  options?: unknown[];
+  values?: unknown[];
+  min?: number;
+  max?: number;
+  minval?: number;
+  maxval?: number;
+  step?: number;
 }
 
 interface StudyLike {
@@ -176,6 +185,36 @@ const inferInputType = (
   return 'unsupported';
 };
 
+const getInternalStudyMeta = (
+  chart: ChartLike,
+  strategyId: string,
+): UnknownRecord => {
+  try {
+    const sources = chart._chartWidget?.model?.()?.model?.()?.dataSources?.() ?? [];
+
+    for (const source of sources) {
+      const candidate = source as {
+        id?: string | (() => string);
+        metaInfo?: () => UnknownRecord;
+      };
+
+      const rawId =
+        typeof candidate.id === 'function' ? candidate.id() : candidate.id;
+      if (rawId !== strategyId) continue;
+
+      try {
+        return asRecord(candidate.metaInfo?.());
+      } catch {
+        return {};
+      }
+    }
+  } catch {
+    // The public study metadata below remains a fallback.
+  }
+
+  return {};
+};
+
 const readStrategyInputs = (strategyId: string) => {
   const chart = getChart();
   const study = chart.getStudyById?.(strategyId);
@@ -185,26 +224,59 @@ const readStrategyInputs = (strategyId: string) => {
   }
 
   const current = study.getInputValues();
-  const meta = readMeta(study);
-  const declaredInputs = Array.isArray(meta.inputs)
-    ? (meta.inputs as unknown[])
-    : [];
-  const metaById = new Map<string, UnknownRecord>();
 
+  // Pine user inputs are compiled to in_0, in_1, ... . Other entries such as
+  // pineId, pineVersion, pineFeatures and text are TradingView implementation
+  // metadata and must never be exposed as optimisable strategy parameters.
+  const pineInputs = current.filter((input) => /^in_\d+$/.test(input.id));
+
+  const publicMeta = readMeta(study);
+  const internalMeta = getInternalStudyMeta(chart, strategyId);
+  const declaredInputs = [
+    ...(Array.isArray(publicMeta.inputs) ? publicMeta.inputs : []),
+    ...(Array.isArray(internalMeta.inputs) ? internalMeta.inputs : []),
+  ];
+
+  const metaById = new Map<string, UnknownRecord>();
   for (const item of declaredInputs) {
     const record = asRecord(item);
-    if (typeof record.id === 'string') metaById.set(record.id, record);
+    if (typeof record.id === 'string') {
+      metaById.set(record.id, {
+        ...(metaById.get(record.id) ?? {}),
+        ...record,
+      });
+    }
   }
 
-  return current.map((input) => {
-    const inputMeta = metaById.get(input.id) ?? {};
-    const optionsCandidate = inputMeta.options ?? inputMeta.values;
-    const options = Array.isArray(optionsCandidate) ? optionsCandidate : undefined;
+  return pineInputs.map((input) => {
+    // getInputValues() itself may already contain the compiled Pine title/type.
+    // Merge it with the richer metaInfo().inputs definition when available.
+    const inputRecord = asRecord(input);
+    const inputMeta: UnknownRecord = {
+      ...inputRecord,
+      ...(metaById.get(input.id) ?? {}),
+    };
+
+    const optionsCandidate =
+      inputMeta.options ??
+      inputMeta.values;
+    const options = Array.isArray(optionsCandidate)
+      ? optionsCandidate
+      : undefined;
+
     const labelCandidate =
       inputMeta.name ??
       inputMeta.description ??
       inputMeta.title ??
       input.id;
+
+    const minCandidate =
+      inputMeta.min ??
+      inputMeta.minval;
+    const maxCandidate =
+      inputMeta.max ??
+      inputMeta.maxval;
+    const stepCandidate = inputMeta.step;
 
     return {
       id: input.id,
@@ -215,6 +287,9 @@ const readStrategyInputs = (strategyId: string) => {
       type: inferInputType(inputMeta, input.value),
       currentValue: input.value,
       ...(options ? { options } : {}),
+      ...(typeof minCandidate === 'number' ? { min: minCandidate } : {}),
+      ...(typeof maxCandidate === 'number' ? { max: maxCandidate } : {}),
+      ...(typeof stepCandidate === 'number' ? { step: stepCandidate } : {}),
     };
   });
 };
