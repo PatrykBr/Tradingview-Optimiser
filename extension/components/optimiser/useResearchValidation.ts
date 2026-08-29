@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type SetStateAction,
@@ -86,6 +87,8 @@ export function useResearchValidation({
   >([]);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<string>();
+  const validationAbortRef =
+    useRef<AbortController | null>(null);
 
   const refreshHistory = useCallback(async () => {
     const history = await loadExperimentHistory();
@@ -246,6 +249,8 @@ export function useResearchValidation({
     setError(undefined);
     setPhase('Preparing validation');
 
+    const controller = new AbortController();
+    validationAbortRef.current = controller;
     const evaluation: ResearchEvaluation = {};
     let winnerParameters =
       progress.best.parameters;
@@ -324,6 +329,7 @@ export function useResearchValidation({
                     window.startDate,
                   endDate: window.endDate,
                 },
+                controller.signal,
               );
 
             await validateContext(
@@ -440,6 +446,7 @@ export function useResearchValidation({
                     range.end_date,
                 }
               : null,
+            controller.signal,
           );
         await validateContext(
           config,
@@ -498,6 +505,7 @@ export function useResearchValidation({
                       range.end_date,
                   }
                 : null,
+              controller.signal,
             );
           await validateContext(
             config,
@@ -614,11 +622,17 @@ export function useResearchValidation({
       );
       await refreshHistory();
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : String(cause),
-      );
+      const cancelled =
+        cause instanceof DOMException &&
+        cause.name === 'AbortError';
+
+      if (!cancelled) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : String(cause),
+        );
+      }
     } finally {
       setPhase(undefined);
 
@@ -644,6 +658,11 @@ export function useResearchValidation({
         // Preserve the original validation error if restoration also fails.
       }
 
+      if (
+        validationAbortRef.current === controller
+      ) {
+        validationAbortRef.current = null;
+      }
       setBusy(false);
     }
   }, [
@@ -654,6 +673,10 @@ export function useResearchValidation({
     strategyId,
     validateContext,
   ]);
+
+  const cancelValidation = useCallback(() => {
+    validationAbortRef.current?.abort();
+  }, []);
 
   const applyRobustWinner =
     useCallback(async () => {
@@ -691,6 +714,7 @@ export function useResearchValidation({
     busy,
     phase,
     runValidation,
+    cancelValidation,
     applyRobustWinner,
     refreshHistory,
     removeExperiment,
