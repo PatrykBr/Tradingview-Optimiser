@@ -668,6 +668,22 @@ const deepBacktestingCapability = () => {
   };
 };
 
+const resetToChartSession = async () => {
+  ensureStrategyTester();
+  await sleep(150);
+
+  const resetButton = findClickableByText(
+    /reset to chart session/i,
+  );
+  if (!resetButton) {
+    return { reset: true, changed: false };
+  }
+
+  resetButton.click();
+  await sleep(250);
+  return { reset: true, changed: true };
+};
+
 const configureDeepBacktestRange = async (
   startDate: string,
   endDate: string,
@@ -930,6 +946,9 @@ export default defineUnlistedScript(() => {
           result = getStrategySignature(payload.strategyId);
           break;
         }
+        case 'resetToChartSession':
+          result = await resetToChartSession();
+          break;
         case 'configureDeepBacktestRange': {
           const payload = asRecord(request.payload);
           if (
