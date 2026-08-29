@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import hmac
-from contextlib import suppress
 import logging
 import os
 import secrets
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
