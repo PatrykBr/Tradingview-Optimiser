@@ -213,10 +213,10 @@ export const formFromRun = (
           draft.stabilityPerturbationPercent,
       ),
     walkForwardEnabled:
-      research?.walk_forward.enabled ??
+      research?.walk_forward?.enabled ??
       false,
     walkForwardFolds: String(
-      research?.walk_forward.folds ??
+      research?.walk_forward?.folds ??
         draft.walkForwardFolds,
     ),
     walkForwardTrialsPerFold: String(
@@ -234,7 +234,7 @@ export const formFromRun = (
             100) * 100,
       ),
     monteCarloEnabled:
-      research?.monte_carlo.enabled ??
+      research?.monte_carlo?.enabled ??
       false,
     monteCarloSimulations: String(
       research?.monte_carlo
