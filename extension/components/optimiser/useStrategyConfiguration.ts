@@ -641,71 +641,247 @@ export function useStrategyConfiguration(
     ],
   );
 
-  const restorePersistedRun = useCallback(
+  const resolveStrategyForConfig = useCallback(
     async (
-      candidate: PersistedOptimisationRun,
-    ): Promise<string> => {
-      const chart = await adapter.getChartContext();
-      if (!sameChart(candidate.config.chart, chart)) {
+      config: CreateRun,
+    ): Promise<{
+      detected: DetectedStrategy[];
+      strategy: DetectedStrategy;
+    }> => {
+      const chart =
+        await adapter.getChartContext();
+
+      if (!sameChart(config.chart, chart)) {
         throw new Error(
-          'The current TradingView symbol/timeframe does not match the saved optimisation.',
+          'The current TradingView symbol/timeframe does not match this experiment.',
         );
       }
 
-      const detected = await adapter.detectStrategies();
-      let matchingStrategy: DetectedStrategy | null = null;
+      const detected =
+        await adapter.detectStrategies();
 
       for (const strategy of detected) {
         if (
           strategy.name !==
-          candidate.config.chart.strategy_name
+          config.chart.strategy_name
         ) {
           continue;
         }
 
         const signature =
-          await adapter.getStrategySignature(strategy.id);
+          await adapter.getStrategySignature(
+            strategy.id,
+          );
 
         if (
           signature ===
-          candidate.config.chart.strategy_signature
+          config.chart.strategy_signature
         ) {
-          matchingStrategy = strategy;
-          break;
+          return {
+            detected,
+            strategy,
+          };
         }
       }
 
-      if (!matchingStrategy) {
-        throw new Error(
-          'The saved strategy version/input structure is not present on the current chart.',
-        );
-      }
-
-      setStrategies(detected);
-      selectedStrategyIdRef.current =
-        matchingStrategy.id;
-      setSelectedStrategyId(matchingStrategy.id);
-      await loadInputs(
-        matchingStrategy.id,
-        candidate.config,
+      throw new Error(
+        'The experiment strategy version/input structure is not present on the current chart.',
       );
-      await refreshStrategyPresets(matchingStrategy.id);
+    },
+    [adapter],
+  );
+
+  const loadExperimentConfiguration =
+    useCallback(
+      async (
+        config: CreateRun,
+      ): Promise<string> => {
+        const resolved =
+          await resolveStrategyForConfig(
+            config,
+          );
+
+        setStrategies(resolved.detected);
+        selectedStrategyIdRef.current =
+          resolved.strategy.id;
+        setSelectedStrategyId(
+          resolved.strategy.id,
+        );
+
+        await loadInputs(
+          resolved.strategy.id,
+          config,
+        );
+        await refreshStrategyPresets(
+          resolved.strategy.id,
+        );
+
+        return resolved.strategy.id;
+      },
+      [
+        loadInputs,
+        refreshStrategyPresets,
+        resolveStrategyForConfig,
+      ],
+    );
+
+  const prepareExperimentRerun =
+    useCallback(
+      async (
+        source: CreateRun,
+      ): Promise<PreparedOptimisationRun> => {
+        const resolved =
+          await resolveStrategyForConfig(
+            source,
+          );
+        const strategyId =
+          resolved.strategy.id;
+        const detectedInputs =
+          await adapter.readStrategyInputs(
+            strategyId,
+          );
+        const chart =
+          await adapter.getChartContext();
+        const strategySignature =
+          await adapter.getStrategySignature(
+            strategyId,
+          );
+        const baselineParameters =
+          buildBaselineParameters(
+            detectedInputs,
+            source.parameters,
+          );
+
+        const config: CreateRun = {
+          ...source,
+          run_id:
+            crypto.randomUUID(),
+          baseline_parameters:
+            baselineParameters,
+          chart: {
+            symbol: chart.symbol,
+            timeframe: chart.timeframe,
+            strategy_name:
+              resolved.strategy.name,
+            strategy_signature:
+              strategySignature,
+            strategy_settings_signature:
+              null,
+          },
+        };
+
+        await adapter.prepareBacktest(
+          strategyId,
+          config.backtest_range
+            ? {
+                startDate:
+                  config.backtest_range
+                    .start_date,
+                endDate:
+                  config.backtest_range
+                    .end_date,
+              }
+            : null,
+        );
+
+        const initialMetrics =
+          await adapter.waitForMetricsAfterChange(
+            strategyId,
+            null,
+            undefined,
+            12_000,
+          );
+        const requiredMetrics = [
+          config.objective_metric,
+          ...config.filters.map(
+            (filter) =>
+              filter.metric,
+          ),
+        ];
+
+        if (
+          (initialMetrics.totalTrades ??
+            0) > 0
+        ) {
+          for (
+            const requiredMetric of
+            requiredMetrics
+          ) {
+            if (
+              requiredMetric !==
+                'profitFactor' &&
+              !Number.isFinite(
+                initialMetrics[
+                  requiredMetric
+                ],
+              )
+            ) {
+              throw new Error(
+                'TradingView did not expose the required metric: ' +
+                  metricDefinition(
+                    requiredMetric,
+                  ).label,
+              );
+            }
+          }
+        }
+
+        config.chart.strategy_settings_signature =
+          await adapter.getStrategySettingsSignature(
+            strategyId,
+          );
+
+        return {
+          config,
+          strategyId,
+          originalParameters:
+            Object.fromEntries(
+              detectedInputs.map(
+                (input) => [
+                  input.id,
+                  input.currentValue,
+                ],
+              ),
+            ),
+        };
+      },
+      [
+        adapter,
+        resolveStrategyForConfig,
+      ],
+    );
+
+  const restorePersistedRun = useCallback(
+    async (
+      candidate: PersistedOptimisationRun,
+    ): Promise<string> => {
+      const strategyId =
+        await loadExperimentConfiguration(
+          candidate.config,
+        );
 
       await adapter.prepareBacktest(
-        matchingStrategy.id,
+        strategyId,
         candidate.config.backtest_range
           ? {
               startDate:
-                candidate.config.backtest_range.start_date,
+                candidate.config
+                  .backtest_range
+                  .start_date,
               endDate:
-                candidate.config.backtest_range.end_date,
+                candidate.config
+                  .backtest_range
+                  .end_date,
             }
           : null,
       );
 
-      return matchingStrategy.id;
+      return strategyId;
     },
-    [adapter, loadInputs, refreshStrategyPresets],
+    [
+      adapter,
+      loadExperimentConfiguration,
+    ],
   );
 
   useEffect(() => {
@@ -778,6 +954,8 @@ export function useStrategyConfiguration(
     updateFilter,
     conditionCandidates,
     prepareRun,
+    prepareExperimentRerun,
+    loadExperimentConfiguration,
     restorePersistedRun,
     inputLabel,
   };
