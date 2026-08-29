@@ -445,3 +445,82 @@ async def test_active_run_cannot_be_deleted(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="cannot delete an active"):
         await manager.delete_run("active-delete-test")
+
+@pytest.mark.asyncio
+async def test_exact_duplicate_trials_reuse_completed_results(tmp_path: Path) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
+    config = CreateRun.model_validate(
+        {
+            "run_id": "duplicate-reuse-test",
+            "objective_metric": "profitFactor",
+            "direction": "maximize",
+            "target_trials": 4,
+            "parameters": [
+                {
+                    "type": "categorical",
+                    "name": "enabled",
+                    "choices": [True, False],
+                }
+            ],
+            "filters": [
+                {
+                    "metric": "totalTrades",
+                    "operator": "gte",
+                    "value": 100,
+                }
+            ],
+            "chart": {
+                "symbol": "OANDA:XAUUSD",
+                "timeframe": "5",
+                "strategy_name": "Test Strategy",
+                "strategy_signature": "signature-123",
+            },
+            "baseline_parameters": {"enabled": True},
+        }
+    )
+
+    await manager.create_run(config)
+    _, active = await manager.start(config.run_id)
+    assert active is not None
+
+    browser_evaluations = 0
+    progress = None
+
+    while active is not None:
+        browser_evaluations += 1
+        profit_factor = 1.8 if active.parameters["enabled"] else 1.4
+        progress, active = await manager.submit_result(
+            TrialResult(
+                run_id=config.run_id,
+                trial_number=active.trial_number,
+                metrics={
+                    "profitFactor": profit_factor,
+                    "totalTrades": 150,
+                },
+            )
+        )
+
+    assert progress is not None
+    assert progress.status == "completed"
+    assert progress.completed_trials == config.target_trials
+    assert browser_evaluations <= 2
+    assert progress.reused_trials >= 2
+
+    reused = [
+        trial
+        for trial in progress.trials
+        if trial.reused_from_trial is not None
+    ]
+    assert len(reused) == progress.reused_trials
+
+    for trial in reused:
+        source = next(
+            item
+            for item in progress.trials
+            if item.trial_number == trial.reused_from_trial
+        )
+        assert trial.objective_value == source.objective_value
+        assert trial.metrics == source.metrics
+        assert trial.constraints == source.constraints
+        assert trial.duration_ms is None
+
