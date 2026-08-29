@@ -10,6 +10,12 @@ export default defineConfig({
     description: 'Optimise the Pine strategy on your current TradingView chart with Optuna v5.',
     permissions: ['storage', 'activeTab'],
     host_permissions: ['https://*.tradingview.com/*'],
+    web_accessible_resources: [
+      {
+        resources: ['tradingview-main-world.js'],
+        matches: ['https://*.tradingview.com/*'],
+      },
+    ],
     action: {
       default_title: 'Toggle optimiser',
     },
