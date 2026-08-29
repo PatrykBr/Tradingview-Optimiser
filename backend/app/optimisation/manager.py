@@ -332,23 +332,15 @@ class OptimisationManager:
                 parameters=dict(run.outstanding_trial.params),
             )
 
+        if self._complete_count(run) >= run.config.target_trials:
+            self._set_status(
+                run,
+                RunStatus.COMPLETED,
+                termination_reason="target_trials",
+            )
+            return None
+
         while run.status == RunStatus.RUNNING:
-            if self._complete_count(run) >= run.config.target_trials:
-                self._set_status(
-                    run,
-                    RunStatus.COMPLETED,
-                    termination_reason="target_trials",
-                )
-                return None
-
-            if self._should_converge(run):
-                self._set_status(
-                    run,
-                    RunStatus.COMPLETED,
-                    termination_reason="converged",
-                )
-                return None
-
             trial = run.study.ask()
             parameters: dict[str, Any] = {}
 
@@ -380,15 +372,29 @@ class OptimisationManager:
                 else:  # pragma: no cover
                     raise TypeError(f"unsupported parameter type: {type(parameter)!r}")
 
-            if self._reuse_completed_trial(run, trial):
-                continue
+            if not self._reuse_completed_trial(run, trial):
+                run.outstanding_trial = trial
+                return NextTrial(
+                    run_id=run.config.run_id,
+                    trial_number=trial.number,
+                    parameters=parameters,
+                )
 
-            run.outstanding_trial = trial
-            return NextTrial(
-                run_id=run.config.run_id,
-                trial_number=trial.number,
-                parameters=parameters,
-            )
+            if self._complete_count(run) >= run.config.target_trials:
+                self._set_status(
+                    run,
+                    RunStatus.COMPLETED,
+                    termination_reason="target_trials",
+                )
+                return None
+
+            if self._should_converge(run):
+                self._set_status(
+                    run,
+                    RunStatus.COMPLETED,
+                    termination_reason="converged",
+                )
+                return None
 
         return None
 
