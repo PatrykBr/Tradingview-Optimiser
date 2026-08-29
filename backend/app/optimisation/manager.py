@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import optuna
-from optuna.importance import get_param_importances, PedAnovaImportanceEvaluator
+from optuna.importance import PedAnovaImportanceEvaluator, get_param_importances
 from optuna.trial import FrozenTrial, Trial, TrialState
 
 from app.models import (
