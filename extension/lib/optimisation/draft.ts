@@ -22,6 +22,13 @@ export interface OptimisationDraft {
   robustnessTopCandidates: string;
   stabilityEnabled: boolean;
   stabilityPerturbationPercent: string;
+  walkForwardEnabled: boolean;
+  walkForwardFolds: string;
+  walkForwardTrialsPerFold: string;
+  walkForwardInitialTrainingPercent: string;
+  monteCarloEnabled: boolean;
+  monteCarloSimulations: string;
+  monteCarloConfidencePercent: string;
 }
 
 export const DEFAULT_OPTIMISATION_DRAFT: OptimisationDraft = {
@@ -52,6 +59,13 @@ export const DEFAULT_OPTIMISATION_DRAFT: OptimisationDraft = {
   robustnessTopCandidates: '5',
   stabilityEnabled: false,
   stabilityPerturbationPercent: '5',
+  walkForwardEnabled: false,
+  walkForwardFolds: '3',
+  walkForwardTrialsPerFold: '100',
+  walkForwardInitialTrainingPercent: '50',
+  monteCarloEnabled: false,
+  monteCarloSimulations: '5000',
+  monteCarloConfidencePercent: '90',
 };
 
 export const cloneOptimisationDraft = (
@@ -228,6 +242,44 @@ export const normaliseOptimisationDraft = (
         value,
         'stabilityPerturbationPercent',
         defaults.stabilityPerturbationPercent,
+      ),
+    walkForwardEnabled: booleanField(
+      value,
+      'walkForwardEnabled',
+      defaults.walkForwardEnabled,
+    ),
+    walkForwardFolds: stringField(
+      value,
+      'walkForwardFolds',
+      defaults.walkForwardFolds,
+    ),
+    walkForwardTrialsPerFold:
+      stringField(
+        value,
+        'walkForwardTrialsPerFold',
+        defaults.walkForwardTrialsPerFold,
+      ),
+    walkForwardInitialTrainingPercent:
+      stringField(
+        value,
+        'walkForwardInitialTrainingPercent',
+        defaults.walkForwardInitialTrainingPercent,
+      ),
+    monteCarloEnabled: booleanField(
+      value,
+      'monteCarloEnabled',
+      defaults.monteCarloEnabled,
+    ),
+    monteCarloSimulations: stringField(
+      value,
+      'monteCarloSimulations',
+      defaults.monteCarloSimulations,
+    ),
+    monteCarloConfidencePercent:
+      stringField(
+        value,
+        'monteCarloConfidencePercent',
+        defaults.monteCarloConfidencePercent,
       ),
   };
 };
