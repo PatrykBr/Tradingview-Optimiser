@@ -740,6 +740,27 @@ export function useStrategyConfiguration(
           await adapter.readStrategyInputs(
             strategyId,
           );
+
+        setStrategies(resolved.detected);
+        selectedStrategyIdRef.current =
+          strategyId;
+        setSelectedStrategyId(
+          strategyId,
+        );
+        setInputs(detectedInputs);
+        setParameterConfigs(
+          parameterConfigsFromRun(
+            detectedInputs,
+            source,
+          ),
+        );
+        setForm(
+          formFromRun(source),
+        );
+        await refreshStrategyPresets(
+          strategyId,
+        );
+
         const chart =
           await adapter.getChartContext();
         const strategySignature =
@@ -847,6 +868,7 @@ export function useStrategyConfiguration(
       },
       [
         adapter,
+        refreshStrategyPresets,
         resolveStrategyForConfig,
       ],
     );
