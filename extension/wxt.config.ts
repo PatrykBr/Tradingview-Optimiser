@@ -1,7 +1,10 @@
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'wxt';
 
 export default defineConfig({
-  modules: ['@wxt-dev/module-react'],
+  vite: () => ({
+    plugins: [react()],
+  }),
   manifest: {
     name: 'TradingView Optuna Optimiser',
     description: 'Optimise the Pine strategy on your current TradingView chart with Optuna v5.',
