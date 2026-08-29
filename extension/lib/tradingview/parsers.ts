@@ -70,6 +70,26 @@ const inferInputType = (
   return 'unsupported';
 };
 
+const normaliseInputBound = (
+  value: unknown,
+): number | undefined => {
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value)
+  ) {
+    return undefined;
+  }
+
+  // TradingView uses extremely large finite values for some effectively
+  // unbounded Pine inputs. They are implementation sentinels, not useful
+  // optimisation limits.
+  if (Math.abs(value) >= 1.0e12) {
+    return undefined;
+  }
+
+  return value;
+};
+
 export const normalisePineInputs = (
   current: RawStudyInput[],
   declaredInputs: unknown[],
@@ -107,10 +127,12 @@ export const normalisePineInputs = (
       inputMeta.title ??
       input.id;
 
-    const minCandidate =
-      inputMeta.min ?? inputMeta.minval;
-    const maxCandidate =
-      inputMeta.max ?? inputMeta.maxval;
+    const minCandidate = normaliseInputBound(
+      inputMeta.min ?? inputMeta.minval,
+    );
+    const maxCandidate = normaliseInputBound(
+      inputMeta.max ?? inputMeta.maxval,
+    );
     const stepCandidate = inputMeta.step;
 
     return {
@@ -123,10 +145,10 @@ export const normalisePineInputs = (
       type: inferInputType(inputMeta, input.value),
       currentValue: input.value,
       ...(options ? { options } : {}),
-      ...(typeof minCandidate === 'number'
+      ...(minCandidate !== undefined
         ? { min: minCandidate }
         : {}),
-      ...(typeof maxCandidate === 'number'
+      ...(maxCandidate !== undefined
         ? { max: maxCandidate }
         : {}),
       ...(typeof stepCandidate === 'number'
