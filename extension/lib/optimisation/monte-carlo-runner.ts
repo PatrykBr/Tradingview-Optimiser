@@ -4,8 +4,11 @@ import type {
   RunProgress,
 } from '../protocol/types';
 import type {
-  TradingViewAdapter,
+  TradingViewBacktestRange,
 } from '../tradingview/adapter';
+import type {
+  ClosedTradeSnapshot,
+} from '../tradingview/trades';
 import {
   runTradeMonteCarlo,
   type MonteCarloResult,
@@ -14,8 +17,34 @@ import type {
   ResearchEvaluation,
 } from './research';
 
+export interface MonteCarloBacktestAdapter {
+  evaluateParameters(
+    strategyId: string,
+    parameters: Record<string, unknown>,
+    range: TradingViewBacktestRange | null,
+    signal?: AbortSignal,
+  ): Promise<Record<string, number>>;
+  assertRunContext(
+    strategyId: string,
+    config: CreateRun,
+    originalParameters:
+      Record<string, unknown> | null,
+  ): Promise<void>;
+  readClosedTrades(
+    strategyId: string,
+  ): Promise<ClosedTradeSnapshot>;
+  prepareBacktest(
+    strategyId: string,
+    range: TradingViewBacktestRange | null,
+  ): Promise<void>;
+  applyParameters(
+    strategyId: string,
+    parameters: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
+}
+
 export interface MonteCarloExecutionRequest {
-  adapter: TradingViewAdapter;
+  adapter: MonteCarloBacktestAdapter;
   strategyId: string;
   config: CreateRun;
   progress: RunProgress;
