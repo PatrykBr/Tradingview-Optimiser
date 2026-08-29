@@ -95,6 +95,17 @@ const chooseRange = (
     }
   }
 
+  const lastWalkForwardFold =
+    research.walkForward?.folds.at(-1);
+
+  if (lastWalkForwardFold) {
+    return {
+      source: 'oos',
+      range:
+        lastWalkForwardFold.fold.testRange,
+    };
+  }
+
   return {
     source: 'optimisation',
     range:
@@ -119,6 +130,9 @@ export const runMonteCarloValidation =
     const bestParameters =
       request.existingResearch
         .robustness?.winnerParameters ??
+      request.existingResearch
+        .walkForward?.folds.at(-1)
+        ?.bestParameters ??
       request.progress.best
         ?.parameters;
 
