@@ -28,6 +28,23 @@ const terminal = (
   status === 'stopped' ||
   status === 'failed';
 
+const experimentTerminationLabel = (
+  experiment: ExperimentRecord,
+): string => {
+  switch (experiment.terminationReason) {
+    case 'target_trials':
+      return 'Target reached';
+    case 'converged':
+      return 'Converged';
+    case 'search_space_exhausted':
+      return 'Search space exhausted';
+    case 'user':
+      return 'Stopped by user';
+    default:
+      return experiment.status;
+  }
+};
+
 const experimentLabel = (
   experiment: ExperimentRecord,
 ): string => {
@@ -945,12 +962,14 @@ export default function ResearchSection({
               <div className="comparisonRow">
                 <span>Stopped by</span>
                 <code>
-                  {left.terminationReason ??
-                    left.status}
+                  {experimentTerminationLabel(
+                    left,
+                  )}
                 </code>
                 <code>
-                  {right.terminationReason ??
-                    right.status}
+                  {experimentTerminationLabel(
+                    right,
+                  )}
                 </code>
               </div>
 
