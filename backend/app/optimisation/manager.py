@@ -132,7 +132,8 @@ class OptimisationManager:
             if run.status in {RunStatus.COMPLETED, RunStatus.STOPPED}:
                 return self._progress(run), None
             self._set_status(run, RunStatus.RUNNING)
-            return self._progress(run), self._next_trial_locked(run)
+            next_trial = self._next_trial_locked(run)
+            return self._progress(run), next_trial
 
     async def next_trial(self, run_id: str) -> NextTrial | None:
         async with self._lock:
@@ -215,7 +216,8 @@ class OptimisationManager:
                 )
                 return self._progress(run), None
 
-            return self._progress(run), self._next_trial_locked(run)
+            next_trial = self._next_trial_locked(run)
+            return self._progress(run), next_trial
 
     async def submit_failure(self, failure: TrialFailure) -> tuple[RunProgress, NextTrial | None]:
         async with self._lock:
@@ -233,7 +235,8 @@ class OptimisationManager:
                 )
                 return self._progress(run), None
 
-            return self._progress(run), self._next_trial_locked(run)
+            next_trial = self._next_trial_locked(run)
+            return self._progress(run), next_trial
 
     async def stop(self, run_id: str) -> RunProgress:
         async with self._lock:
