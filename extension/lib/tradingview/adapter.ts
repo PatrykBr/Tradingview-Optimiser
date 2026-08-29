@@ -12,6 +12,11 @@ interface ApplyParametersResult {
   confirmed: Record<string, unknown>;
 }
 
+export interface TradingViewBacktestRange {
+  startDate: string;
+  endDate: string;
+}
+
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -115,6 +120,78 @@ export class TradingViewAdapter {
     );
     if (!opened) {
       throw new Error('Could not open TradingView Strategy Tester');
+    }
+  }
+
+  async prepareBacktest(
+    strategyId: string,
+    range: TradingViewBacktestRange | null,
+  ): Promise<void> {
+    await this.ensureStrategyTester();
+
+    if (!range) {
+      await this.resetToChartSession();
+      return;
+    }
+
+    const before = await this.readReportSnapshot(strategyId);
+    await this.#applyDeepBacktestRange(range);
+
+    await this.waitForMetricsAfterChange(
+      strategyId,
+      before,
+      undefined,
+      30_000,
+    );
+
+    await this.assertDeepBacktestRange(
+      strategyId,
+      range.startDate,
+      range.endDate,
+    );
+  }
+
+  async evaluateParameters(
+    strategyId: string,
+    parameters: Record<string, unknown>,
+    range: TradingViewBacktestRange | null,
+    signal?: AbortSignal,
+  ): Promise<TradingViewMetrics> {
+    const before = await this.readReportSnapshot(strategyId);
+    await this.applyParameters(strategyId, parameters);
+
+    if (range) {
+      await this.#applyDeepBacktestRange(range);
+    }
+
+    try {
+      return await this.waitForMetricsAfterChange(
+        strategyId,
+        before,
+        signal,
+      );
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : String(cause);
+
+      if (!/timed out|remained ambiguous/i.test(message)) {
+        throw cause;
+      }
+
+      await this.ensureStrategyTester();
+      const retryBefore = await this.readReportSnapshot(strategyId);
+      await this.applyParameters(strategyId, parameters);
+
+      if (range) {
+        await this.#applyDeepBacktestRange(range);
+      }
+
+      return this.waitForMetricsAfterChange(
+        strategyId,
+        retryBefore,
+        signal,
+        35_000,
+      );
     }
   }
 
@@ -248,6 +325,22 @@ export class TradingViewAdapter {
     strategyId: string,
   ): Promise<string | null> {
     return (await this.readReportSnapshot(strategyId)).settingsSignature;
+  }
+
+  async #applyDeepBacktestRange(
+    range: TradingViewBacktestRange,
+  ): Promise<void> {
+    const result = await this.configureDeepBacktestRange(
+      range.startDate,
+      range.endDate,
+    );
+
+    if (!result.supported || !result.applied) {
+      throw new Error(
+        result.reason ??
+          'TradingView Deep Backtesting could not be updated',
+      );
+    }
   }
 
   getChartContext(): Promise<{ symbol: string; timeframe: string }> {
