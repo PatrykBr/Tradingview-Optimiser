@@ -176,6 +176,3 @@ export function useBackendConnection(
     sendRequest,
   };
 }
-
-export type BackendConnectionModel =
-  ReturnType<typeof useBackendConnection>;
