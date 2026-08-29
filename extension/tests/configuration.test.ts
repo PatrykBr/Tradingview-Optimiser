@@ -8,7 +8,7 @@ import {
   formFromRun,
   parameterConfigsFromRun,
   parseTargetTrials,
-} from '../components/optimiser/configuration';
+} from '../lib/optimisation/run-config';
 import type { CreateRun } from '../lib/protocol/types';
 import type { StrategyInput } from '../lib/tradingview/types';
 
