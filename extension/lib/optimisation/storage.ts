@@ -7,7 +7,7 @@ import type {
 } from '../protocol/types';
 import type { ResearchEvaluation } from './research';
 
-export interface RunEnvironment {
+interface RunEnvironment {
   extensionVersion: string;
   backendVersion?: string;
   optunaVersion?: string;
