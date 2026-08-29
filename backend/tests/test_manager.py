@@ -66,6 +66,10 @@ async def test_constraints_choose_best_feasible(tmp_path: Path) -> None:
     assert progress.best is not None
     assert progress.best.objective_value == pytest.approx(1.7)
     assert all(value <= 0 for value in progress.best.constraints.values())
+    assert len(progress.trials) == 2
+    assert progress.trials[0].state == "complete"
+    assert progress.trials[0].objective_value == pytest.approx(2.2)
+    assert progress.trials[1].objective_value == pytest.approx(1.7)
 
 
 @pytest.mark.asyncio
