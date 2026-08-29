@@ -144,11 +144,28 @@ class StabilityConfig(BaseModel):
     perturbation_percent: float = Field(default=5.0, ge=0.1, le=25)
 
 
+class WalkForwardConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    folds: int = Field(default=3, ge=2, le=8)
+    trials_per_fold: int = Field(default=100, ge=5, le=10_000)
+    initial_training_fraction: float = Field(default=0.5, ge=0.3, le=0.8)
+
+
+class MonteCarloConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    simulations: int = Field(default=5_000, ge=500, le=50_000)
+    confidence: float = Field(default=0.9, ge=0.5, le=0.99)
+
+
 class ResearchConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     convergence: ConvergenceConfig = Field(default_factory=ConvergenceConfig)
     robustness: RobustnessConfig = Field(default_factory=RobustnessConfig)
     stability: StabilityConfig = Field(default_factory=StabilityConfig)
+    walk_forward: WalkForwardConfig = Field(default_factory=WalkForwardConfig)
+    monte_carlo: MonteCarloConfig = Field(default_factory=MonteCarloConfig)
 
 
 class ChartContext(BaseModel):
@@ -264,6 +281,9 @@ class CreateRun(BaseModel):
         robustness = self.research.robustness
         if robustness.enabled and robustness.full_range is None:
             raise ValueError("robustness validation requires a full Deep Backtesting range")
+
+        if self.research.walk_forward.enabled and self.backtest_range is None:
+            raise ValueError("walk-forward validation requires a Deep Backtesting range")
 
         return self
 
