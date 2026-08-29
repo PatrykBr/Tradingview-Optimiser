@@ -2,11 +2,15 @@ import type {
   CreateRun,
 } from '../protocol/types';
 import type {
-  TradingViewAdapter,
-} from '../tradingview/adapter';
-import type {
   DiagnosticCheck,
+  TradingViewDiagnostics,
 } from '../tradingview/types';
+
+export interface CompatibilityAdapter {
+  diagnostics(
+    strategyId: string,
+  ): Promise<TradingViewDiagnostics>;
+}
 
 const CRITICAL_CHECKS = new Set([
   'chart-api',
@@ -20,7 +24,7 @@ const CRITICAL_CHECKS = new Set([
 
 export const compatibilityFailureReason =
   async (
-    adapter: TradingViewAdapter,
+    adapter: CompatibilityAdapter,
     strategyId: string,
     config: CreateRun,
   ): Promise<string | null> => {
