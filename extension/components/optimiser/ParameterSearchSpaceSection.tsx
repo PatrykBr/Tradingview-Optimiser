@@ -98,6 +98,11 @@ export default function ParameterSearchSpaceSection({
                       <input
                         type="number"
                         value={config.low}
+                        placeholder={
+                          input.min !== undefined
+                            ? String(input.min)
+                            : 'Set min'
+                        }
                         disabled={locked}
                         onChange={(event) =>
                           model.setParameterField(
@@ -113,6 +118,11 @@ export default function ParameterSearchSpaceSection({
                       <input
                         type="number"
                         value={config.high}
+                        placeholder={
+                          input.max !== undefined
+                            ? String(input.max)
+                            : 'Set max'
+                        }
                         disabled={locked}
                         onChange={(event) =>
                           model.setParameterField(
