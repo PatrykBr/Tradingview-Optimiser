@@ -121,6 +121,36 @@ class BacktestRange(BaseModel):
         return self
 
 
+class ConvergenceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    min_trials: int = Field(default=100, ge=5, le=100_000)
+    patience: int = Field(default=100, ge=5, le=100_000)
+    min_improvement_percent: float = Field(default=1.0, ge=0, le=100)
+
+
+class RobustnessConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    full_range: BacktestRange | None = None
+    validation_fraction: float = Field(default=0.3, ge=0.1, le=0.5)
+    folds: int = Field(default=3, ge=1, le=10)
+    top_candidates: int = Field(default=5, ge=1, le=20)
+
+
+class StabilityConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    perturbation_percent: float = Field(default=5.0, ge=0.1, le=25)
+
+
+class ResearchConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    convergence: ConvergenceConfig = Field(default_factory=ConvergenceConfig)
+    robustness: RobustnessConfig = Field(default_factory=RobustnessConfig)
+    stability: StabilityConfig = Field(default_factory=StabilityConfig)
+
+
 class ChartContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
     symbol: str
@@ -145,6 +175,7 @@ class CreateRun(BaseModel):
     chart: ChartContext
     backtest_range: BacktestRange | None = None
     baseline_parameters: dict[str, Primitive] = Field(default_factory=dict)
+    research: ResearchConfig = Field(default_factory=ResearchConfig)
 
     @model_validator(mode="after")
     def validate_search_space(self) -> CreateRun:
@@ -186,6 +217,17 @@ class CreateRun(BaseModel):
                 "baseline contains parameters outside the search space: "
                 f"{sorted(unknown_baseline)!r}"
             )
+
+        convergence = self.research.convergence
+        if convergence.enabled:
+            if convergence.min_trials > self.target_trials:
+                raise ValueError("convergence min_trials cannot exceed target_trials")
+            if convergence.patience > self.target_trials:
+                raise ValueError("convergence patience cannot exceed target_trials")
+
+        robustness = self.research.robustness
+        if robustness.enabled and robustness.full_range is None:
+            raise ValueError("robustness validation requires a full Deep Backtesting range")
 
         return self
 
@@ -237,4 +279,11 @@ class RunProgress(BaseModel):
     target_trials: int
     failed_trials: int
     best: BestTrial | None
+    termination_reason: Literal["target_trials", "converged", "user"] | None = None
     trials: list[TrialSummary] = Field(default_factory=list)
+
+
+class RunAnalysis(BaseModel):
+    run_id: str
+    parameter_importance: dict[str, float] = Field(default_factory=dict)
+    completed_trials: int
