@@ -17,7 +17,7 @@ export interface SavedOptimisationPreset {
   updatedAt: number;
 }
 
-export interface SaveOptimisationPreset {
+interface SaveOptimisationPreset {
   name: string;
   strategyName: string;
   strategySignature: string;
