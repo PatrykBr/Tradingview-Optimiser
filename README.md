@@ -20,23 +20,32 @@ Optuna v5 + SQLite
 
 Implemented:
 
-- Chrome/Firefox extension foundation with WXT, React and TypeScript
+- Chrome/Firefox extension with WXT, React and TypeScript
 - local FastAPI backend
 - Optuna v5 `Study.ask()` / `Study.tell()` optimisation flow
 - persistent SQLite studies
-- float, integer and categorical search spaces
 - native Optuna v5 constraints
-- start/stop and failed-trial handling
-- initial TradingView strategy and input detection
+- TradingView strategy and Pine input detection
+- numeric, boolean and categorical optimisation parameters
+- configurable min/max/step ranges
+- optimisation metric and trial-count selection
+- maximum drawdown, minimum profit factor and minimum trade filters
+- automatic TradingView parameter application with read-back verification
+- Strategy Tester metric extraction
+- recalculation settling between trials
+- automatic sequential trial execution
+- start/stop handling
+- live progress, completed trials and best feasible result
+- apply-best and restore-original parameter actions
+- chart symbol/timeframe safety checks
 - backend and WebSocket tests
 
-Next milestone:
+Still to implement:
 
-- apply generated parameters to TradingView
-- verify the values were accepted
-- detect strategy recalculation completion
-- read Strategy Tester metrics
-- return each result to Optuna automatically
+- custom Deep Backtesting date ranges
+- richer per-trial detail/export UI
+- robust resume after a TradingView tab reload
+- production localhost pairing/authentication
 
 ## Development
 
