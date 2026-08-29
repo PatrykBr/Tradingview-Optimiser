@@ -5,6 +5,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+Primitive = str | int | float | bool
+
 
 class ObjectiveDirection(StrEnum):
     MAXIMIZE = "maximize"
@@ -20,6 +22,12 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
+class ParameterCondition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    parameter: str
+    values: list[Primitive] = Field(min_length=1)
+
+
 class FloatParameter(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["float"]
@@ -28,6 +36,7 @@ class FloatParameter(BaseModel):
     high: float
     step: float | None = None
     log: bool = False
+    condition: ParameterCondition | None = None
 
     @model_validator(mode="after")
     def validate_range(self) -> FloatParameter:
@@ -50,6 +59,7 @@ class IntParameter(BaseModel):
     high: int
     step: int = 1
     log: bool = False
+    condition: ParameterCondition | None = None
 
     @model_validator(mode="after")
     def validate_range(self) -> IntParameter:
@@ -68,7 +78,8 @@ class CategoricalParameter(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["categorical"]
     name: str
-    choices: list[str | int | float | bool]
+    choices: list[Primitive]
+    condition: ParameterCondition | None = None
 
     @model_validator(mode="after")
     def validate_choices(self) -> CategoricalParameter:
@@ -90,11 +101,19 @@ class MetricFilter(BaseModel):
     value: float
 
 
+class BacktestRange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["deep"]
+    start_date: str
+    end_date: str
+
+
 class ChartContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
     symbol: str
     timeframe: str
     strategy_name: str
+    strategy_signature: str
 
 
 class CreateRun(BaseModel):
@@ -106,12 +125,24 @@ class CreateRun(BaseModel):
     parameters: list[SearchParameter] = Field(min_length=1, max_length=100)
     filters: list[MetricFilter] = Field(default_factory=list, max_length=50)
     chart: ChartContext
+    backtest_range: BacktestRange | None = None
 
     @model_validator(mode="after")
-    def unique_parameter_names(self) -> CreateRun:
+    def validate_search_space(self) -> CreateRun:
         names = [parameter.name for parameter in self.parameters]
         if len(names) != len(set(names)):
             raise ValueError("parameter names must be unique")
+
+        seen: set[str] = set()
+        for parameter in self.parameters:
+            if parameter.condition is not None:
+                if parameter.condition.parameter not in seen:
+                    raise ValueError(
+                        f"conditional parameter {parameter.name!r} must depend on "
+                        "an earlier search parameter"
+                    )
+            seen.add(parameter.name)
+
         return self
 
 
@@ -152,6 +183,7 @@ class TrialSummary(BaseModel):
     metrics: dict[str, float]
     constraints: dict[str, float]
     failure_reason: str | None = None
+    duration_ms: int | None = None
 
 
 class RunProgress(BaseModel):
