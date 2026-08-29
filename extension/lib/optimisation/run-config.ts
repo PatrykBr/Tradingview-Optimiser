@@ -26,6 +26,12 @@ const numberOrThrow = (
   value: string,
   label: string,
 ): number => {
+  if (!value.trim()) {
+    throw new Error(
+      'Enter ' + label.toLowerCase(),
+    );
+  }
+
   const parsed = Number(value);
 
   if (!Number.isFinite(parsed)) {
