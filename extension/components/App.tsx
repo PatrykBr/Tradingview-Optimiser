@@ -1,39 +1,68 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
+import BestSoFarChart from './BestSoFarChart';
 import type {
   BackendState,
   BackgroundMessage,
   ExtensionRequest,
 } from '../lib/messages';
 import {
+  buildRunJson,
+  buildTrialsCsv,
+} from '../lib/optimisation/export';
+import {
   formatMetric,
   metricDefinition,
   OPTIMISATION_METRICS,
 } from '../lib/optimisation/metrics';
+import {
+  bestSoFar,
+  estimateRemainingMs,
+  filterTrials,
+  isFeasibleTrial,
+  sortTrials,
+  type TrialFilter,
+  type TrialSort,
+} from '../lib/optimisation/results';
+import {
+  buildSearchSpace,
+  conditionCandidatesFor,
+  defaultParameterConfig,
+  isOptimisableInput,
+  type ParameterConfig,
+} from '../lib/optimisation/search-space';
+import {
+  clearActiveRun,
+  finishActiveRun,
+  loadActiveRun,
+  saveActiveRun,
+  updateActiveRunProgress,
+  type PersistedOptimisationRun,
+} from '../lib/optimisation/storage';
 import type {
   CreateRun,
   MetricFilter,
   NextTrial,
+  Primitive,
   RunProgress,
-  SearchParameter,
+  TrialSummary,
 } from '../lib/protocol/types';
 import { TradingViewAdapter } from '../lib/tradingview/adapter';
 import type { TradingViewBridge } from '../lib/tradingview/bridge';
 import type {
   DetectedStrategy,
   StrategyInput,
-  TradingViewMetrics,
+  TradingViewDiagnostics,
 } from '../lib/tradingview/types';
 
 interface AppProps {
   bridge: TradingViewBridge;
-}
-
-interface ParameterConfig {
-  enabled: boolean;
-  low: string;
-  high: string;
-  step: string;
 }
 
 interface FilterConfig {
@@ -44,22 +73,12 @@ interface FilterConfig {
 interface TrialExecution {
   number: number;
   parameters: Record<string, unknown>;
-  phase: 'applying' | 'recalculating' | 'submitting';
+  phase:
+    | 'checking'
+    | 'applying'
+    | 'recalculating'
+    | 'submitting';
 }
-
-const isPrimitive = (
-  value: unknown,
-): value is string | number | boolean =>
-  typeof value === 'string' ||
-  typeof value === 'number' ||
-  typeof value === 'boolean';
-
-const isOptimisableInput = (input: StrategyInput): boolean =>
-  input.type === 'integer' ||
-  input.type === 'float' ||
-  input.type === 'boolean' ||
-  (input.type === 'categorical' &&
-    (input.options?.filter(isPrimitive).length ?? 0) >= 2);
 
 const numberOrThrow = (value: string, label: string): number => {
   const parsed = Number(value);
@@ -76,8 +95,89 @@ const sameChart = (
   expected.symbol === actual.symbol &&
   expected.timeframe === actual.timeframe;
 
+const formatDuration = (milliseconds: number | null): string => {
+  if (milliseconds === null || !Number.isFinite(milliseconds)) {
+    return '—';
+  }
+
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+
+  if (hours > 0) {
+    return hours + 'h ' + minutes + 'm';
+  }
+  if (minutes > 0) {
+    return minutes + 'm ' + remainingSeconds + 's';
+  }
+  return remainingSeconds + 's';
+};
+
+const safeFilename = (value: string): string =>
+  value
+    .replace(/[^a-z0-9._-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'optimisation';
+
+const responseError = (response: unknown): string | null => {
+  if (!response || typeof response !== 'object') return null;
+  const record = response as Record<string, unknown>;
+  return record.ok === false && typeof record.error === 'string'
+    ? record.error
+    : null;
+};
+
+const isBackendTransportError = (message: string): boolean =>
+  /backend (is not connected|connection closed|request timed out)|backend client disconnected/i.test(
+    message,
+  );
+
+const configsFromRun = (
+  inputs: StrategyInput[],
+  config: CreateRun,
+): Record<string, ParameterConfig> => {
+  const configs = Object.fromEntries(
+    inputs.map((input) => [
+      input.id,
+      defaultParameterConfig(input),
+    ]),
+  ) as Record<string, ParameterConfig>;
+
+  for (const parameter of config.parameters) {
+    const current = configs[parameter.name];
+    if (!current) continue;
+
+    const next: ParameterConfig = {
+      ...current,
+      enabled: true,
+      conditionParameter: parameter.condition?.parameter ?? '',
+      conditionValues: parameter.condition?.values ?? [],
+    };
+
+    if (parameter.type === 'categorical') {
+      next.choices = parameter.choices;
+    } else {
+      next.low = String(parameter.low);
+      next.high = String(parameter.high);
+      next.step =
+        parameter.type === 'int'
+          ? String(parameter.step ?? 1)
+          : parameter.step?.toString() ?? '';
+      next.log = parameter.log ?? false;
+    }
+
+    configs[parameter.name] = next;
+  }
+
+  return configs;
+};
+
 export default function App({ bridge }: AppProps) {
-  const adapter = useMemo(() => new TradingViewAdapter(bridge), [bridge]);
+  const adapter = useMemo(
+    () => new TradingViewAdapter(bridge),
+    [bridge],
+  );
 
   const [strategies, setStrategies] = useState<DetectedStrategy[]>([]);
   const [selected, setSelected] = useState('');
@@ -87,8 +187,12 @@ export default function App({ bridge }: AppProps) {
   >({});
 
   const [connected, setConnected] = useState(false);
+  const [pairingRequired, setPairingRequired] = useState(false);
+  const [pairingCode, setPairingCode] = useState('');
   const [optunaVersion, setOptunaVersion] = useState<string>();
-  const [objectiveMetric, setObjectiveMetric] = useState('profitFactor');
+
+  const [objectiveMetric, setObjectiveMetric] =
+    useState('profitFactor');
   const [targetTrials, setTargetTrials] = useState('100');
 
   const [maxDrawdownFilter, setMaxDrawdownFilter] =
@@ -98,15 +202,39 @@ export default function App({ bridge }: AppProps) {
   const [minTradesFilter, setMinTradesFilter] =
     useState<FilterConfig>({ enabled: false, value: '100' });
 
+  const [dateRangeEnabled, setDateRangeEnabled] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
   const [progress, setProgress] = useState<RunProgress | null>(null);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [runConfig, setRunConfig] = useState<CreateRun | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(
+    null,
+  );
   const [currentTrial, setCurrentTrial] =
     useState<TrialExecution | null>(null);
+  const [resumeCandidate, setResumeCandidate] =
+    useState<PersistedOptimisationRun | null>(null);
+  const [diagnostics, setDiagnostics] =
+    useState<TradingViewDiagnostics | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+
+  const [trialFilter, setTrialFilter] =
+    useState<TrialFilter>('all');
+  const [trialSort, setTrialSort] =
+    useState<TrialSort>('trial-desc');
+  const [selectedTrialNumber, setSelectedTrialNumber] =
+    useState<number | null>(null);
+
+  const [stopChoiceVisible, setStopChoiceVisible] = useState(false);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [clock, setClock] = useState(Date.now());
 
   const activeRunIdRef = useRef<string | null>(null);
   const activeStrategyIdRef = useRef<string | null>(null);
+  const activeConfigRef = useRef<CreateRun | null>(null);
   const runChartRef = useRef<{
     symbol: string;
     timeframe: string;
@@ -117,22 +245,27 @@ export default function App({ bridge }: AppProps) {
   const executingTrialRef = useRef<number | null>(null);
   const pendingTrialRef = useRef<NextTrial | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const recoveringBackendRef = useRef(false);
+  const wasConnectedRef = useRef(false);
 
   const sendRequest = useCallback(
-    async (request: ExtensionRequest): Promise<unknown> =>
-      browser.runtime.sendMessage(request),
+    async <T,>(request: ExtensionRequest): Promise<T> => {
+      const response = await browser.runtime.sendMessage(request);
+      const message = responseError(response);
+      if (message) throw new Error(message);
+      return response as T;
+    },
     [],
   );
 
-  const applyBackendState = (state: BackendState) => {
+  const applyBackendState = useCallback((state: BackendState) => {
     setConnected(state.connected);
+    setPairingRequired(state.pairingRequired ?? false);
     setOptunaVersion(state.optunaVersion);
-  };
+  }, []);
 
-  const probe = async () => {
+  const probe = useCallback(async () => {
     setError(undefined);
-    setInputs([]);
-    setParameterConfigs({});
 
     try {
       const detected = await adapter.detectStrategies();
@@ -140,19 +273,68 @@ export default function App({ bridge }: AppProps) {
 
       if (detected.length === 1) {
         setSelected(detected[0]!.id);
-      } else if (!detected.some((strategy) => strategy.id === selected)) {
-        setSelected('');
+      } else {
+        setSelected((current) =>
+          detected.some((strategy) => strategy.id === current)
+            ? current
+            : '',
+        );
       }
 
       if (detected.length === 0) {
-        setError('No Pine strategies found on the current TradingView chart.');
+        setError(
+          'No Pine strategies found on the current TradingView chart.',
+        );
       }
     } catch (cause) {
       setStrategies([]);
       setSelected('');
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
     }
-  };
+  }, [adapter]);
+
+  const runDiagnostics = useCallback(async () => {
+    setError(undefined);
+
+    try {
+      const result = await adapter.diagnostics(
+        selected || undefined,
+      );
+      setDiagnostics(result);
+      setDiagnosticsOpen(true);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    }
+  }, [adapter, selected]);
+
+  const loadInputs = useCallback(
+    async (
+      strategyId: string,
+      restoreConfig?: CreateRun,
+    ): Promise<StrategyInput[]> => {
+      const detectedInputs =
+        await adapter.readStrategyInputs(strategyId);
+      setInputs(detectedInputs);
+
+      setParameterConfigs(
+        restoreConfig
+          ? configsFromRun(detectedInputs, restoreConfig)
+          : Object.fromEntries(
+              detectedInputs.map((input) => [
+                input.id,
+                defaultParameterConfig(input),
+              ]),
+            ),
+      );
+
+      return detectedInputs;
+    },
+    [adapter],
+  );
 
   const readInputs = async () => {
     if (!selected) return;
@@ -160,38 +342,21 @@ export default function App({ bridge }: AppProps) {
     setBusy(true);
 
     try {
-      const detectedInputs = await adapter.readStrategyInputs(selected);
-      setInputs(detectedInputs);
-
-      const configs: Record<string, ParameterConfig> = {};
-      for (const input of detectedInputs) {
-        configs[input.id] = {
-          enabled: false,
-          low:
-            input.type === 'integer' || input.type === 'float'
-              ? input.min?.toString() ?? ''
-              : '',
-          high:
-            input.type === 'integer' || input.type === 'float'
-              ? input.max?.toString() ?? ''
-              : '',
-          step:
-            input.type === 'integer'
-              ? (input.step ?? 1).toString()
-              : input.type === 'float'
-                ? input.step?.toString() ?? ''
-                : '',
-        };
-      }
-      setParameterConfigs(configs);
+      await loadInputs(selected);
+      setDiagnostics(await adapter.diagnostics(selected));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
     } finally {
       setBusy(false);
     }
   };
 
-  const setParameterEnabled = (id: string, enabled: boolean) => {
+  const setParameterEnabled = (
+    id: string,
+    enabled: boolean,
+  ) => {
     setParameterConfigs((current) => ({
       ...current,
       [id]: {
@@ -200,6 +365,10 @@ export default function App({ bridge }: AppProps) {
           low: '',
           high: '',
           step: '',
+          log: false,
+          choices: [],
+          conditionParameter: '',
+          conditionValues: [],
         }),
         enabled,
       },
@@ -214,96 +383,83 @@ export default function App({ bridge }: AppProps) {
     setParameterConfigs((current) => ({
       ...current,
       [id]: {
-        ...(current[id] ?? {
-          enabled: false,
-          low: '',
-          high: '',
-          step: '',
-        }),
+        ...current[id]!,
         [field]: value,
       },
     }));
   };
 
-  const buildSearchSpace = (): SearchParameter[] => {
-    const parameters: SearchParameter[] = [];
+  const setParameterLog = (id: string, log: boolean) => {
+    setParameterConfigs((current) => ({
+      ...current,
+      [id]: {
+        ...current[id]!,
+        log,
+        ...(log ? { step: '' } : {}),
+      },
+    }));
+  };
 
-    for (const input of inputs) {
-      const config = parameterConfigs[input.id];
-      if (!config?.enabled) continue;
+  const toggleChoice = (id: string, choice: Primitive) => {
+    setParameterConfigs((current) => {
+      const config = current[id]!;
+      const exists = config.choices.some(
+        (value) => value === choice,
+      );
+      return {
+        ...current,
+        [id]: {
+          ...config,
+          choices: exists
+            ? config.choices.filter((value) => value !== choice)
+            : [...config.choices, choice],
+        },
+      };
+    });
+  };
 
-      if (input.type === 'boolean') {
-        parameters.push({
-          type: 'categorical',
-          name: input.id,
-          choices: [true, false],
-        });
-        continue;
-      }
+  const setConditionParameter = (
+    id: string,
+    parameterId: string,
+  ) => {
+    setParameterConfigs((current) => {
+      const parent = current[parameterId];
+      return {
+        ...current,
+        [id]: {
+          ...current[id]!,
+          conditionParameter: parameterId,
+          conditionValues:
+            parameterId && parent?.choices.length
+              ? [parent.choices[0]!]
+              : [],
+        },
+      };
+    });
+  };
 
-      if (input.type === 'categorical') {
-        const choices = (input.options ?? []).filter(isPrimitive);
-        if (choices.length < 2) {
-          throw new Error(input.label + ' does not expose at least two options');
-        }
-        parameters.push({
-          type: 'categorical',
-          name: input.id,
-          choices,
-        });
-        continue;
-      }
+  const toggleConditionValue = (
+    id: string,
+    value: Primitive,
+  ) => {
+    setParameterConfigs((current) => {
+      const config = current[id]!;
+      const exists = config.conditionValues.some(
+        (item) => item === value,
+      );
 
-      if (input.type === 'integer' || input.type === 'float') {
-        const low = numberOrThrow(config.low, input.label + ' minimum');
-        const high = numberOrThrow(config.high, input.label + ' maximum');
-        if (low >= high) {
-          throw new Error(input.label + ' minimum must be below its maximum');
-        }
-
-        if (input.type === 'integer') {
-          if (!Number.isInteger(low) || !Number.isInteger(high)) {
-            throw new Error(input.label + ' requires integer bounds');
-          }
-
-          const step = config.step
-            ? numberOrThrow(config.step, input.label + ' step')
-            : 1;
-          if (!Number.isInteger(step) || step <= 0) {
-            throw new Error(input.label + ' step must be a positive integer');
-          }
-
-          parameters.push({
-            type: 'int',
-            name: input.id,
-            low,
-            high,
-            step,
-          });
-        } else {
-          const step = config.step
-            ? numberOrThrow(config.step, input.label + ' step')
-            : undefined;
-          if (step !== undefined && step <= 0) {
-            throw new Error(input.label + ' step must be positive');
-          }
-
-          parameters.push({
-            type: 'float',
-            name: input.id,
-            low,
-            high,
-            ...(step !== undefined ? { step } : {}),
-          });
-        }
-      }
-    }
-
-    if (parameters.length === 0) {
-      throw new Error('Select at least one parameter to optimise');
-    }
-
-    return parameters;
+      return {
+        ...current,
+        [id]: {
+          ...config,
+          conditionValues: exists
+            ? config.conditionValues.filter(
+                (item) => item !== value,
+              )
+            : [...config.conditionValues, value],
+        },
+      };
+    });
   };
 
   const buildFilters = (): MetricFilter[] => {
@@ -345,46 +501,124 @@ export default function App({ bridge }: AppProps) {
     return filters;
   };
 
+  const assertRunContext = useCallback(
+    async (strategyId: string, config: CreateRun) => {
+      const chart = await adapter.getChartContext();
+
+      if (!sameChart(config.chart, chart)) {
+        throw new Error(
+          'SAFETY: TradingView chart changed. Expected ' +
+            config.chart.symbol +
+            ' ' +
+            config.chart.timeframe +
+            ', got ' +
+            chart.symbol +
+            ' ' +
+            chart.timeframe,
+        );
+      }
+
+      const signature =
+        await adapter.getStrategySignature(strategyId);
+
+      if (signature !== config.chart.strategy_signature) {
+        throw new Error(
+          'SAFETY: The TradingView strategy or its input structure changed during the optimisation.',
+        );
+      }
+    },
+    [adapter],
+  );
+
+  const recoverBackendRun = useCallback(async () => {
+    const config = activeConfigRef.current;
+    const runId = activeRunIdRef.current;
+
+    if (
+      !config ||
+      !runId ||
+      recoveringBackendRef.current ||
+      !connected
+    ) {
+      return;
+    }
+
+    recoveringBackendRef.current = true;
+
+    try {
+      await sendRequest({
+        type: 'REGISTER_RUN_OWNER',
+        payload: { runId },
+      });
+      await sendRequest({
+        type: 'CREATE_RUN',
+        payload: config,
+      });
+      await sendRequest({
+        type: 'START_RUN',
+        payload: { runId },
+      });
+    } catch (cause) {
+      setError(
+        'Could not recover the active optimisation: ' +
+          (cause instanceof Error
+            ? cause.message
+            : String(cause)),
+      );
+    } finally {
+      recoveringBackendRef.current = false;
+    }
+  }, [connected, sendRequest]);
+
   const executeTrial = useCallback(
     async (trial: NextTrial) => {
       if (trial.run_id !== activeRunIdRef.current) return;
+
+      if (executingTrialRef.current === trial.trial_number) {
+        return;
+      }
+
+      if (pendingTrialRef.current?.trial_number === trial.trial_number) {
+        return;
+      }
+
       if (executingTrialRef.current !== null) {
         pendingTrialRef.current = trial;
         return;
       }
 
       const strategyId = activeStrategyIdRef.current;
-      const expectedChart = runChartRef.current;
-      if (!strategyId || !expectedChart) return;
+      const config = activeConfigRef.current;
+
+      if (!strategyId || !config) return;
 
       executingTrialRef.current = trial.trial_number;
       const controller = new AbortController();
       abortControllerRef.current = controller;
-      const startedAt = Date.now();
+      const trialStartedAt = Date.now();
 
       try {
+        setCurrentTrial({
+          number: trial.trial_number,
+          parameters: trial.parameters,
+          phase: 'checking',
+        });
+
+        await assertRunContext(strategyId, config);
+
+        const previousSnapshot =
+          await adapter.readReportSnapshot(strategyId);
+
         setCurrentTrial({
           number: trial.trial_number,
           parameters: trial.parameters,
           phase: 'applying',
         });
 
-        const beforeChart = await adapter.getChartContext();
-        if (!sameChart(expectedChart, beforeChart)) {
-          throw new Error(
-            'TradingView chart changed during optimisation. Expected ' +
-              expectedChart.symbol +
-              ' ' +
-              expectedChart.timeframe +
-              ', got ' +
-              beforeChart.symbol +
-              ' ' +
-              beforeChart.timeframe,
-          );
-        }
-
-        const previousMetrics = await adapter.readMetrics(strategyId);
-        await adapter.applyParameters(strategyId, trial.parameters);
+        await adapter.applyParameters(
+          strategyId,
+          trial.parameters,
+        );
 
         setCurrentTrial({
           number: trial.trial_number,
@@ -392,16 +626,28 @@ export default function App({ bridge }: AppProps) {
           phase: 'recalculating',
         });
 
-        const metrics = await adapter.waitForMetricsAfterChange(
-          strategyId,
-          previousMetrics,
-          controller.signal,
-        );
+        if (config.backtest_range) {
+          const deep = await adapter.configureDeepBacktestRange(
+            config.backtest_range.start_date,
+            config.backtest_range.end_date,
+          );
 
-        const afterChart = await adapter.getChartContext();
-        if (!sameChart(expectedChart, afterChart)) {
-          throw new Error('TradingView chart changed while evaluating the trial');
+          if (!deep.supported || !deep.applied) {
+            throw new Error(
+              deep.reason ??
+                'TradingView Deep Backtesting could not be updated',
+            );
+          }
         }
+
+        const metrics =
+          await adapter.waitForMetricsAfterChange(
+            strategyId,
+            previousSnapshot,
+            controller.signal,
+          );
+
+        await assertRunContext(strategyId, config);
 
         setCurrentTrial({
           number: trial.trial_number,
@@ -415,36 +661,63 @@ export default function App({ bridge }: AppProps) {
             run_id: trial.run_id,
             trial_number: trial.trial_number,
             metrics,
-            duration_ms: Date.now() - startedAt,
+            duration_ms: Date.now() - trialStartedAt,
           },
         });
       } catch (cause) {
         const aborted =
-          cause instanceof DOMException && cause.name === 'AbortError';
+          cause instanceof DOMException &&
+          cause.name === 'AbortError';
         const reason = aborted
           ? 'Trial cancelled by user'
           : cause instanceof Error
             ? cause.message
             : String(cause);
 
-        try {
-          await sendRequest({
-            type: 'TRIAL_FAILED',
-            payload: {
-              runId: trial.run_id,
-              trialNumber: trial.trial_number,
-              reason,
-            },
-          });
-        } catch {
-          // A backend disconnect is surfaced separately by BACKEND_STATE.
-        }
+        if (isBackendTransportError(reason)) {
+          setError(
+            'Backend connection was interrupted. The run is saved and will recover when the backend reconnects.',
+          );
+        } else if (/not the outstanding trial|unknown run_id/i.test(reason)) {
+          // The backend restarted while this browser evaluation was in
+          // flight. The recovered backend will issue the correct trial.
+        } else {
+          try {
+            if (reason.startsWith('SAFETY:')) {
+              await sendRequest({
+                type: 'STOP_RUN',
+                payload: { runId: trial.run_id },
+              });
+            }
 
-        if (!aborted) setError(reason);
+            await sendRequest({
+              type: 'TRIAL_FAILED',
+              payload: {
+                runId: trial.run_id,
+                trialNumber: trial.trial_number,
+                reason,
+              },
+            });
+          } catch (failureCause) {
+            const failureMessage =
+              failureCause instanceof Error
+                ? failureCause.message
+                : String(failureCause);
+
+            if (!/not the outstanding trial/i.test(failureMessage)) {
+              setError(failureMessage);
+            }
+          }
+
+          if (!aborted) setError(reason);
+        }
       } finally {
-        if (executingTrialRef.current === trial.trial_number) {
+        if (
+          executingTrialRef.current === trial.trial_number
+        ) {
           executingTrialRef.current = null;
         }
+
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
         }
@@ -462,56 +735,109 @@ export default function App({ bridge }: AppProps) {
         }
       }
     },
-    [adapter, sendRequest],
+    [adapter, assertRunContext, sendRequest],
   );
+
+  const prepareDateRange = async (
+    strategyId: string,
+    config: CreateRun,
+  ) => {
+    if (!config.backtest_range) return;
+
+    const before = await adapter.readReportSnapshot(strategyId);
+    const result = await adapter.configureDeepBacktestRange(
+      config.backtest_range.start_date,
+      config.backtest_range.end_date,
+    );
+
+    if (!result.supported || !result.applied) {
+      throw new Error(
+        result.reason ??
+          'Could not configure TradingView Deep Backtesting',
+      );
+    }
+
+    await adapter.waitForMetricsAfterChange(
+      strategyId,
+      before,
+      undefined,
+      30_000,
+    );
+  };
 
   const startOptimisation = async () => {
     if (!selected) return;
+
     setError(undefined);
     setBusy(true);
+    setStopChoiceVisible(false);
 
     try {
       if (!connected) {
-        throw new Error('Start the local FastAPI backend before optimising');
+        throw new Error(
+          pairingRequired
+            ? 'Pair the extension with the backend first'
+            : 'Start the local FastAPI backend before optimising',
+        );
       }
 
-      const strategy = strategies.find((item) => item.id === selected);
-      if (!strategy) throw new Error('Selected strategy is no longer available');
+      const strategy = strategies.find(
+        (item) => item.id === selected,
+      );
+      if (!strategy) {
+        throw new Error(
+          'Selected strategy is no longer available',
+        );
+      }
 
-      const parameters = buildSearchSpace();
+      const parameters = buildSearchSpace(
+        inputs,
+        parameterConfigs,
+      );
       const filters = buildFilters();
-      const trials = numberOrThrow(targetTrials, 'Number of trials');
-      if (!Number.isInteger(trials) || trials < 1 || trials > 100_000) {
-        throw new Error('Number of trials must be an integer between 1 and 100,000');
+      const trials = numberOrThrow(
+        targetTrials,
+        'Number of trials',
+      );
+
+      if (
+        !Number.isInteger(trials) ||
+        trials < 1 ||
+        trials > 100_000
+      ) {
+        throw new Error(
+          'Number of trials must be an integer between 1 and 100,000',
+        );
+      }
+
+      let backtestRange: CreateRun['backtest_range'] = null;
+      if (dateRangeEnabled) {
+        if (!startDate || !endDate) {
+          throw new Error(
+            'Choose both Deep Backtesting dates',
+          );
+        }
+        if (startDate >= endDate) {
+          throw new Error(
+            'Backtest start date must be before the end date',
+          );
+        }
+        backtestRange = {
+          mode: 'deep',
+          start_date: startDate,
+          end_date: endDate,
+        };
       }
 
       const metric = metricDefinition(objectiveMetric);
       const chart = await adapter.getChartContext();
+      const strategySignature =
+        await adapter.getStrategySignature(selected);
 
       await adapter.ensureStrategyTester();
-      const initialMetrics = await adapter.waitForMetricsAfterChange(
-        selected,
-        null,
-        undefined,
-        10_000,
-      );
 
-      const requiredMetrics = [
-        objectiveMetric,
-        ...filters.map((filter) => filter.metric),
-      ];
-      for (const requiredMetric of requiredMetrics) {
-        if (!Number.isFinite(initialMetrics[requiredMetric])) {
-          throw new Error(
-            'TradingView did not expose the required metric: ' +
-              metricDefinition(requiredMetric).label,
-          );
-        }
-      }
-
-      const runId = crypto.randomUUID();
       const config: CreateRun = {
-        run_id: runId,
+        run_id: crypto.randomUUID(),
         objective_metric: objectiveMetric,
         direction: metric.direction,
         target_trials: trials,
@@ -521,32 +847,204 @@ export default function App({ bridge }: AppProps) {
           symbol: chart.symbol,
           timeframe: chart.timeframe,
           strategy_name: strategy.name,
+          strategy_signature: strategySignature,
         },
+        backtest_range: backtestRange,
       };
 
-      originalParametersRef.current = Object.fromEntries(
-        inputs.map((input) => [input.id, input.currentValue]),
+      await prepareDateRange(selected, config);
+
+      const initialMetrics =
+        await adapter.waitForMetricsAfterChange(
+          selected,
+          null,
+          undefined,
+          12_000,
+        );
+
+      const requiredMetrics = [
+        objectiveMetric,
+        ...filters.map((filter) => filter.metric),
+      ];
+
+      if ((initialMetrics.totalTrades ?? 0) > 0) {
+        for (const requiredMetric of requiredMetrics) {
+          if (
+            requiredMetric !== 'profitFactor' &&
+            !Number.isFinite(initialMetrics[requiredMetric])
+          ) {
+            throw new Error(
+              'TradingView did not expose the required metric: ' +
+                metricDefinition(requiredMetric).label,
+            );
+          }
+        }
+      }
+
+      const originalParameters = Object.fromEntries(
+        inputs.map((input) => [
+          input.id,
+          input.currentValue,
+        ]),
       );
+
+      const now = Date.now();
+      const persisted: PersistedOptimisationRun = {
+        version: 1,
+        config,
+        strategyId: selected,
+        originalParameters,
+        startedAt: now,
+      };
+
+      await saveActiveRun(persisted);
+
+      activeRunIdRef.current = config.run_id;
       activeStrategyIdRef.current = selected;
+      activeConfigRef.current = config;
       runChartRef.current = chart;
-      activeRunIdRef.current = runId;
-      setActiveRunId(runId);
-      setProgress(null);
-      setCurrentTrial(null);
+      originalParametersRef.current =
+        originalParameters;
       pendingTrialRef.current = null;
 
-      await sendRequest({ type: 'CREATE_RUN', payload: config });
+      setRunConfig(config);
+      setStartedAt(now);
+      setActiveRunId(config.run_id);
+      setProgress(null);
+      setCurrentTrial(null);
+      setResumeCandidate(null);
+
+      await sendRequest({
+        type: 'CREATE_RUN',
+        payload: config,
+      });
       await sendRequest({
         type: 'START_RUN',
-        payload: { runId },
+        payload: { runId: config.run_id },
       });
     } catch (cause) {
+      await clearActiveRun();
       activeRunIdRef.current = null;
+      activeConfigRef.current = null;
       setActiveRunId(null);
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
     } finally {
       setBusy(false);
     }
+  };
+
+  const resumeOptimisation = async () => {
+    const candidate = resumeCandidate;
+    if (!candidate) return;
+
+    setBusy(true);
+    setError(undefined);
+    setStopChoiceVisible(false);
+
+    try {
+      if (!connected) {
+        throw new Error(
+          pairingRequired
+            ? 'Pair the extension with the backend first'
+            : 'Start the backend before resuming',
+        );
+      }
+
+      const chart = await adapter.getChartContext();
+      if (!sameChart(candidate.config.chart, chart)) {
+        throw new Error(
+          'The current TradingView symbol/timeframe does not match the saved optimisation.',
+        );
+      }
+
+      const detected = await adapter.detectStrategies();
+      let matchingStrategy: DetectedStrategy | null = null;
+
+      for (const strategy of detected) {
+        if (
+          strategy.name !==
+          candidate.config.chart.strategy_name
+        ) {
+          continue;
+        }
+
+        const signature =
+          await adapter.getStrategySignature(strategy.id);
+
+        if (
+          signature ===
+          candidate.config.chart.strategy_signature
+        ) {
+          matchingStrategy = strategy;
+          break;
+        }
+      }
+
+      if (!matchingStrategy) {
+        throw new Error(
+          'The saved strategy version/input structure is not present on the current chart.',
+        );
+      }
+
+      setStrategies(detected);
+      setSelected(matchingStrategy.id);
+      await loadInputs(
+        matchingStrategy.id,
+        candidate.config,
+      );
+      await adapter.ensureStrategyTester();
+      await prepareDateRange(
+        matchingStrategy.id,
+        candidate.config,
+      );
+
+      activeRunIdRef.current =
+        candidate.config.run_id;
+      activeStrategyIdRef.current =
+        matchingStrategy.id;
+      activeConfigRef.current = candidate.config;
+      runChartRef.current = chart;
+      originalParametersRef.current =
+        candidate.originalParameters;
+      pendingTrialRef.current = null;
+
+      setRunConfig(candidate.config);
+      setProgress(candidate.lastProgress ?? null);
+      setStartedAt(candidate.startedAt);
+      setActiveRunId(candidate.config.run_id);
+      setResumeCandidate(null);
+
+      await saveActiveRun({
+        ...candidate,
+        strategyId: matchingStrategy.id,
+      });
+
+      await sendRequest({
+        type: 'REGISTER_RUN_OWNER',
+        payload: { runId: candidate.config.run_id },
+      });
+      await sendRequest({
+        type: 'CREATE_RUN',
+        payload: candidate.config,
+      });
+      await sendRequest({
+        type: 'START_RUN',
+        payload: { runId: candidate.config.run_id },
+      });
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const discardResumeCandidate = async () => {
+    await clearActiveRun();
+    setResumeCandidate(null);
   };
 
   const stopOptimisation = async () => {
@@ -554,88 +1052,171 @@ export default function App({ bridge }: AppProps) {
     if (!runId) return;
 
     setError(undefined);
-
-    const queuedTrial = pendingTrialRef.current;
     pendingTrialRef.current = null;
 
     try {
-      // Tell Optuna first, then abort the browser evaluation. WebSocket message
-      // order ensures the failed/cancelled outstanding trial finishes a run that
-      // is already in STOP_REQUESTED state.
       await sendRequest({
         type: 'STOP_RUN',
         payload: { runId },
       });
-
-      if (queuedTrial && executingTrialRef.current === null) {
-        await sendRequest({
-          type: 'TRIAL_FAILED',
-          payload: {
-            runId,
-            trialNumber: queuedTrial.trial_number,
-            reason: 'Trial cancelled by user before evaluation started',
-          },
-        });
-      }
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
     } finally {
       abortControllerRef.current?.abort();
     }
   };
 
+  const applyParameters = async (
+    parameters: Record<string, unknown>,
+  ) => {
+    const strategyId =
+      activeStrategyIdRef.current || selected;
+
+    if (!strategyId) {
+      throw new Error('No TradingView strategy is selected');
+    }
+
+    await adapter.applyParameters(
+      strategyId,
+      parameters,
+    );
+  };
+
   const applyBestParameters = async () => {
-    if (!selected || !progress?.best) return;
+    if (!progress?.best) return;
     setBusy(true);
     setError(undefined);
 
     try {
-      await adapter.applyParameters(selected, progress.best.parameters);
+      await applyParameters(progress.best.parameters);
+      setStopChoiceVisible(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
     } finally {
       setBusy(false);
     }
   };
 
   const restoreOriginalParameters = async () => {
-    if (!selected || !originalParametersRef.current) return;
+    if (!originalParametersRef.current) return;
+
     setBusy(true);
     setError(undefined);
 
     try {
-      await adapter.applyParameters(
-        selected,
+      await applyParameters(
         originalParametersRef.current,
       );
+      setStopChoiceVisible(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
     } finally {
       setBusy(false);
     }
   };
 
+  const pairBackend = async () => {
+    if (!pairingCode.trim()) return;
+
+    setBusy(true);
+    setError(undefined);
+
+    try {
+      const state = await sendRequest<BackendState>({
+        type: 'PAIR_BACKEND',
+        payload: { code: pairingCode.trim() },
+      });
+      applyBackendState(state);
+      setPairingCode('');
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportRun = async (format: 'csv' | 'json') => {
+    if (!runConfig || !progress) return;
+
+    const base =
+      safeFilename(runConfig.chart.strategy_name) +
+      '-' +
+      runConfig.run_id.slice(0, 8);
+
+    const isCsv = format === 'csv';
+    const fileContent = isCsv
+      ? buildTrialsCsv(runConfig, progress)
+      : buildRunJson(runConfig, progress);
+
+    await sendRequest({
+      type: 'EXPORT_RESULTS',
+      payload: {
+        filename: base + '.' + format,
+        mimeType: isCsv
+          ? 'text/csv'
+          : 'application/json',
+        content: fileContent,
+      },
+    });
+  };
+
   useEffect(() => {
     void probe();
 
-    const initialiseBackendState = async () => {
-      const state = (await sendRequest({
+    const initialise = async () => {
+      const state = await sendRequest<BackendState>({
         type: 'GET_BACKEND_STATE',
-      })) as BackendState | undefined;
+      });
+      applyBackendState(state);
 
-      if (state) applyBackendState(state);
+      if (!state.connected && !state.pairingRequired) {
+        const connectState =
+          await sendRequest<BackendState>({
+            type: 'BACKEND_CONNECT',
+          });
+        applyBackendState(connectState);
+      }
 
-      if (!state?.connected) {
-        const connectState = (await sendRequest({
-          type: 'BACKEND_CONNECT',
-        })) as BackendState | undefined;
-        if (connectState) applyBackendState(connectState);
+      const saved = await loadActiveRun();
+      if (saved) {
+        setResumeCandidate(saved);
+        setProgress(saved.lastProgress ?? null);
+        setRunConfig(saved.config);
+        setStartedAt(saved.startedAt);
       }
     };
 
-    void initialiseBackendState();
+    void initialise().catch((cause) => {
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    });
+  }, [applyBackendState, probe, sendRequest]);
 
+  useEffect(() => {
     const listener = (message: BackgroundMessage) => {
       if (message.type === 'BACKEND_STATE') {
+        const previouslyConnected = wasConnectedRef.current;
+        wasConnectedRef.current = message.connected;
         applyBackendState(message);
+
+        if (
+          message.connected &&
+          !previouslyConnected &&
+          activeRunIdRef.current
+        ) {
+          queueMicrotask(() => {
+            void recoverBackendRun();
+          });
+        }
         return;
       }
 
@@ -645,19 +1226,38 @@ export default function App({ bridge }: AppProps) {
       }
 
       if (message.type === 'RUN_PROGRESS') {
-        if (message.progress.run_id !== activeRunIdRef.current) return;
+        if (
+          message.progress.run_id !==
+          activeRunIdRef.current
+        ) {
+          return;
+        }
 
         setProgress(message.progress);
+        void updateActiveRunProgress(message.progress);
 
         if (
           message.progress.status === 'completed' ||
           message.progress.status === 'stopped' ||
           message.progress.status === 'failed'
         ) {
+          const finishedRunId =
+            message.progress.run_id;
+
           activeRunIdRef.current = null;
           pendingTrialRef.current = null;
           setActiveRunId(null);
           setCurrentTrial(null);
+
+          if (message.progress.status === 'stopped') {
+            setStopChoiceVisible(true);
+          }
+
+          void finishActiveRun(message.progress);
+          void sendRequest({
+            type: 'CLEAR_RUN_OWNER',
+            payload: { runId: finishedRunId },
+          });
         }
         return;
       }
@@ -668,24 +1268,83 @@ export default function App({ bridge }: AppProps) {
     };
 
     browser.runtime.onMessage.addListener(listener);
-    return () => browser.runtime.onMessage.removeListener(listener);
-  }, [adapter, executeTrial, sendRequest]);
+    return () =>
+      browser.runtime.onMessage.removeListener(listener);
+  }, [
+    applyBackendState,
+    executeTrial,
+    recoverBackendRun,
+    sendRequest,
+  ]);
 
-  const selectedInputCount = inputs.filter(
+  useEffect(() => {
+    if (activeRunId === null) return;
+
+    const timer = setInterval(() => {
+      setClock(Date.now());
+    }, 1_000);
+
+    return () => clearInterval(timer);
+  }, [activeRunId]);
+
+  const optimisableInputs = inputs.filter(
+    isOptimisableInput,
+  );
+  const selectedInputCount = optimisableInputs.filter(
     (input) => parameterConfigs[input.id]?.enabled,
   ).length;
-  const optimisableInputs = inputs.filter(isOptimisableInput);
-  const objective = metricDefinition(objectiveMetric);
+
+  const objective = metricDefinition(
+    runConfig?.objective_metric ?? objectiveMetric,
+  );
+
   const completion =
     progress && progress.target_trials > 0
       ? Math.min(
           100,
-          (progress.completed_trials / progress.target_trials) * 100,
+          (progress.completed_trials /
+            progress.target_trials) *
+            100,
         )
       : 0;
 
+  const selectedTrial: TrialSummary | null =
+    selectedTrialNumber === null
+      ? null
+      : progress?.trials.find(
+          (trial) =>
+            trial.trial_number === selectedTrialNumber,
+        ) ?? null;
+
+  const displayedTrials = progress
+    ? sortTrials(
+        filterTrials(progress.trials, trialFilter),
+        trialSort,
+        runConfig?.direction ?? 'maximize',
+      )
+    : [];
+
+  const graphPoints = progress
+    ? bestSoFar(
+        progress.trials,
+        runConfig?.direction ?? 'maximize',
+      )
+    : [];
+
+  const eta = progress
+    ? estimateRemainingMs(
+        progress.trials,
+        progress.completed_trials,
+        progress.target_trials,
+      )
+    : null;
+
+  const elapsed =
+    startedAt === null ? null : clock - startedAt;
+
   const inputLabel = (id: string): string =>
-    inputs.find((input) => input.id === id)?.label ?? id;
+    inputs.find((input) => input.id === id)?.label ??
+    id;
 
   return (
     <main className="panel">
@@ -694,12 +1353,79 @@ export default function App({ bridge }: AppProps) {
           <div className="eyebrow">TRADINGVIEW</div>
           <h1>Optuna Optimiser</h1>
         </div>
-        <span className={connected ? 'status connected' : 'status'}>
+        <span
+          className={
+            connected ? 'status connected' : 'status'
+          }
+        >
           {connected
-            ? 'Optuna ' + (optunaVersion ?? 'connected')
-            : 'Backend offline'}
+            ? 'Optuna ' +
+              (optunaVersion ?? 'connected')
+            : pairingRequired
+              ? 'Pair backend'
+              : 'Backend offline'}
         </span>
       </header>
+
+      {pairingRequired && (
+        <section className="pairingCard">
+          <strong>Pair local backend</strong>
+          <p className="helpText">
+            Enter the pairing code printed in the backend
+            terminal.
+          </p>
+          <div className="inlineForm">
+            <input
+              value={pairingCode}
+              placeholder="Pairing code"
+              autoComplete="off"
+              onChange={(event) =>
+                setPairingCode(event.target.value)
+              }
+            />
+            <button
+              className="primary compactButton"
+              disabled={busy || !pairingCode.trim()}
+              onClick={() => void pairBackend()}
+            >
+              Pair
+            </button>
+          </div>
+        </section>
+      )}
+
+      {resumeCandidate && activeRunId === null && (
+        <section className="resumeCard">
+          <strong>Unfinished optimisation found</strong>
+          <p className="helpText">
+            {resumeCandidate.config.chart.strategy_name} ·{' '}
+            {resumeCandidate.lastProgress?.completed_trials ??
+              0}
+            /
+            {resumeCandidate.config.target_trials} trials
+          </p>
+          <div className="buttonRow twoButtons">
+            <button
+              className="primary"
+              disabled={busy || !connected}
+              onClick={() =>
+                void resumeOptimisation()
+              }
+            >
+              Resume
+            </button>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() =>
+                void discardResumeCandidate()
+              }
+            >
+              Discard
+            </button>
+          </div>
+        </section>
+      )}
 
       <section>
         <div className="rowLabel">
@@ -721,25 +1447,104 @@ export default function App({ bridge }: AppProps) {
             setSelected(event.target.value);
             setInputs([]);
             setParameterConfigs({});
+            setDiagnostics(null);
             setProgress(null);
+            setRunConfig(null);
           }}
         >
           <option value="">Select strategy…</option>
           {strategies.map((strategy) => (
-            <option key={strategy.id} value={strategy.id}>
+            <option
+              key={strategy.id}
+              value={strategy.id}
+            >
               {strategy.name}
             </option>
           ))}
         </select>
 
-        <button
-          className="secondary"
-          disabled={!selected || busy || activeRunId !== null}
-          onClick={() => void readInputs()}
-        >
-          {inputs.length > 0 ? 'Reload strategy inputs' : 'Read strategy inputs'}
-        </button>
+        <div className="buttonRow twoButtons">
+          <button
+            className="secondary"
+            disabled={
+              !selected ||
+              busy ||
+              activeRunId !== null
+            }
+            onClick={() => void readInputs()}
+          >
+            {inputs.length > 0
+              ? 'Reload inputs'
+              : 'Read inputs'}
+          </button>
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() =>
+              void runDiagnostics()
+            }
+          >
+            Diagnostics
+          </button>
+        </div>
       </section>
+
+      {diagnosticsOpen && diagnostics && (
+        <section>
+          <div className="rowLabel">
+            <strong>Compatibility</strong>
+            <button
+              className="textButton"
+              onClick={() =>
+                setDiagnosticsOpen(false)
+              }
+            >
+              Hide
+            </button>
+          </div>
+
+          <div className="diagnosticList">
+            {diagnostics.checks.map((check) => (
+              <div
+                className="diagnosticRow"
+                key={check.id}
+              >
+                <span
+                  className={
+                    check.ok
+                      ? 'diagnosticDot ok'
+                      : 'diagnosticDot bad'
+                  }
+                />
+                <div>
+                  <strong>{check.label}</strong>
+                  {check.detail && (
+                    <small>{check.detail}</small>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            <div className="diagnosticRow">
+              <span
+                className={
+                  diagnostics.deepBacktesting.available
+                    ? 'diagnosticDot ok'
+                    : 'diagnosticDot neutral'
+                }
+              />
+              <div>
+                <strong>Deep Backtesting</strong>
+                <small>
+                  {diagnostics.deepBacktesting.available
+                    ? 'Available'
+                    : diagnostics.deepBacktesting.reason}
+                </small>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {inputs.length > 0 && (
         <>
@@ -747,104 +1552,270 @@ export default function App({ bridge }: AppProps) {
             <div className="rowLabel">
               <strong>Parameters</strong>
               <span className="muted">
-                {selectedInputCount}/{optimisableInputs.length} selected
+                {selectedInputCount}/
+                {optimisableInputs.length} selected
               </span>
             </div>
 
             <div className="parameterList">
-              {inputs.map((input) => {
-                const optimisable = isOptimisableInput(input);
-                const config = parameterConfigs[input.id];
-                const enabled = config?.enabled ?? false;
+              {optimisableInputs.map((input) => {
+                const config =
+                  parameterConfigs[input.id]!;
+                const enabled =
+                  config?.enabled ?? false;
                 const numeric =
-                  input.type === 'integer' || input.type === 'float';
+                  input.type === 'integer' ||
+                  input.type === 'float';
+                const categorical =
+                  input.type === 'boolean' ||
+                  input.type === 'categorical';
+                const conditionCandidates =
+                  conditionCandidatesFor(
+                    input.id,
+                    inputs,
+                    parameterConfigs,
+                  );
+                const parent =
+                  conditionCandidates.find(
+                    (candidate) =>
+                      candidate.id ===
+                      config.conditionParameter,
+                  );
+                const parentChoices = parent
+                  ? parameterConfigs[parent.id]
+                      ?.choices ?? []
+                  : [];
 
                 return (
                   <div
                     className={
                       'parameterCard' +
-                      (enabled ? ' parameterCardEnabled' : '') +
-                      (!optimisable ? ' parameterCardDisabled' : '')
+                      (enabled
+                        ? ' parameterCardEnabled'
+                        : '')
                     }
                     key={input.id}
                   >
                     <label className="parameterHeading">
                       <input
                         type="checkbox"
-                        disabled={!optimisable || activeRunId !== null}
+                        disabled={
+                          activeRunId !== null
+                        }
                         checked={enabled}
                         onChange={(event) =>
-                          setParameterEnabled(input.id, event.target.checked)
+                          setParameterEnabled(
+                            input.id,
+                            event.target.checked,
+                          )
                         }
                       />
                       <span className="parameterName">
                         <strong>{input.label}</strong>
                         <small>
-                          {input.type} · current {String(input.currentValue)}
+                          {input.type} · current{' '}
+                          {String(input.currentValue)}
                         </small>
                       </span>
                     </label>
 
                     {enabled && numeric && (
-                      <div className="rangeGrid">
-                        <label>
-                          <span>Min</span>
+                      <>
+                        <div className="rangeGrid">
+                          <label>
+                            <span>Min</span>
+                            <input
+                              type="number"
+                              value={config.low}
+                              disabled={
+                                activeRunId !== null
+                              }
+                              onChange={(event) =>
+                                setParameterField(
+                                  input.id,
+                                  'low',
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            <span>Max</span>
+                            <input
+                              type="number"
+                              value={config.high}
+                              disabled={
+                                activeRunId !== null
+                              }
+                              onChange={(event) =>
+                                setParameterField(
+                                  input.id,
+                                  'high',
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            <span>Step</span>
+                            <input
+                              type="number"
+                              value={config.step}
+                              disabled={
+                                activeRunId !== null ||
+                                config.log
+                              }
+                              placeholder={
+                                input.type === 'integer'
+                                  ? '1'
+                                  : 'auto'
+                              }
+                              onChange={(event) =>
+                                setParameterField(
+                                  input.id,
+                                  'step',
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
+
+                        <label className="advancedToggle">
                           <input
-                            type="number"
-                            value={config?.low ?? ''}
-                            disabled={activeRunId !== null}
+                            type="checkbox"
+                            checked={config.log}
+                            disabled={
+                              activeRunId !== null
+                            }
                             onChange={(event) =>
-                              setParameterField(
+                              setParameterLog(
                                 input.id,
-                                'low',
-                                event.target.value,
+                                event.target.checked,
                               )
                             }
                           />
+                          Logarithmic search
                         </label>
-                        <label>
-                          <span>Max</span>
-                          <input
-                            type="number"
-                            value={config?.high ?? ''}
-                            disabled={activeRunId !== null}
-                            onChange={(event) =>
-                              setParameterField(
-                                input.id,
-                                'high',
-                                event.target.value,
+                      </>
+                    )}
+
+                    {enabled && categorical && (
+                      <div className="choiceList">
+                        {(
+                          input.type === 'boolean'
+                            ? [false, true]
+                            : (input.options ?? []).filter(
+                                (value): value is Primitive =>
+                                  typeof value ===
+                                    'string' ||
+                                  typeof value ===
+                                    'number' ||
+                                  typeof value ===
+                                    'boolean',
                               )
-                            }
-                          />
-                        </label>
-                        <label>
-                          <span>Step</span>
-                          <input
-                            type="number"
-                            value={config?.step ?? ''}
-                            disabled={activeRunId !== null}
-                            placeholder={input.type === 'integer' ? '1' : 'auto'}
-                            onChange={(event) =>
-                              setParameterField(
-                                input.id,
-                                'step',
-                                event.target.value,
-                              )
-                            }
-                          />
-                        </label>
+                        ).map((choice) => (
+                          <label
+                            className="choiceChip"
+                            key={String(choice)}
+                          >
+                            <input
+                              type="checkbox"
+                              disabled={
+                                activeRunId !== null
+                              }
+                              checked={config.choices.some(
+                                (value) =>
+                                  value === choice,
+                              )}
+                              onChange={() =>
+                                toggleChoice(
+                                  input.id,
+                                  choice,
+                                )
+                              }
+                            />
+                            {String(choice)}
+                          </label>
+                        ))}
                       </div>
                     )}
 
-                    {enabled && input.type === 'boolean' && (
-                      <div className="choiceHint">Optimise false / true</div>
-                    )}
+                    {enabled &&
+                      conditionCandidates.length > 0 && (
+                        <div className="conditionBlock">
+                          <label>
+                            <span>Only optimise when</span>
+                            <select
+                              value={
+                                config.conditionParameter
+                              }
+                              disabled={
+                                activeRunId !== null
+                              }
+                              onChange={(event) =>
+                                setConditionParameter(
+                                  input.id,
+                                  event.target.value,
+                                )
+                              }
+                            >
+                              <option value="">
+                                Always
+                              </option>
+                              {conditionCandidates.map(
+                                (candidate) => (
+                                  <option
+                                    key={candidate.id}
+                                    value={
+                                      candidate.id
+                                    }
+                                  >
+                                    {candidate.label}
+                                  </option>
+                                ),
+                              )}
+                            </select>
+                          </label>
 
-                    {enabled && input.type === 'categorical' && (
-                      <div className="choiceHint">
-                        {(input.options ?? []).map(String).join(' · ')}
-                      </div>
-                    )}
+                          {config.conditionParameter &&
+                            parentChoices.length >
+                              0 && (
+                              <div className="choiceList compactChoices">
+                                {parentChoices.map(
+                                  (choice) => (
+                                    <label
+                                      className="choiceChip"
+                                      key={String(
+                                        choice,
+                                      )}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        disabled={
+                                          activeRunId !==
+                                          null
+                                        }
+                                        checked={config.conditionValues.some(
+                                          (value) =>
+                                            value ===
+                                            choice,
+                                        )}
+                                        onChange={() =>
+                                          toggleConditionValue(
+                                            input.id,
+                                            choice,
+                                          )
+                                        }
+                                      />
+                                      {String(choice)}
+                                    </label>
+                                  ),
+                                )}
+                              </div>
+                            )}
+                        </div>
+                      )}
                   </div>
                 );
               })}
@@ -861,14 +1832,21 @@ export default function App({ bridge }: AppProps) {
                   value={objectiveMetric}
                   disabled={activeRunId !== null}
                   onChange={(event) =>
-                    setObjectiveMetric(event.target.value)
+                    setObjectiveMetric(
+                      event.target.value,
+                    )
                   }
                 >
-                  {OPTIMISATION_METRICS.map((metric) => (
-                    <option key={metric.key} value={metric.key}>
-                      {metric.label}
-                    </option>
-                  ))}
+                  {OPTIMISATION_METRICS.map(
+                    (metric) => (
+                      <option
+                        key={metric.key}
+                        value={metric.key}
+                      >
+                        {metric.label}
+                      </option>
+                    ),
+                  )}
                 </select>
               </label>
 
@@ -880,22 +1858,84 @@ export default function App({ bridge }: AppProps) {
                   max="100000"
                   value={targetTrials}
                   disabled={activeRunId !== null}
-                  onChange={(event) => setTargetTrials(event.target.value)}
+                  onChange={(event) =>
+                    setTargetTrials(
+                      event.target.value,
+                    )
+                  }
                 />
               </label>
+            </div>
+
+            <div className="subsection">
+              <label className="toggleRow">
+                <input
+                  type="checkbox"
+                  checked={dateRangeEnabled}
+                  disabled={activeRunId !== null}
+                  onChange={(event) =>
+                    setDateRangeEnabled(
+                      event.target.checked,
+                    )
+                  }
+                />
+                <span>
+                  Custom Deep Backtesting range
+                </span>
+              </label>
+
+              {dateRangeEnabled && (
+                <div className="dateGrid">
+                  <label>
+                    <span>From</span>
+                    <input
+                      type="date"
+                      value={startDate}
+                      disabled={
+                        activeRunId !== null
+                      }
+                      onChange={(event) =>
+                        setStartDate(
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>To</span>
+                    <input
+                      type="date"
+                      value={endDate}
+                      disabled={
+                        activeRunId !== null
+                      }
+                      onChange={(event) =>
+                        setEndDate(
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              )}
             </div>
 
             <div className="filterList">
               <label className="filterRow">
                 <input
                   type="checkbox"
-                  checked={maxDrawdownFilter.enabled}
+                  checked={
+                    maxDrawdownFilter.enabled
+                  }
                   disabled={activeRunId !== null}
                   onChange={(event) =>
-                    setMaxDrawdownFilter((current) => ({
-                      ...current,
-                      enabled: event.target.checked,
-                    }))
+                    setMaxDrawdownFilter(
+                      (current) => ({
+                        ...current,
+                        enabled:
+                          event.target.checked,
+                      }),
+                    )
                   }
                 />
                 <span>Max drawdown %</span>
@@ -903,13 +1943,16 @@ export default function App({ bridge }: AppProps) {
                   type="number"
                   value={maxDrawdownFilter.value}
                   disabled={
-                    !maxDrawdownFilter.enabled || activeRunId !== null
+                    !maxDrawdownFilter.enabled ||
+                    activeRunId !== null
                   }
                   onChange={(event) =>
-                    setMaxDrawdownFilter((current) => ({
-                      ...current,
-                      value: event.target.value,
-                    }))
+                    setMaxDrawdownFilter(
+                      (current) => ({
+                        ...current,
+                        value: event.target.value,
+                      }),
+                    )
                   }
                 />
               </label>
@@ -917,28 +1960,38 @@ export default function App({ bridge }: AppProps) {
               <label className="filterRow">
                 <input
                   type="checkbox"
-                  checked={minProfitFactorFilter.enabled}
+                  checked={
+                    minProfitFactorFilter.enabled
+                  }
                   disabled={activeRunId !== null}
                   onChange={(event) =>
-                    setMinProfitFactorFilter((current) => ({
-                      ...current,
-                      enabled: event.target.checked,
-                    }))
+                    setMinProfitFactorFilter(
+                      (current) => ({
+                        ...current,
+                        enabled:
+                          event.target.checked,
+                      }),
+                    )
                   }
                 />
                 <span>Min profit factor</span>
                 <input
                   type="number"
                   step="0.01"
-                  value={minProfitFactorFilter.value}
+                  value={
+                    minProfitFactorFilter.value
+                  }
                   disabled={
-                    !minProfitFactorFilter.enabled || activeRunId !== null
+                    !minProfitFactorFilter.enabled ||
+                    activeRunId !== null
                   }
                   onChange={(event) =>
-                    setMinProfitFactorFilter((current) => ({
-                      ...current,
-                      value: event.target.value,
-                    }))
+                    setMinProfitFactorFilter(
+                      (current) => ({
+                        ...current,
+                        value: event.target.value,
+                      }),
+                    )
                   }
                 />
               </label>
@@ -949,22 +2002,30 @@ export default function App({ bridge }: AppProps) {
                   checked={minTradesFilter.enabled}
                   disabled={activeRunId !== null}
                   onChange={(event) =>
-                    setMinTradesFilter((current) => ({
-                      ...current,
-                      enabled: event.target.checked,
-                    }))
+                    setMinTradesFilter(
+                      (current) => ({
+                        ...current,
+                        enabled:
+                          event.target.checked,
+                      }),
+                    )
                   }
                 />
                 <span>Min trades</span>
                 <input
                   type="number"
                   value={minTradesFilter.value}
-                  disabled={!minTradesFilter.enabled || activeRunId !== null}
+                  disabled={
+                    !minTradesFilter.enabled ||
+                    activeRunId !== null
+                  }
                   onChange={(event) =>
-                    setMinTradesFilter((current) => ({
-                      ...current,
-                      value: event.target.value,
-                    }))
+                    setMinTradesFilter(
+                      (current) => ({
+                        ...current,
+                        value: event.target.value,
+                      }),
+                    )
                   }
                 />
               </label>
@@ -973,15 +2034,25 @@ export default function App({ bridge }: AppProps) {
             {activeRunId === null ? (
               <button
                 className="primary"
-                disabled={!connected || busy || selectedInputCount === 0}
-                onClick={() => void startOptimisation()}
+                disabled={
+                  !connected ||
+                  busy ||
+                  selectedInputCount === 0
+                }
+                onClick={() =>
+                  void startOptimisation()
+                }
               >
-                {busy ? 'Preparing…' : 'Start optimisation'}
+                {busy
+                  ? 'Preparing…'
+                  : 'Start optimisation'}
               </button>
             ) : (
               <button
                 className="danger"
-                onClick={() => void stopOptimisation()}
+                onClick={() =>
+                  void stopOptimisation()
+                }
               >
                 Stop optimisation
               </button>
@@ -996,26 +2067,46 @@ export default function App({ bridge }: AppProps) {
             <strong>Progress</strong>
             <span className="muted">
               {progress?.completed_trials ?? 0}/
-              {progress?.target_trials ?? targetTrials}
+              {progress?.target_trials ??
+                targetTrials}
             </span>
           </div>
 
           <div className="progressTrack">
             <div
               className="progressFill"
-              style={{ width: completion + '%' }}
+              style={{
+                width: completion + '%',
+              }}
             />
+          </div>
+
+          <div className="runTiming">
+            <span>
+              Elapsed {formatDuration(elapsed)}
+            </span>
+            <span>
+              ETA {formatDuration(eta)}
+            </span>
           </div>
 
           {currentTrial && (
             <div className="currentTrial">
               Trial #{currentTrial.number} ·{' '}
-              {currentTrial.phase === 'applying'
-                ? 'applying parameters'
-                : currentTrial.phase === 'recalculating'
-                  ? 'waiting for TradingView'
-                  : 'submitting result'}
+              {currentTrial.phase === 'checking'
+                ? 'checking chart'
+                : currentTrial.phase ===
+                    'applying'
+                  ? 'applying parameters'
+                  : currentTrial.phase ===
+                      'recalculating'
+                    ? 'waiting for TradingView'
+                    : 'submitting result'}
             </div>
+          )}
+
+          {graphPoints.length >= 2 && (
+            <BestSoFarChart points={graphPoints} />
           )}
 
           {progress?.best && (
@@ -1025,8 +2116,9 @@ export default function App({ bridge }: AppProps) {
                 <span className="bestValue">
                   {objective.label}{' '}
                   {formatMetric(
-                    objectiveMetric,
-                    progress.best.objective_value,
+                    objective.key,
+                    progress.best
+                      .objective_value,
                   )}
                 </span>
               </div>
@@ -1042,16 +2134,26 @@ export default function App({ bridge }: AppProps) {
                 ]
                   .filter(
                     (key) =>
-                      progress.best &&
-                      Number.isFinite(progress.best.metrics[key]),
+                      Number.isFinite(
+                        progress.best!.metrics[
+                          key
+                        ],
+                      ),
                   )
                   .map((key) => (
                     <div key={key}>
-                      <span>{metricDefinition(key).label}</span>
+                      <span>
+                        {
+                          metricDefinition(key)
+                            .label
+                        }
+                      </span>
                       <strong>
                         {formatMetric(
                           key,
-                          progress.best!.metrics[key]!,
+                          progress.best!.metrics[
+                            key
+                          ]!,
                         )}
                       </strong>
                     </div>
@@ -1059,99 +2161,319 @@ export default function App({ bridge }: AppProps) {
               </div>
 
               <div className="bestParameters">
-                {Object.entries(progress.best.parameters).map(
-                  ([id, value]) => (
-                    <div key={id}>
-                      <span>{inputLabel(id)}</span>
-                      <code>{String(value)}</code>
-                    </div>
-                  ),
-                )}
-              </div>
-
-              <div className="buttonRow">
-                <button
-                  className="secondary"
-                  disabled={activeRunId !== null || busy}
-                  onClick={() => void applyBestParameters()}
-                >
-                  Apply best
-                </button>
-                <button
-                  className="textButton"
-                  disabled={activeRunId !== null || busy}
-                  onClick={() => void restoreOriginalParameters()}
-                >
-                  Restore original
-                </button>
+                {Object.entries(
+                  progress.best.parameters,
+                ).map(([id, value]) => (
+                  <div key={id}>
+                    <span>
+                      {inputLabel(id)}
+                    </span>
+                    <code>{String(value)}</code>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {progress && progress.trials.length > 0 && (
-            <div className="trialList">
-              {progress.trials
-                .slice()
-                .reverse()
-                .map((trial) => {
-                  const feasible =
-                    trial.state === 'complete' &&
-                    Object.values(trial.constraints).every(
-                      (value) => value <= 0,
-                    );
+          {progress &&
+            progress.trials.length > 0 && (
+              <>
+                <div className="trialToolbar">
+                  <select
+                    value={trialFilter}
+                    onChange={(event) =>
+                      setTrialFilter(
+                        event.target
+                          .value as TrialFilter,
+                      )
+                    }
+                  >
+                    <option value="all">
+                      All trials
+                    </option>
+                    <option value="valid">
+                      Valid
+                    </option>
+                    <option value="filtered">
+                      Filtered
+                    </option>
+                    <option value="failed">
+                      Failed
+                    </option>
+                  </select>
 
-                  return (
-                    <div className="trialRow" key={trial.trial_number}>
-                      <span>#{trial.trial_number}</span>
-                      <strong>
-                        {trial.objective_value === null
-                          ? 'Failed'
-                          : formatMetric(
-                              objectiveMetric,
-                              trial.objective_value,
-                            )}
-                      </strong>
-                      <span
-                        className={
-                          trial.state === 'failed'
-                            ? 'trialState failed'
-                            : feasible
-                              ? 'trialState feasible'
-                              : 'trialState constrained'
-                        }
-                      >
-                        {trial.state === 'failed'
-                          ? 'failed'
-                          : feasible
-                            ? 'valid'
-                            : 'filtered'}
-                      </span>
+                  <select
+                    value={trialSort}
+                    onChange={(event) =>
+                      setTrialSort(
+                        event.target
+                          .value as TrialSort,
+                      )
+                    }
+                  >
+                    <option value="trial-desc">
+                      Newest
+                    </option>
+                    <option value="trial-asc">
+                      Oldest
+                    </option>
+                    <option value="objective-best">
+                      Best objective
+                    </option>
+                    <option value="objective-worst">
+                      Worst objective
+                    </option>
+                    <option value="duration">
+                      Slowest
+                    </option>
+                  </select>
+                </div>
+
+                <div className="trialList">
+                  {displayedTrials.map(
+                    (trial) => {
+                      const feasible =
+                        isFeasibleTrial(trial);
+
+                      return (
+                        <button
+                          className={
+                            'trialRow trialButton' +
+                            (selectedTrialNumber ===
+                            trial.trial_number
+                              ? ' selectedTrial'
+                              : '')
+                          }
+                          key={trial.trial_number}
+                          onClick={() =>
+                            setSelectedTrialNumber(
+                              trial.trial_number,
+                            )
+                          }
+                        >
+                          <span>
+                            #{trial.trial_number}
+                          </span>
+                          <strong>
+                            {trial.objective_value ===
+                            null
+                              ? 'Failed'
+                              : formatMetric(
+                                  objective.key,
+                                  trial.objective_value,
+                                )}
+                          </strong>
+                          <span
+                            className={
+                              trial.state ===
+                              'failed'
+                                ? 'trialState failed'
+                                : feasible
+                                  ? 'trialState feasible'
+                                  : 'trialState constrained'
+                            }
+                          >
+                            {trial.state ===
+                            'failed'
+                              ? 'failed'
+                              : feasible
+                                ? 'valid'
+                                : 'filtered'}
+                          </span>
+                        </button>
+                      );
+                    },
+                  )}
+                </div>
+              </>
+            )}
+
+          {selectedTrial && (
+            <div className="trialDetail">
+              <div className="rowLabel">
+                <strong>
+                  Trial #
+                  {selectedTrial.trial_number}
+                </strong>
+                <button
+                  className="textButton"
+                  onClick={() =>
+                    setSelectedTrialNumber(
+                      null,
+                    )
+                  }
+                >
+                  Close
+                </button>
+              </div>
+
+              {selectedTrial.failure_reason && (
+                <div className="detailError">
+                  {
+                    selectedTrial.failure_reason
+                  }
+                </div>
+              )}
+
+              <h3>Parameters</h3>
+              <div className="metricsList">
+                {Object.entries(
+                  selectedTrial.parameters,
+                ).map(([key, value]) => (
+                  <div key={key}>
+                    <span>
+                      {inputLabel(key)}
+                    </span>
+                    <code>{String(value)}</code>
+                  </div>
+                ))}
+              </div>
+
+              <h3>Constraints</h3>
+              <div className="metricsList">
+                {Object.entries(
+                  selectedTrial.constraints,
+                ).length === 0 ? (
+                  <div>
+                    <span>No constraints</span>
+                    <code>—</code>
+                  </div>
+                ) : (
+                  Object.entries(
+                    selectedTrial.constraints,
+                  ).map(([key, value]) => (
+                    <div key={key}>
+                      <span>{key}</span>
+                      <code>
+                        {value <= 0
+                          ? 'pass'
+                          : 'fail (' +
+                            value.toFixed(
+                              4,
+                            ) +
+                            ')'}
+                      </code>
                     </div>
-                  );
-                })}
+                  ))
+                )}
+              </div>
+
+              <h3>
+                Full TradingView metrics
+              </h3>
+              <div className="metricsList fullMetrics">
+                {Object.entries(
+                  selectedTrial.metrics,
+                )
+                  .sort(([a], [b]) =>
+                    a.localeCompare(b),
+                  )
+                  .map(([key, value]) => (
+                    <div key={key}>
+                      <span>{key}</span>
+                      <code>
+                        {formatMetric(
+                          key,
+                          value,
+                        )}
+                      </code>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {progress && runConfig && (
+            <div className="exportRow">
+              <button
+                className="secondary"
+                onClick={() =>
+                  void exportRun('csv')
+                }
+              >
+                Export CSV
+              </button>
+              <button
+                className="secondary"
+                onClick={() =>
+                  void exportRun('json')
+                }
+              >
+                Export JSON
+              </button>
             </div>
           )}
         </section>
       )}
 
-      {progress?.best && activeRunId === null && (
-        <section>
-          <strong>Best performance metrics</strong>
-          <div className="metricsList">
-            {Object.entries(progress.best.metrics)
-              .filter(([key]) => !key.startsWith('tv.'))
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([key, value]) => (
-                <div key={key}>
-                  <span>{metricDefinition(key).label}</span>
-                  <code>{formatMetric(key, value)}</code>
-                </div>
-              ))}
+      {stopChoiceVisible && (
+        <section className="stopChoice">
+          <strong>Optimisation stopped</strong>
+          <p className="helpText">
+            Choose which parameters TradingView should
+            keep.
+          </p>
+          <div className="stackedButtons">
+            <button
+              className="primary"
+              disabled={!progress?.best || busy}
+              onClick={() =>
+                void applyBestParameters()
+              }
+            >
+              Apply best parameters
+            </button>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() =>
+                void restoreOriginalParameters()
+              }
+            >
+              Restore original parameters
+            </button>
+            <button
+              className="textButton"
+              onClick={() =>
+                setStopChoiceVisible(false)
+              }
+            >
+              Keep current parameters
+            </button>
           </div>
         </section>
       )}
 
-      {error && <div className="error">{error}</div>}
+      {progress?.best &&
+        activeRunId === null &&
+        !stopChoiceVisible && (
+          <section>
+            <div className="buttonRow twoButtons">
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() =>
+                  void applyBestParameters()
+                }
+              >
+                Apply best
+              </button>
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() =>
+                  void restoreOriginalParameters()
+                }
+              >
+                Restore original
+              </button>
+            </div>
+          </section>
+        )}
+
+      {error && (
+        <div className="error">{error}</div>
+      )}
     </main>
   );
 }
