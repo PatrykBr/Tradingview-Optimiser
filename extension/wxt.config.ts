@@ -19,6 +19,14 @@ export default defineConfig({
         matches: ['https://*.tradingview.com/*'],
       },
     ],
+    browser_specific_settings: {
+      gecko: {
+        id: 'tradingview-optuna-optimiser@patrykbr.local',
+        data_collection_permissions: {
+          required: ['none'],
+        },
+      },
+    },
     action: {
       default_title: 'Toggle optimiser',
     },
