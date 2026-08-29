@@ -31,7 +31,6 @@ import type {
   RunProgress,
 } from '../../lib/protocol/types';
 import type { TradingViewAdapter } from '../../lib/tradingview/adapter';
-import { sameChart } from './configuration';
 import type { PreparedOptimisationRun } from './useStrategyConfiguration';
 
 interface TrialExecution {
@@ -147,113 +146,6 @@ export function useOptimisationRun({
     [],
   );
 
-  const assertRunContext = useCallback(
-    async (
-      strategyId: string,
-      config: CreateRun,
-    ) => {
-      const chart = await adapter.getChartContext();
-
-      if (!sameChart(config.chart, chart)) {
-        throw new Error(
-          'SAFETY: TradingView chart changed. Expected ' +
-            config.chart.symbol +
-            ' ' +
-            config.chart.timeframe +
-            ', got ' +
-            chart.symbol +
-            ' ' +
-            chart.timeframe,
-        );
-      }
-
-      const signature =
-        await adapter.getStrategySignature(strategyId);
-
-      const originalParameters =
-        originalParametersRef.current;
-      if (originalParameters) {
-        const optimisedIds = new Set(
-          config.parameters.map(
-            (parameter) => parameter.name,
-          ),
-        );
-        const liveInputs =
-          await adapter.readStrategyInputs(strategyId);
-
-        for (const input of liveInputs) {
-          if (
-            optimisedIds.has(input.id) ||
-            !(input.id in originalParameters)
-          ) {
-            continue;
-          }
-
-          if (
-            JSON.stringify(input.currentValue) !==
-            JSON.stringify(
-              originalParameters[input.id],
-            )
-          ) {
-            throw new Error(
-              'SAFETY: Fixed strategy input "' +
-                input.label +
-                '" changed during the optimisation.',
-            );
-          }
-        }
-      }
-
-      const backtestMode =
-        await adapter.getBacktestMode();
-      const expectedMode = config.backtest_range
-        ? 'deep'
-        : 'chart';
-
-      if (backtestMode !== expectedMode) {
-        throw new Error(
-          'SAFETY: TradingView backtest mode changed during the optimisation.',
-        );
-      }
-
-      if (
-        signature !==
-        config.chart.strategy_signature
-      ) {
-        throw new Error(
-          'SAFETY: The TradingView strategy or its input structure changed during the optimisation.',
-        );
-      }
-
-      const expectedSettingsSignature =
-        config.chart.strategy_settings_signature;
-      if (expectedSettingsSignature) {
-        const liveSettingsSignature =
-          await adapter.getStrategySettingsSignature(
-            strategyId,
-          );
-
-        if (
-          liveSettingsSignature !==
-          expectedSettingsSignature
-        ) {
-          throw new Error(
-            'SAFETY: TradingView strategy properties changed during the optimisation.',
-          );
-        }
-      }
-
-      if (config.backtest_range) {
-        await adapter.assertDeepBacktestRange(
-          strategyId,
-          config.backtest_range.start_date,
-          config.backtest_range.end_date,
-        );
-      }
-    },
-    [adapter],
-  );
-
   const recoverBackendRun =
     useCallback(async () => {
       const config = activeConfigRef.current;
@@ -335,9 +227,10 @@ export function useOptimisationRun({
           phase: 'checking',
         });
 
-        await assertRunContext(
+        await adapter.assertRunContext(
           strategyId,
           config,
+          originalParametersRef.current,
         );
 
         setCurrentTrial({
@@ -363,9 +256,10 @@ export function useOptimisationRun({
             controller.signal,
           );
 
-        await assertRunContext(
+        await adapter.assertRunContext(
           strategyId,
           config,
+          originalParametersRef.current,
         );
 
         setCurrentTrial({
@@ -494,7 +388,6 @@ export function useOptimisationRun({
     },
     [
       adapter,
-      assertRunContext,
       sendRequest,
       setError,
     ],
@@ -605,9 +498,10 @@ export function useOptimisationRun({
         originalParametersRef.current =
           candidate.originalParameters;
 
-        await assertRunContext(
+        await adapter.assertRunContext(
           strategyId,
           candidate.config,
+          originalParametersRef.current,
         );
 
         activeRunIdRef.current =
@@ -661,7 +555,6 @@ export function useOptimisationRun({
         setBusy(false);
       }
     }, [
-      assertRunContext,
       connected,
       pairingRequired,
       restorePersistedRun,
