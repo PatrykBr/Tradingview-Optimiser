@@ -267,8 +267,7 @@ export default function RunProgressSection({
                   'sortinoRatio',
                 ].flatMap((key) => {
                   const value =
-                    best
-                      ?.metrics[key];
+                    best.metrics[key];
 
                   if (
                     typeof value !== 'number' ||
