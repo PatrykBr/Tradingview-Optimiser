@@ -8,8 +8,14 @@ import {
 } from 'react';
 
 import {
+  runMonteCarloValidation,
+} from '../../lib/optimisation/monte-carlo-runner';
+import {
   runResearchValidation,
 } from '../../lib/optimisation/research-runner';
+import {
+  runWalkForwardValidation,
+} from '../../lib/optimisation/walk-forward-runner';
 import type {
   ResearchEvaluation,
 } from '../../lib/optimisation/research';
@@ -219,7 +225,9 @@ export function useResearchValidation({
         ) ||
         !settings ||
         (!settings.robustness.enabled &&
-          !settings.stability.enabled)
+          !settings.stability.enabled &&
+          !settings.walk_forward.enabled &&
+          !settings.monte_carlo.enabled)
       ) {
         return;
       }
@@ -240,17 +248,52 @@ export function useResearchValidation({
         controller;
 
       try {
+        const originalParameters =
+          run.getOriginalParameters();
         const evaluation =
           await runResearchValidation({
             adapter,
             strategyId,
             config,
             progress,
-            originalParameters:
-              run.getOriginalParameters(),
+            originalParameters,
             signal: controller.signal,
             onPhase: setPhase,
           });
+
+        if (
+          settings.walk_forward.enabled
+        ) {
+          evaluation.walkForward =
+            await runWalkForwardValidation({
+              adapter,
+              runStudy:
+                run.runAuxiliaryOptimisation,
+              strategyId,
+              config,
+              parentProgress: progress,
+              originalParameters,
+              signal: controller.signal,
+              onPhase: setPhase,
+            });
+        }
+
+        if (
+          settings.monte_carlo.enabled
+        ) {
+          evaluation.monteCarlo =
+            await runMonteCarloValidation({
+              adapter,
+              strategyId,
+              config,
+              progress,
+              existingResearch:
+                evaluation,
+              originalParameters,
+              signal: controller.signal,
+              onPhase: setPhase,
+            });
+        }
 
         setResearch(evaluation);
         await updateExperimentResearch(
@@ -283,6 +326,7 @@ export function useResearchValidation({
       adapter,
       refreshHistory,
       run.getOriginalParameters,
+      run.runAuxiliaryOptimisation,
       run.progress,
       run.runConfig,
       setError,
