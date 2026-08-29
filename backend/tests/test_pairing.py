@@ -1,7 +1,9 @@
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.main import app
 from app.pairing import PairingError, PairingManager
 
 
@@ -37,3 +39,25 @@ def test_pairing_rejects_invalid_code(
 
     with pytest.raises(PairingError, match="invalid pairing code"):
         manager.pair("WRONG")
+
+
+
+def test_pair_endpoint_exchanges_one_time_code(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    codes = iter(["AAAABBBB", "CCCCDDDD"])
+    monkeypatch.setattr(
+        "app.pairing.secrets.token_hex",
+        lambda _: next(codes),
+    )
+    monkeypatch.setenv("TVOPT_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("TVOPT_EXTENSION_TOKEN", raising=False)
+
+    with TestClient(app) as client:
+        invalid = client.post("/pair", json={"code": "WRONG"})
+        assert invalid.status_code == 403
+
+        paired = client.post("/pair", json={"code": "AAAABBBB"})
+        assert paired.status_code == 200
+        assert len(paired.json()["token"]) >= 32
