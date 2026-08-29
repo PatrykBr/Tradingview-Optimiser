@@ -9,6 +9,8 @@ import {
   type UnknownRecord,
 } from '../lib/tradingview/parsers';
 
+import { extractClosedTrades } from '../lib/tradingview/trades';
+
 import {
   configureDeepBacktestRange,
   deepBacktestingCapability,
@@ -404,6 +406,43 @@ const readStrategyMetrics = (strategyId: string) => {
   return internalMetrics ?? visibleMetrics;
 };
 
+const readStrategyClosedTrades = (
+  strategyId: string,
+) => {
+  const chart = getChart();
+  const source = getStrategySource(
+    chart,
+    strategyId,
+  );
+
+  if (
+    !source ||
+    typeof source.reportData !== 'function'
+  ) {
+    return {
+      available: false,
+      trades: [],
+      reason:
+        'TradingView strategy report source is unavailable',
+    };
+  }
+
+  try {
+    return extractClosedTrades(
+      unwrapValue(source.reportData()),
+    );
+  } catch (error) {
+    return {
+      available: false,
+      trades: [],
+      reason:
+        error instanceof Error
+          ? error.message
+          : String(error),
+    };
+  }
+};
+
 const readStrategyReportSnapshot = (strategyId: string) => {
   const chart = getChart();
   const source = getStrategySource(chart, strategyId);
@@ -605,6 +644,19 @@ const runDiagnostics = (strategyId: string | null) => {
       ...(snapshot.error ? { detail: snapshot.error } : {}),
     });
 
+    const tradeSnapshot =
+      readStrategyClosedTrades(strategyId);
+    checks.push({
+      id: 'trade-level-data',
+      label: 'Closed-trade data',
+      ok: tradeSnapshot.available,
+      detail: tradeSnapshot.available
+        ? tradeSnapshot.trades.length +
+          ' closed trades exposed'
+        : tradeSnapshot.reason ??
+          'Unavailable',
+    });
+
     try {
       const signature = getStrategySignature(strategyId);
       checks.push({
@@ -689,6 +741,16 @@ export default defineUnlistedScript(() => {
             throw new Error('strategyId is required');
           }
           result = readStrategyReportSnapshot(payload.strategyId);
+          break;
+        }
+        case 'readClosedTrades': {
+          const payload = asRecord(request.payload);
+          if (typeof payload.strategyId !== 'string') {
+            throw new Error('strategyId is required');
+          }
+          result = readStrategyClosedTrades(
+            payload.strategyId,
+          );
           break;
         }
         case 'getStrategySignature': {
