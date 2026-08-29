@@ -1,0 +1,27 @@
+{
+  "name": "tradingview-optuna-optimiser-extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wxt-dev/module-react": "1.2.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.9.2",
+    "wxt": "0.21.4"
+  },
+  "packageManager": "pnpm@10.15.0"
+}
