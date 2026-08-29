@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  buildBaselineParameters,
-  buildSearchSpace,
   conditionCandidatesFor,
+  createParameterConfigs,
   defaultParameterConfig,
   type ParameterConfig,
+} from '../lib/optimisation/parameter-config';
+import {
+  buildBaselineParameters,
+  buildSearchSpace,
 } from '../lib/optimisation/search-space';
 import type { StrategyInput } from '../lib/tradingview/types';
 
@@ -37,12 +40,7 @@ const inputs: StrategyInput[] = [
 ];
 
 const configs = (): Record<string, ParameterConfig> =>
-  Object.fromEntries(
-    inputs.map((input) => [
-      input.id,
-      defaultParameterConfig(input),
-    ]),
-  );
+  createParameterConfigs(inputs);
 
 describe('buildSearchSpace', () => {
   it('defaults numeric steps to Auto', () => {
@@ -203,12 +201,10 @@ describe('buildSearchSpace', () => {
       },
     ];
 
-    const config = Object.fromEntries(
-      conditionalInputs.map((input) => [
-        input.id,
-        defaultParameterConfig(input),
-      ]),
-    ) as Record<string, ParameterConfig>;
+    const config =
+      createParameterConfigs(
+        conditionalInputs,
+      );
 
     config.in_0!.enabled = true;
     config.in_1!.enabled = true;
@@ -263,12 +259,10 @@ describe('buildSearchSpace', () => {
       },
     ];
 
-    const config = Object.fromEntries(
-      candidateInputs.map((input) => [
-        input.id,
-        defaultParameterConfig(input),
-      ]),
-    ) as Record<string, ParameterConfig>;
+    const config =
+      createParameterConfigs(
+        candidateInputs,
+      );
 
     expect(
       conditionCandidatesFor(
@@ -294,15 +288,12 @@ describe('buildSearchSpace', () => {
         currentValue: false,
       },
     ];
-    const config = Object.fromEntries(
-      conditionalInputs.map((input) => [
-        input.id,
-        {
-          ...defaultParameterConfig(input),
-          enabled: true,
-        },
-      ]),
-    ) as Record<string, ParameterConfig>;
+    const config =
+      createParameterConfigs(
+        conditionalInputs,
+      );
+    config.in_0!.enabled = true;
+    config.in_1!.enabled = true;
 
     config.in_0!.conditionParameter = 'in_1';
     config.in_0!.conditionValues = [true];
