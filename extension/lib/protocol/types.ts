@@ -156,7 +156,12 @@ export interface RunProgress {
   failed_trials: number;
   reused_trials?: number;
   best: BestTrial | null;
-  termination_reason?: 'target_trials' | 'converged' | 'user' | null;
+  termination_reason?:
+    | 'target_trials'
+    | 'converged'
+    | 'search_space_exhausted'
+    | 'user'
+    | null;
   trials: TrialSummary[];
 }
 
