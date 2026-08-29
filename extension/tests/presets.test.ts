@@ -24,18 +24,33 @@ const inputs: StrategyInput[] = [
   },
 ];
 
+const requireInput = (
+  index: number,
+): StrategyInput => {
+  const input = inputs[index];
+
+  if (!input) {
+    throw new Error(
+      'Missing test input at index ' +
+        index,
+    );
+  }
+
+  return input;
+};
+
 describe('saved strategy configurations', () => {
   it('restores saved parameter settings against the current input model', () => {
     const saved = {
       in_0: {
-        ...defaultParameterConfig(inputs[0]!),
+        ...defaultParameterConfig(requireInput(0)),
         enabled: true,
         low: '5',
         high: '30',
         step: '1',
       },
       in_1: {
-        ...defaultParameterConfig(inputs[1]!),
+        ...defaultParameterConfig(requireInput(1)),
         enabled: true,
         choices: [true, false],
       },
@@ -47,7 +62,7 @@ describe('saved strategy configurations', () => {
   it('falls back safely for inputs missing from an older saved config', () => {
     const restored = reconcileParameterConfigs(inputs, {
       in_0: {
-        ...defaultParameterConfig(inputs[0]!),
+        ...defaultParameterConfig(requireInput(0)),
         enabled: true,
         low: '10',
         high: '20',
@@ -56,7 +71,7 @@ describe('saved strategy configurations', () => {
 
     expect(restored.in_0?.enabled).toBe(true);
     expect(restored.in_1).toEqual(
-      defaultParameterConfig(inputs[1]!),
+      defaultParameterConfig(requireInput(1)),
     );
   });
 });
