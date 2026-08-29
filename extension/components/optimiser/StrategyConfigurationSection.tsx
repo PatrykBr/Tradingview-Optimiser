@@ -22,7 +22,8 @@ export default function StrategyConfigurationSection({
   onStart,
   onStop,
 }: StrategyConfigurationSectionProps) {
-  const locked = activeRunId !== null;
+  const locked =
+    activeRunId !== null || busy;
 
   return (
     <>
