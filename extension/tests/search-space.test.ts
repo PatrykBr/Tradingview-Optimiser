@@ -42,6 +42,22 @@ const inputs: StrategyInput[] = [
 const configs = (): Record<string, ParameterConfig> =>
   createParameterConfigs(inputs);
 
+const requireInput = (
+  values: StrategyInput[],
+  index: number,
+): StrategyInput => {
+  const input = values[index];
+
+  if (!input) {
+    throw new Error(
+      'Missing test input at index ' +
+        index,
+    );
+  }
+
+  return input;
+};
+
 const requireConfig = (
   configs: Record<string, ParameterConfig>,
   id: string,
@@ -144,12 +160,10 @@ describe('buildSearchSpace', () => {
     const config = {
       in_0: {
         ...defaultParameterConfig(
-          continuousInputs[0] ?? {
-            id: 'missing',
-            label: 'Missing',
-            type: 'unsupported',
-            currentValue: null,
-          },
+          requireInput(
+            continuousInputs,
+            0,
+          ),
         ),
         enabled: true,
         low: '0.1',
