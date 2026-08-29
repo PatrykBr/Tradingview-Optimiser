@@ -264,7 +264,7 @@ class OptimisationManager:
                 states=(TrialState.COMPLETE,),
             )
 
-            if len(completed) < 2:
+            if len(completed) < 5:
                 return RunAnalysis(
                     run_id=run_id,
                     parameter_importance={},
