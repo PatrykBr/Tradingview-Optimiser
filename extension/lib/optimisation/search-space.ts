@@ -216,3 +216,52 @@ export const conditionCandidatesFor = (
         input.type === 'categorical',
     );
 };
+
+
+export const buildBaselineParameters = (
+  inputs: StrategyInput[],
+  searchSpace: SearchParameter[],
+): Record<string, Primitive> => {
+  const inputById = new Map(
+    inputs.map((input) => [input.id, input]),
+  );
+  const baseline: Record<string, Primitive> = {};
+
+  for (const parameter of searchSpace) {
+    if (parameter.condition) {
+      const parent = baseline[parameter.condition.parameter];
+      if (
+        parent === undefined ||
+        !parameter.condition.values.some(
+          (value) => value === parent,
+        )
+      ) {
+        continue;
+      }
+    }
+
+    const current = inputById.get(parameter.name)?.currentValue;
+    if (!isPrimitive(current)) return {};
+
+    if (parameter.type === 'categorical') {
+      if (!parameter.choices.some((choice) => choice === current)) {
+        return {};
+      }
+      baseline[parameter.name] = current;
+      continue;
+    }
+
+    if (typeof current !== 'number') return {};
+    if (current < parameter.low || current > parameter.high) {
+      return {};
+    }
+
+    if (parameter.type === 'int' && !Number.isInteger(current)) {
+      return {};
+    }
+
+    baseline[parameter.name] = current;
+  }
+
+  return baseline;
+};
