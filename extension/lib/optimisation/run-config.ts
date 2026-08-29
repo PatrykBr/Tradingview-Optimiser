@@ -212,6 +212,43 @@ export const formFromRun = (
           .perturbation_percent ??
           draft.stabilityPerturbationPercent,
       ),
+    walkForwardEnabled:
+      research?.walk_forward.enabled ??
+      false,
+    walkForwardFolds: String(
+      research?.walk_forward.folds ??
+        draft.walkForwardFolds,
+    ),
+    walkForwardTrialsPerFold: String(
+      research?.walk_forward
+        .trials_per_fold ??
+        draft.walkForwardTrialsPerFold,
+    ),
+    walkForwardInitialTrainingPercent:
+      String(
+        (research?.walk_forward
+          .initial_training_fraction ??
+          Number(
+            draft.walkForwardInitialTrainingPercent,
+          ) /
+            100) * 100,
+      ),
+    monteCarloEnabled:
+      research?.monte_carlo.enabled ??
+      false,
+    monteCarloSimulations: String(
+      research?.monte_carlo
+        .simulations ??
+        draft.monteCarloSimulations,
+    ),
+    monteCarloConfidencePercent: String(
+      (research?.monte_carlo
+        .confidence ??
+        Number(
+          draft.monteCarloConfidencePercent,
+        ) /
+          100) * 100,
+    ),
   };
 };
 
@@ -442,6 +479,62 @@ export const buildResearchPlan = (
         )
       : 5;
 
+  const walkForwardFolds =
+    form.walkForwardEnabled
+      ? parseBoundedInteger(
+          form.walkForwardFolds,
+          'Walk-forward folds',
+          2,
+          8,
+        )
+      : 3;
+  const walkForwardTrialsPerFold =
+    form.walkForwardEnabled
+      ? parseBoundedInteger(
+          form.walkForwardTrialsPerFold,
+          'Walk-forward trials per fold',
+          5,
+          10_000,
+        )
+      : 100;
+  const walkForwardInitialTrainingFraction =
+    form.walkForwardEnabled
+      ? parseBoundedNumber(
+          form.walkForwardInitialTrainingPercent,
+          'Walk-forward initial training percentage',
+          30,
+          80,
+        ) / 100
+      : 0.5;
+  const monteCarloSimulations =
+    form.monteCarloEnabled
+      ? parseBoundedInteger(
+          form.monteCarloSimulations,
+          'Monte Carlo simulations',
+          500,
+          50_000,
+        )
+      : 5_000;
+  const monteCarloConfidence =
+    form.monteCarloEnabled
+      ? parseBoundedNumber(
+          form.monteCarloConfidencePercent,
+          'Monte Carlo confidence percentage',
+          50,
+          99,
+        ) / 100
+      : 0.9;
+
+  if (
+    (form.walkForwardEnabled ||
+      form.monteCarloEnabled) &&
+    !fullRange
+  ) {
+    throw new Error(
+      'Walk-forward and Monte Carlo research require a custom Deep Backtesting date range',
+    );
+  }
+
   let optimisationRange = fullRange;
 
   if (form.robustnessEnabled) {
@@ -482,6 +575,27 @@ export const buildResearchPlan = (
           form.stabilityEnabled,
         perturbation_percent:
           perturbationPercent,
+      },
+      walk_forward: {
+        enabled:
+          form.walkForwardEnabled,
+        full_range:
+          form.walkForwardEnabled
+            ? fullRange
+            : null,
+        folds: walkForwardFolds,
+        trials_per_fold:
+          walkForwardTrialsPerFold,
+        initial_training_fraction:
+          walkForwardInitialTrainingFraction,
+      },
+      monte_carlo: {
+        enabled:
+          form.monteCarloEnabled,
+        simulations:
+          monteCarloSimulations,
+        confidence:
+          monteCarloConfidence,
       },
     },
   };
