@@ -256,6 +256,22 @@ class OptimisationManager:
         async with self._lock:
             return self._progress(self._require(run_id))
 
+    async def delete_run(self, run_id: str) -> None:
+        async with self._lock:
+            run = self._require(run_id)
+
+            if (
+                run.outstanding_trial is not None
+                or run.status in {RunStatus.RUNNING, RunStatus.STOP_REQUESTED}
+            ):
+                raise ValueError("cannot delete an active optimisation run")
+
+            self._runs.pop(run_id, None)
+            optuna.delete_study(
+                study_name=run_id,
+                storage=self._storage_url,
+            )
+
     async def analysis(self, run_id: str) -> RunAnalysis:
         async with self._lock:
             run = self._require(run_id)
