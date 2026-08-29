@@ -15,6 +15,9 @@ export interface StrategyInput {
   type: StrategyInputType;
   currentValue: unknown;
   options?: unknown[];
+  min?: number;
+  max?: number;
+  step?: number;
 }
 
 export interface DetectedStrategy {
