@@ -38,6 +38,43 @@ export default function BackendSection({
         </span>
       </header>
 
+      {run.watchdog.status !== 'idle' && (
+        <div
+          className={
+            'watchdogBanner ' +
+            run.watchdog.status
+          }
+        >
+          <span
+            className="watchdogDot"
+            aria-hidden="true"
+          />
+          <div>
+            <strong>
+              TradingView watchdog{' '}
+              {run.watchdog.status ===
+              'healthy'
+                ? 'healthy'
+                : 'stopped the run'}
+            </strong>
+            <small>
+              {run.watchdog.status ===
+                'healthy' &&
+              run.watchdog
+                .lastSuccessfulTrialAt
+                ? 'Last successful trial ' +
+                  new Date(
+                    run.watchdog
+                      .lastSuccessfulTrialAt,
+                  ).toLocaleTimeString()
+                : run.watchdog
+                    .lastFailure ??
+                  'Compatibility checks passed.'}
+            </small>
+          </div>
+        </div>
+      )}
+
       {run.pairingRequired && (
         <section className="pairingCard">
           <strong>
