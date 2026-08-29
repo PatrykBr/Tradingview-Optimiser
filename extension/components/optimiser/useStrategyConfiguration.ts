@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type SetStateAction,
@@ -71,6 +72,7 @@ export function useStrategyConfiguration(
 ) {
   const [strategies, setStrategies] = useState<DetectedStrategy[]>([]);
   const [selectedStrategyId, setSelectedStrategyId] = useState('');
+  const selectedStrategyIdRef = useRef('');
   const [inputs, setInputs] = useState<StrategyInput[]>([]);
   const [parameterConfigs, setParameterConfigs] = useState<
     Record<string, ParameterConfig>
@@ -110,20 +112,24 @@ export function useStrategyConfiguration(
       const detected = await adapter.detectStrategies();
       setStrategies(detected);
 
+      const currentSelection =
+        selectedStrategyIdRef.current;
       const nextSelected =
         detected.length === 1
           ? detected[0]!.id
           : detected.some(
                 (strategy) =>
                   strategy.id ===
-                  selectedStrategyId,
+                  currentSelection,
               )
-            ? selectedStrategyId
+            ? currentSelection
             : '';
 
-      if (nextSelected !== selectedStrategyId) {
+      if (nextSelected !== currentSelection) {
         clearLoadedStrategy();
       }
+      selectedStrategyIdRef.current =
+        nextSelected;
       setSelectedStrategyId(nextSelected);
 
       if (detected.length === 0) {
@@ -141,7 +147,6 @@ export function useStrategyConfiguration(
   }, [
     adapter,
     clearLoadedStrategy,
-    selectedStrategyId,
     setError,
   ]);
 
@@ -193,6 +198,8 @@ export function useStrategyConfiguration(
 
   const selectStrategy = useCallback(
     (strategyId: string) => {
+      selectedStrategyIdRef.current =
+        strategyId;
       setSelectedStrategyId(strategyId);
       clearLoadedStrategy();
     },
@@ -499,6 +506,8 @@ export function useStrategyConfiguration(
         if (!config) return current;
 
         const parent = current[parameterId];
+        const firstChoice =
+          parent?.choices[0];
 
         return {
           ...current,
@@ -507,8 +516,8 @@ export function useStrategyConfiguration(
             conditionParameter: parameterId,
             conditionValues:
               parameterId &&
-              parent?.choices.length
-                ? [parent.choices[0]!]
+              firstChoice !== undefined
+                ? [firstChoice]
                 : [],
           },
         };
@@ -729,6 +738,8 @@ export function useStrategyConfiguration(
       }
 
       setStrategies(detected);
+      selectedStrategyIdRef.current =
+        matchingStrategy.id;
       setSelectedStrategyId(matchingStrategy.id);
       await loadInputs(
         matchingStrategy.id,
