@@ -115,6 +115,7 @@ export default function App({ bridge }: AppProps) {
     null,
   );
   const executingTrialRef = useRef<number | null>(null);
+  const pendingTrialRef = useRef<NextTrial | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const sendRequest = useCallback(
@@ -347,7 +348,10 @@ export default function App({ bridge }: AppProps) {
   const executeTrial = useCallback(
     async (trial: NextTrial) => {
       if (trial.run_id !== activeRunIdRef.current) return;
-      if (executingTrialRef.current !== null) return;
+      if (executingTrialRef.current !== null) {
+        pendingTrialRef.current = trial;
+        return;
+      }
 
       const strategyId = activeStrategyIdRef.current;
       const expectedChart = runChartRef.current;
@@ -444,6 +448,18 @@ export default function App({ bridge }: AppProps) {
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
         }
+
+        const pending = pendingTrialRef.current;
+        if (
+          pending &&
+          pending.run_id === activeRunIdRef.current &&
+          executingTrialRef.current === null
+        ) {
+          pendingTrialRef.current = null;
+          queueMicrotask(() => {
+            void executeTrial(pending);
+          });
+        }
       }
     },
     [adapter, sendRequest],
@@ -517,6 +533,7 @@ export default function App({ bridge }: AppProps) {
       setActiveRunId(runId);
       setProgress(null);
       setCurrentTrial(null);
+      pendingTrialRef.current = null;
 
       await sendRequest({ type: 'CREATE_RUN', payload: config });
       await sendRequest({
@@ -538,6 +555,9 @@ export default function App({ bridge }: AppProps) {
 
     setError(undefined);
 
+    const queuedTrial = pendingTrialRef.current;
+    pendingTrialRef.current = null;
+
     try {
       // Tell Optuna first, then abort the browser evaluation. WebSocket message
       // order ensures the failed/cancelled outstanding trial finishes a run that
@@ -546,6 +566,17 @@ export default function App({ bridge }: AppProps) {
         type: 'STOP_RUN',
         payload: { runId },
       });
+
+      if (queuedTrial && executingTrialRef.current === null) {
+        await sendRequest({
+          type: 'TRIAL_FAILED',
+          payload: {
+            runId,
+            trialNumber: queuedTrial.trial_number,
+            reason: 'Trial cancelled by user before evaluation started',
+          },
+        });
+      }
     } finally {
       abortControllerRef.current?.abort();
     }
@@ -624,6 +655,7 @@ export default function App({ bridge }: AppProps) {
           message.progress.status === 'failed'
         ) {
           activeRunIdRef.current = null;
+          pendingTrialRef.current = null;
           setActiveRunId(null);
           setCurrentTrial(null);
         }
