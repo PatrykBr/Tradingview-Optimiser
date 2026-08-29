@@ -6,11 +6,34 @@ import type {
 } from '../lib/messages';
 import type { NextTrial, RunProgress } from '../lib/protocol/types';
 
+const RUN_OWNERS_KEY = 'runOwners';
+
 export default defineBackground(() => {
   const backend = new BackendClient();
   const runOwners = new Map<string, number>();
 
-  let backendState: BackendState = { connected: false };
+  let backendState: BackendState = backend.state;
+
+  const persistRunOwners = async () => {
+    await browser.storage.local.set({
+      [RUN_OWNERS_KEY]: Object.fromEntries(runOwners),
+    });
+  };
+
+  const loadRunOwners = async () => {
+    const stored = await browser.storage.local.get(RUN_OWNERS_KEY);
+    const owners = stored[RUN_OWNERS_KEY];
+
+    if (!owners || typeof owners !== 'object') return;
+
+    for (const [runId, tabId] of Object.entries(
+      owners as Record<string, unknown>,
+    )) {
+      if (typeof tabId === 'number') {
+        runOwners.set(runId, tabId);
+      }
+    }
+  };
 
   const sendToTab = (tabId: number, message: BackgroundMessage) =>
     browser.tabs.sendMessage(tabId, message).catch(() => undefined);
@@ -30,10 +53,12 @@ export default defineBackground(() => {
     message: BackgroundMessage,
   ) => {
     const owner = runOwners.get(runId);
+
     if (owner !== undefined) {
       void sendToTab(owner, message);
       return;
     }
+
     broadcast(message);
   };
 
@@ -47,6 +72,7 @@ export default defineBackground(() => {
             : backendState.optunaVersion
               ? { optunaVersion: backendState.optunaVersion }
               : {}),
+          pairingRequired: event.pairingRequired ?? false,
         };
         broadcast({ type: 'BACKEND_STATE', ...backendState });
         break;
@@ -89,39 +115,50 @@ export default defineBackground(() => {
     ) => {
       const msg = message as ExtensionRequest;
 
-      try {
+      const handle = async () => {
         switch (msg.type) {
           case 'GET_BACKEND_STATE':
-            sendResponse(backendState);
-            return false;
+            return backend.state;
 
           case 'BACKEND_CONNECT':
-            void backend.connect();
-            sendResponse(backendState);
-            return false;
+            await backend.connect();
+            return backend.state;
+
+          case 'PAIR_BACKEND':
+            await backend.pair(msg.payload.code);
+            return backend.state;
 
           case 'CREATE_RUN':
             if (sender.tab?.id !== undefined) {
               runOwners.set(msg.payload.run_id, sender.tab.id);
+              await persistRunOwners();
             }
             backend.createRun(msg.payload);
-            sendResponse({ ok: true });
-            return false;
+            return { ok: true };
+
+          case 'REGISTER_RUN_OWNER':
+            if (sender.tab?.id !== undefined) {
+              runOwners.set(msg.payload.runId, sender.tab.id);
+              await persistRunOwners();
+            }
+            return { ok: true };
+
+          case 'CLEAR_RUN_OWNER':
+            runOwners.delete(msg.payload.runId);
+            await persistRunOwners();
+            return { ok: true };
 
           case 'START_RUN':
             backend.startRun(msg.payload.runId);
-            sendResponse({ ok: true });
-            return false;
+            return { ok: true };
 
           case 'STOP_RUN':
             backend.stopRun(msg.payload.runId);
-            sendResponse({ ok: true });
-            return false;
+            return { ok: true };
 
           case 'TRIAL_RESULT':
             backend.submitTrialResult(msg.payload);
-            sendResponse({ ok: true });
-            return false;
+            return { ok: true };
 
           case 'TRIAL_FAILED':
             backend.submitTrialFailure(
@@ -129,20 +166,38 @@ export default defineBackground(() => {
               msg.payload.trialNumber,
               msg.payload.reason,
             );
-            sendResponse({ ok: true });
-            return false;
+            return { ok: true };
 
-          default:
-            return false;
+          case 'EXPORT_RESULTS': {
+            const url =
+              'data:' +
+              msg.payload.mimeType +
+              ';charset=utf-8,' +
+              encodeURIComponent(msg.payload.content);
+
+            const downloadId = await browser.downloads.download({
+              url,
+              filename: msg.payload.filename,
+              saveAs: true,
+            });
+            return { ok: true, downloadId };
+          }
         }
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
-        sendResponse({ ok: false, error: message });
-        return false;
-      }
+      };
+
+      void handle()
+        .then(sendResponse)
+        .catch((error) => {
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+
+      return true;
     },
   );
 
+  void loadRunOwners();
   void backend.connect();
 });
