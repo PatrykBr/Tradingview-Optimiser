@@ -127,7 +127,9 @@ export const createStudyTrialRunner = (
     } catch (cause) {
       const message = errorMessage(cause);
 
-      if (isStaleTrialError(message)) {
+      if (isBackendTransportError(message)) {
+        options.onTransportError?.(message);
+      } else if (isStaleTrialError(message)) {
         options.onStaleTrial?.(message);
       } else {
         options.onReportError?.(
