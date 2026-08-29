@@ -4,12 +4,14 @@ import type {
 } from '../messages';
 import type {
   CreateRun,
-  NextTrial,
   RunProgress,
 } from '../protocol/types';
 import type {
   TradingViewAdapter,
 } from '../tradingview/adapter';
+import {
+  createStudyTrialRunner,
+} from './study-trial-runner';
 import {
   evaluateOptimisationTrial,
   type TrialExecutionUpdate,
@@ -49,21 +51,6 @@ const isTerminal = (
   status === 'stopped' ||
   status === 'failed';
 
-const isAbortError = (
-  cause: unknown,
-): boolean =>
-  cause instanceof DOMException &&
-  cause.name === 'AbortError';
-
-const failureMessage = (
-  cause: unknown,
-): string =>
-  isAbortError(cause)
-    ? 'Trial cancelled by user'
-    : cause instanceof Error
-      ? cause.message
-      : String(cause);
-
 export const runAuxiliaryStudy =
   async (
     request: AuxiliaryStudyRequest,
@@ -76,11 +63,6 @@ export const runAuxiliaryStudy =
     }
 
     let settled = false;
-    let executing = false;
-    let pendingTrial: NextTrial | null =
-      null;
-    let consecutiveIntegrationFailures = 0;
-
     let resolveProgress:
       | ((
           progress: RunProgress,
@@ -118,27 +100,15 @@ export const runAuxiliaryStudy =
       );
     };
 
-    const execute = async (
-      trial: NextTrial,
-    ): Promise<void> => {
-      if (
-        settled ||
-        trial.run_id !==
-          request.config.run_id
-      ) {
-        return;
-      }
-
-      if (executing) {
-        pendingTrial = trial;
-        return;
-      }
-
-      executing = true;
-
-      try {
-        const result =
-          await evaluateOptimisationTrial({
+    const runner =
+      createStudyTrialRunner({
+        runId:
+          request.config.run_id,
+        evaluate: (
+          trial,
+          signal,
+        ) =>
+          evaluateOptimisationTrial({
             adapter:
               request.adapter,
             strategyId:
@@ -148,94 +118,75 @@ export const runAuxiliaryStudy =
             trial,
             originalParameters:
               request.originalParameters,
-            ...(request.signal
-              ? { signal: request.signal }
-              : {}),
+            signal,
             ...(request.onPhase
               ? { onPhase: request.onPhase }
               : {}),
-          });
-
-        await request.transport.request({
-          type: 'TRIAL_RESULT',
-          payload: result,
-        });
-
-        consecutiveIntegrationFailures = 0;
-      } catch (cause) {
-        const reason =
-          failureMessage(cause);
-        const abort =
-          isAbortError(cause);
-        const runtimeError =
-          /strategy runtime error/i.test(
-            reason,
-          );
-
-        if (
-          !abort &&
-          !runtimeError
-        ) {
-          consecutiveIntegrationFailures += 1;
-        }
-
-        const fatal =
-          abort ||
-          reason.startsWith('SAFETY:') ||
-          /deep backtesting.*(could not|not available|failed)|could not open tradingview strategy tester/i.test(
-            reason,
-          ) ||
-          consecutiveIntegrationFailures >= 3;
-
-        try {
-          if (fatal) {
+          }),
+        transport: {
+          submitResult: async (
+            result,
+          ) => {
             await request.transport.request({
-              type: 'STOP_RUN',
+              type: 'TRIAL_RESULT',
+              payload: result,
+            });
+          },
+          submitFailure: async (
+            trial,
+            reason,
+          ) => {
+            await request.transport.request({
+              type: 'TRIAL_FAILED',
               payload: {
                 runId:
                   trial.run_id,
+                trialNumber:
+                  trial.trial_number,
+                reason,
               },
             });
+          },
+          stopRun: async (
+            runId,
+          ) => {
+            await request.transport.request({
+              type: 'STOP_RUN',
+              payload: {
+                runId,
+              },
+            });
+          },
+        },
+        ...(request.signal
+          ? { signal: request.signal }
+          : {}),
+        onFailure: (
+          failure,
+        ) => {
+          if (
+            failure.fatal &&
+            !failure.aborted
+          ) {
+            fail(
+              new Error(
+                failure.reason,
+              ),
+            );
           }
-
-          await request.transport.request({
-            type: 'TRIAL_FAILED',
-            payload: {
-              runId:
-                trial.run_id,
-              trialNumber:
-                trial.trial_number,
-              reason,
-            },
-          });
-        } catch (reportFailure) {
-          fail(reportFailure);
-          return;
-        }
-
-        if (
-          fatal &&
-          !abort
-        ) {
+        },
+        onTransportError: (
+          reason,
+        ) => {
           fail(new Error(reason));
-        }
-      } finally {
-        executing = false;
-
-        const next =
-          pendingTrial;
-        pendingTrial = null;
-
-        if (
-          next &&
-          !settled
-        ) {
-          queueMicrotask(() => {
-            void execute(next);
-          });
-        }
-      }
-    };
+        },
+        onStaleTrial: (
+          reason,
+        ) => {
+          fail(new Error(reason));
+        },
+        onReportError: fail,
+      });
 
     const listener = (
       message: BackgroundMessage,
@@ -266,7 +217,7 @@ export const runAuxiliaryStudy =
         message.trial.run_id ===
           request.config.run_id
       ) {
-        void execute(
+        runner.enqueue(
           message.trial,
         );
       }
@@ -320,6 +271,7 @@ export const runAuxiliaryStudy =
 
       return await completion;
     } finally {
+      runner.dispose();
       unsubscribe();
       request.signal?.removeEventListener(
         'abort',
