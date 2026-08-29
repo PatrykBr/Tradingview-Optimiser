@@ -126,6 +126,11 @@ async def _dispatch(
             await websocket.send_json(
                 encode("RUN_PROGRESS", progress, envelope.request_id)
             )
+        case "DELETE_RUN":
+            await manager.delete_run(str(envelope.payload["run_id"]))
+            await websocket.send_json(
+                encode("RUN_DELETED", {"run_id": envelope.payload["run_id"]}, envelope.request_id)
+            )
         case "GET_RUN_ANALYSIS":
             if "config" in envelope.payload:
                 config = CreateRun.model_validate(envelope.payload["config"])
