@@ -527,6 +527,14 @@ export default function App({ bridge }: AppProps) {
       const signature =
         await adapter.getStrategySignature(strategyId);
 
+      const backtestMode = await adapter.getBacktestMode();
+      const expectedMode = config.backtest_range ? 'deep' : 'chart';
+      if (backtestMode !== expectedMode) {
+        throw new Error(
+          'SAFETY: TradingView backtest mode changed during the optimisation.',
+        );
+      }
+
       if (signature !== config.chart.strategy_signature) {
         throw new Error(
           'SAFETY: The TradingView strategy or its input structure changed during the optimisation.',
