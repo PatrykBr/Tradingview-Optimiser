@@ -9,7 +9,7 @@ def test_pairing_persists_token_and_rotates_code(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    codes = iter(["AAAABBBB", "CCCCDDDD"])
+    codes = iter(["AAAABBBB", "CCCCDDDD", "EEEEFFFF"])
     monkeypatch.setattr("app.pairing.secrets.token_hex", lambda _: next(codes))
 
     path = tmp_path / "extension-token"
