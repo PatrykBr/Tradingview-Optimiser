@@ -127,6 +127,11 @@ class ChartContext(BaseModel):
     timeframe: str
     strategy_name: str
     strategy_signature: str = Field(min_length=1, max_length=256)
+    strategy_settings_signature: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+    )
 
 
 class CreateRun(BaseModel):
