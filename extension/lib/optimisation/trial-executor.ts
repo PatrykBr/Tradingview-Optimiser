@@ -22,7 +22,7 @@ export interface OptimisationTrialAdapter {
   ): Promise<Record<string, number>>;
 }
 
-export type TrialExecutionPhase =
+type TrialExecutionPhase =
   | 'checking'
   | 'recalculating'
   | 'submitting';
@@ -33,7 +33,7 @@ export interface TrialExecutionUpdate {
   phase: TrialExecutionPhase;
 }
 
-export interface EvaluateTrialRequest {
+interface EvaluateTrialRequest {
   adapter: OptimisationTrialAdapter;
   strategyId: string;
   config: CreateRun;
