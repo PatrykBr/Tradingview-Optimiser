@@ -16,6 +16,9 @@ import {
   buildTrialsCsv,
 } from '../../lib/optimisation/export';
 import {
+  compatibilityFailureReason,
+} from '../../lib/optimisation/run-compatibility';
+import {
   createStudyTrialRunner,
   type StudyTrialRunner,
 } from '../../lib/optimisation/study-trial-runner';
@@ -121,55 +124,14 @@ export function useOptimisationRun({
         strategyId: string,
         config: CreateRun,
       ) => {
-        const diagnostics =
-          await adapter.diagnostics(
+        const reason =
+          await compatibilityFailureReason(
+            adapter,
             strategyId,
-          );
-        const critical = new Set([
-          'chart-api',
-          'strategy-detection',
-          'inputs-readable',
-          'inputs-writable',
-          'report-source',
-          'metrics-readable',
-          'strategy-signature',
-        ]);
-        const failed =
-          diagnostics.checks.filter(
-            (check) =>
-              critical.has(check.id) &&
-              !check.ok,
+            config,
           );
 
-        if (
-          config.backtest_range &&
-          !diagnostics.deepBacktesting
-            .available
-        ) {
-          failed.push({
-            id: 'deep-backtesting',
-            label: 'Deep Backtesting',
-            ok: false,
-            detail:
-              diagnostics.deepBacktesting
-                .reason ??
-              'Unavailable',
-          });
-        }
-
-        if (failed.length > 0) {
-          const reason =
-            failed
-              .map(
-                (check) =>
-                  check.label +
-                  (check.detail
-                    ? ': ' +
-                      check.detail
-                    : ''),
-              )
-              .join('; ');
-
+        if (reason) {
           setWatchdog({
             status: 'failed',
             lastSuccessfulTrialAt:
