@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react';
 
 import { formatMetric } from '../../lib/optimisation/metrics';
+import {
+  buildResearchVerdict,
+} from '../../lib/optimisation/research-verdict';
 import type { ExperimentRecord } from '../../lib/optimisation/storage';
+import type { CreateRun } from '../../lib/protocol/types';
 import type { ResearchValidationModel } from './useResearchValidation';
 import type { OptimisationRunModel } from './useOptimisationRun';
 
@@ -9,6 +13,12 @@ interface ResearchSectionProps {
   run: OptimisationRunModel;
   research: ResearchValidationModel;
   inputLabel: (id: string) => string;
+  onLoadExperiment: (
+    config: CreateRun,
+  ) => Promise<void>;
+  onRerunExperiment: (
+    config: CreateRun,
+  ) => Promise<void>;
 }
 
 const terminal = (
@@ -39,7 +49,11 @@ const experimentLabel = (
 
 const comparisonResearchValue = (
   experiment: ExperimentRecord | undefined,
-  key: 'oos' | 'stability',
+  key:
+    | 'oos'
+    | 'stability'
+    | 'walk-forward'
+    | 'monte-carlo',
 ): string => {
   if (!experiment?.research) return '—';
 
@@ -60,11 +74,46 @@ const comparisonResearchValue = (
     );
   }
 
-  return (
-    experiment.research.stability
-      ?.overallRating ?? '—'
-  );
+  if (key === 'stability') {
+    return (
+      experiment.research.stability
+        ?.overallRating ?? '—'
+    );
+  }
+
+  if (key === 'walk-forward') {
+    const value =
+      experiment.research.walkForward
+        ?.medianTestObjective;
+
+    return typeof value === 'number'
+      ? formatMetric(
+          experiment.config
+            .objective_metric,
+          value,
+        )
+      : '—';
+  }
+
+  const lossProbability =
+    experiment.research.monteCarlo
+      ?.probabilityOfLoss;
+
+  return typeof lossProbability ===
+      'number'
+    ? (
+        lossProbability * 100
+      ).toFixed(1) + '% loss'
+    : '—';
 };
+
+const formatMonteCarloValue = (
+  value: number,
+  unit: 'percent' | 'pnl',
+): string =>
+  unit === 'percent'
+    ? value.toFixed(2) + '%'
+    : value.toFixed(2);
 
 const comparisonValue = (
   experiment: ExperimentRecord | undefined,
@@ -92,6 +141,8 @@ export default function ResearchSection({
   run,
   research,
   inputLabel,
+  onLoadExperiment,
+  onRerunExperiment,
 }: ResearchSectionProps) {
   const [leftRunId, setLeftRunId] =
     useState('');
@@ -108,7 +159,9 @@ export default function ResearchSection({
     Boolean(run.progress?.best) &&
     Boolean(
       currentResearch?.robustness.enabled ||
-        currentResearch?.stability.enabled,
+        currentResearch?.stability.enabled ||
+        currentResearch?.walk_forward.enabled ||
+        currentResearch?.monte_carlo.enabled,
     );
 
   const importanceEntries = useMemo(
@@ -131,6 +184,28 @@ export default function ResearchSection({
     research.research?.robustness;
   const stability =
     research.research?.stability;
+  const walkForward =
+    research.research?.walkForward;
+  const monteCarlo =
+    research.research?.monteCarlo;
+
+  const verdict = useMemo(
+    () =>
+      run.runConfig &&
+      run.progress &&
+      research.research
+        ? buildResearchVerdict(
+            run.runConfig,
+            run.progress,
+            research.research,
+          )
+        : null,
+    [
+      research.research,
+      run.progress,
+      run.runConfig,
+    ],
+  );
 
   const left = research.experiments.find(
     (experiment) =>
@@ -280,6 +355,68 @@ export default function ResearchSection({
             </button>
           </div>
 
+          {verdict && (
+            <div className="researchCard evidenceCard">
+              <div className="rowLabel">
+                <strong>
+                  Research evidence
+                </strong>
+                <span
+                  className={
+                    'researchBadge ' +
+                    (verdict.overall ===
+                    'strong'
+                      ? 'good'
+                      : verdict.overall ===
+                          'weak'
+                        ? 'bad'
+                        : 'warn')
+                  }
+                >
+                  {verdict.overall}
+                </span>
+              </div>
+
+              <div className="evidenceList">
+                {verdict.areas.map(
+                  (area) => (
+                    <div
+                      className="evidenceRow"
+                      key={area.id}
+                      title={area.detail}
+                    >
+                      <span>{area.label}</span>
+                      <span
+                        className={
+                          'researchBadge ' +
+                          (area.rating ===
+                          'strong'
+                            ? 'good'
+                            : area.rating ===
+                                'weak'
+                              ? 'bad'
+                              : area.rating ===
+                                  'moderate'
+                                ? 'warn'
+                                : '')
+                        }
+                      >
+                        {area.rating}
+                      </span>
+                    </div>
+                  ),
+                )}
+              </div>
+
+              {verdict.concerns.length > 0 && (
+                <div className="evidenceConcern">
+                  Main concern:{' '}
+                  {verdict.concerns[0]}
+                </div>
+              )}
+            </div>
+          )}
+
           {robustness && robustWinner && (
             <div className="researchCard">
               <div className="rowLabel">
@@ -402,6 +539,232 @@ export default function ResearchSection({
                   ),
                 )}
               </div>
+            </div>
+          )}
+
+          {walkForward && (
+            <div className="researchCard">
+              <div className="rowLabel">
+                <strong>
+                  Walk-forward
+                </strong>
+                <span
+                  className={
+                    'researchBadge ' +
+                    (walkForward.passedFolds /
+                        Math.max(
+                          1,
+                          walkForward.totalFolds,
+                        ) >=
+                      0.75
+                      ? 'good'
+                      : walkForward.passedFolds /
+                            Math.max(
+                              1,
+                              walkForward.totalFolds,
+                            ) >=
+                          0.5
+                        ? 'warn'
+                        : 'bad')
+                  }
+                >
+                  {walkForward.passedFolds}/
+                  {walkForward.totalFolds}{' '}
+                  folds
+                </span>
+              </div>
+
+              <div className="researchSummaryGrid">
+                <div>
+                  <span>Median OOS</span>
+                  <strong>
+                    {walkForward
+                      .medianTestObjective ===
+                    null
+                      ? '—'
+                      : formatMetric(
+                          objectiveMetric,
+                          walkForward
+                            .medianTestObjective,
+                        )}
+                  </strong>
+                </div>
+                <div>
+                  <span>Worst OOS</span>
+                  <strong>
+                    {walkForward
+                      .worstTestObjective ===
+                    null
+                      ? '—'
+                      : formatMetric(
+                          objectiveMetric,
+                          walkForward
+                            .worstTestObjective,
+                        )}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="stabilityList">
+                {Object.entries(
+                  walkForward
+                    .parameterConsistency,
+                )
+                  .filter(
+                    ([, rating]) =>
+                      rating !==
+                      'insufficient',
+                  )
+                  .slice(0, 8)
+                  .map(
+                    ([parameter, rating]) => (
+                      <div
+                        className="stabilityRow"
+                        key={parameter}
+                      >
+                        <span>
+                          {inputLabel(
+                            parameter,
+                          )}
+                        </span>
+                        <span
+                          className={
+                            'researchBadge ' +
+                            (rating === 'stable'
+                              ? 'good'
+                              : 'warn')
+                          }
+                        >
+                          {rating}
+                        </span>
+                      </div>
+                    ),
+                  )}
+              </div>
+            </div>
+          )}
+
+          {monteCarlo && (
+            <div className="researchCard">
+              <div className="rowLabel">
+                <strong>
+                  Monte Carlo
+                </strong>
+                <span
+                  className={
+                    'researchBadge ' +
+                    (monteCarlo.available
+                      ? 'good'
+                      : 'warn')
+                  }
+                >
+                  {monteCarlo.available
+                    ? monteCarlo.sampleSize +
+                      ' trades'
+                    : 'unavailable'}
+                </span>
+              </div>
+
+              {!monteCarlo.available ? (
+                <p className="helpText">
+                  {monteCarlo.reason}
+                </p>
+              ) : (
+                <>
+                  <div className="researchSummaryGrid">
+                    <div>
+                      <span>
+                        Loss probability
+                      </span>
+                      <strong>
+                        {monteCarlo
+                          .probabilityOfLoss ===
+                        null
+                          ? '—'
+                          : (
+                              monteCarlo
+                                .probabilityOfLoss *
+                              100
+                            ).toFixed(1) +
+                            '%'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>
+                        Median max DD
+                      </span>
+                      <strong>
+                        {monteCarlo
+                          .maxDrawdown
+                          ? formatMonteCarloValue(
+                              monteCarlo
+                                .maxDrawdown
+                                .median,
+                              monteCarlo.unit,
+                            )
+                          : '—'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>
+                        95% max DD
+                      </span>
+                      <strong>
+                        {monteCarlo
+                          .maxDrawdown
+                          ? formatMonteCarloValue(
+                              monteCarlo
+                                .maxDrawdown
+                                .p95,
+                              monteCarlo.unit,
+                            )
+                          : '—'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>
+                        PF median
+                      </span>
+                      <strong>
+                        {monteCarlo
+                          .profitFactor
+                          ? monteCarlo
+                              .profitFactor
+                              .median.toFixed(
+                                2,
+                              )
+                          : '—'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {monteCarlo.total && (
+                    <div className="confidenceLine">
+                      {Math.round(
+                        monteCarlo.confidence *
+                          100,
+                      )}
+                      % cumulative PnL interval:{' '}
+                      <strong>
+                        {formatMonteCarloValue(
+                          monteCarlo.total.low,
+                          monteCarlo.unit,
+                        )}
+                        {' – '}
+                        {formatMonteCarloValue(
+                          monteCarlo.total.high,
+                          monteCarlo.unit,
+                        )}
+                      </strong>
+                      {' · '}
+                      {monteCarlo.source ===
+                      'oos'
+                        ? 'unseen OOS sample'
+                        : 'optimisation sample'}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -528,6 +891,38 @@ export default function ResearchSection({
               </div>
 
               <div className="comparisonRow">
+                <span>WF median OOS</span>
+                <code>
+                  {comparisonResearchValue(
+                    left,
+                    'walk-forward',
+                  )}
+                </code>
+                <code>
+                  {comparisonResearchValue(
+                    right,
+                    'walk-forward',
+                  )}
+                </code>
+              </div>
+
+              <div className="comparisonRow">
+                <span>MC probability</span>
+                <code>
+                  {comparisonResearchValue(
+                    left,
+                    'monte-carlo',
+                  )}
+                </code>
+                <code>
+                  {comparisonResearchValue(
+                    right,
+                    'monte-carlo',
+                  )}
+                </code>
+              </div>
+
+              <div className="comparisonRow">
                 <span>Trials</span>
                 <code>
                   {left.completedTrials}
@@ -585,18 +980,47 @@ export default function ResearchSection({
           )}
 
           {left && (
-            <button
-              className="textButton experimentDelete"
-              onClick={() =>
-                void research.removeExperiment(
-                  left.runId,
-                ).then(() =>
-                  setLeftRunId(''),
-                )
-              }
-            >
-              Delete selected run
-            </button>
+            <div className="experimentActions">
+              <button
+                className="secondary"
+                disabled={research.busy}
+                onClick={() =>
+                  void onLoadExperiment(
+                    left.config,
+                  )
+                }
+              >
+                Load & edit
+              </button>
+              <button
+                className="secondary"
+                disabled={
+                  research.busy ||
+                  !run.connected ||
+                  run.activeRunId !== null
+                }
+                onClick={() =>
+                  void onRerunExperiment(
+                    left.config,
+                  )
+                }
+              >
+                Re-run exact
+              </button>
+              <button
+                className="textButton experimentDelete"
+                disabled={research.busy}
+                onClick={() =>
+                  void research.removeExperiment(
+                    left.runId,
+                  ).then(() =>
+                    setLeftRunId(''),
+                  )
+                }
+              >
+                Delete
+              </button>
+            </div>
           )}
         </details>
       )}
