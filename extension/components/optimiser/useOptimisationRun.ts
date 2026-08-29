@@ -960,8 +960,6 @@ export function useOptimisationRun({
     connected,
     pairingRequired,
     pairingCode: backend.pairingCode,
-    backendVersion:
-      backend.backendVersion,
     optunaVersion: backend.optunaVersion,
     progress,
     runConfig,
