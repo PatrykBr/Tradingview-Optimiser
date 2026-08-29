@@ -42,6 +42,21 @@ const inputs: StrategyInput[] = [
 const configs = (): Record<string, ParameterConfig> =>
   createParameterConfigs(inputs);
 
+const requireConfig = (
+  configs: Record<string, ParameterConfig>,
+  id: string,
+): ParameterConfig => {
+  const config = configs[id];
+
+  if (!config) {
+    throw new Error(
+      'Missing test config: ' + id,
+    );
+  }
+
+  return config;
+};
+
 describe('buildSearchSpace', () => {
   it('defaults numeric steps to Auto', () => {
     const config = configs();
@@ -52,14 +67,14 @@ describe('buildSearchSpace', () => {
 
   it('builds mixed Optuna parameters', () => {
     const config = configs();
-    config.in_0!.enabled = true;
-    config.in_1!.enabled = true;
-    config.in_1!.low = '5';
-    config.in_1!.high = '30';
-    config.in_2!.enabled = true;
-    config.in_2!.low = '0.5';
-    config.in_2!.high = '2.5';
-    config.in_2!.step = '0.1';
+    requireConfig(config, 'in_0').enabled = true;
+    requireConfig(config, 'in_1').enabled = true;
+    requireConfig(config, 'in_1').low = '5';
+    requireConfig(config, 'in_1').high = '30';
+    requireConfig(config, 'in_2').enabled = true;
+    requireConfig(config, 'in_2').low = '0.5';
+    requireConfig(config, 'in_2').high = '2.5';
+    requireConfig(config, 'in_2').step = '0.1';
 
     expect(buildSearchSpace(inputs, config)).toEqual([
       {
@@ -88,12 +103,12 @@ describe('buildSearchSpace', () => {
 
   it('uses Pine-declared steps automatically', () => {
     const config = configs();
-    config.in_1!.enabled = true;
-    config.in_1!.low = '5';
-    config.in_1!.high = '30';
-    config.in_2!.enabled = true;
-    config.in_2!.low = '0.5';
-    config.in_2!.high = '2.5';
+    requireConfig(config, 'in_1').enabled = true;
+    requireConfig(config, 'in_1').low = '5';
+    requireConfig(config, 'in_1').high = '30';
+    requireConfig(config, 'in_2').enabled = true;
+    requireConfig(config, 'in_2').low = '0.5';
+    requireConfig(config, 'in_2').high = '2.5';
 
     expect(buildSearchSpace(inputs, config)).toEqual([
       {
@@ -129,7 +144,12 @@ describe('buildSearchSpace', () => {
     const config = {
       in_0: {
         ...defaultParameterConfig(
-          continuousInputs[0]!,
+          continuousInputs[0] ?? {
+            id: 'missing',
+            label: 'Missing',
+            type: 'unsupported',
+            currentValue: null,
+          },
         ),
         enabled: true,
         low: '0.1',
@@ -153,10 +173,10 @@ describe('buildSearchSpace', () => {
 
   it('lets a custom step override Auto', () => {
     const config = configs();
-    config.in_2!.enabled = true;
-    config.in_2!.low = '0.5';
-    config.in_2!.high = '2.5';
-    config.in_2!.step = '0.25';
+    requireConfig(config, 'in_2').enabled = true;
+    requireConfig(config, 'in_2').low = '0.5';
+    requireConfig(config, 'in_2').high = '2.5';
+    requireConfig(config, 'in_2').step = '0.25';
 
     expect(
       buildSearchSpace(inputs, config)[0],
@@ -168,10 +188,10 @@ describe('buildSearchSpace', () => {
 
   it('builds a baseline from current chart values', () => {
     const config = configs();
-    config.in_0!.enabled = true;
-    config.in_1!.enabled = true;
-    config.in_1!.low = '5';
-    config.in_1!.high = '30';
+    requireConfig(config, 'in_0').enabled = true;
+    requireConfig(config, 'in_1').enabled = true;
+    requireConfig(config, 'in_1').low = '5';
+    requireConfig(config, 'in_1').high = '30';
 
     const searchSpace = buildSearchSpace(inputs, config);
 
@@ -206,12 +226,12 @@ describe('buildSearchSpace', () => {
         conditionalInputs,
       );
 
-    config.in_0!.enabled = true;
-    config.in_1!.enabled = true;
+    requireConfig(config, 'in_0').enabled = true;
+    requireConfig(config, 'in_1').enabled = true;
     config.in_0!.low = '5';
     config.in_0!.high = '30';
-    config.in_0!.conditionParameter = 'in_1';
-    config.in_0!.conditionValues = ['ATR Bars'];
+    requireConfig(config, 'in_0').conditionParameter = 'in_1';
+    requireConfig(config, 'in_0').conditionValues = ['ATR Bars'];
 
     const searchSpace = buildSearchSpace(
       conditionalInputs,
@@ -292,13 +312,13 @@ describe('buildSearchSpace', () => {
       createParameterConfigs(
         conditionalInputs,
       );
-    config.in_0!.enabled = true;
-    config.in_1!.enabled = true;
+    requireConfig(config, 'in_0').enabled = true;
+    requireConfig(config, 'in_1').enabled = true;
 
-    config.in_0!.conditionParameter = 'in_1';
-    config.in_0!.conditionValues = [true];
-    config.in_1!.conditionParameter = 'in_0';
-    config.in_1!.conditionValues = [true];
+    requireConfig(config, 'in_0').conditionParameter = 'in_1';
+    requireConfig(config, 'in_0').conditionValues = [true];
+    requireConfig(config, 'in_1').conditionParameter = 'in_0';
+    requireConfig(config, 'in_1').conditionValues = [true];
 
     expect(() =>
       buildSearchSpace(
@@ -310,12 +330,12 @@ describe('buildSearchSpace', () => {
 
   it('supports conditional dynamic search parameters', () => {
     const config = configs();
-    config.in_0!.enabled = true;
-    config.in_1!.enabled = true;
-    config.in_1!.low = '5';
-    config.in_1!.high = '30';
-    config.in_1!.conditionParameter = 'in_0';
-    config.in_1!.conditionValues = [true];
+    requireConfig(config, 'in_0').enabled = true;
+    requireConfig(config, 'in_1').enabled = true;
+    requireConfig(config, 'in_1').low = '5';
+    requireConfig(config, 'in_1').high = '30';
+    requireConfig(config, 'in_1').conditionParameter = 'in_0';
+    requireConfig(config, 'in_1').conditionValues = [true];
 
     expect(buildSearchSpace(inputs, config)[1]).toMatchObject({
       name: 'in_1',
@@ -328,11 +348,11 @@ describe('buildSearchSpace', () => {
 
   it('validates logarithmic ranges', () => {
     const config = configs();
-    config.in_2!.enabled = true;
-    config.in_2!.low = '0';
-    config.in_2!.high = '10';
-    config.in_2!.log = true;
-    config.in_2!.step = '';
+    requireConfig(config, 'in_2').enabled = true;
+    requireConfig(config, 'in_2').low = '0';
+    requireConfig(config, 'in_2').high = '10';
+    requireConfig(config, 'in_2').log = true;
+    requireConfig(config, 'in_2').step = '';
 
     expect(() => buildSearchSpace(inputs, config)).toThrow(
       /positive minimum/,
@@ -341,8 +361,8 @@ describe('buildSearchSpace', () => {
 
   it('requires at least two categorical choices', () => {
     const config = configs();
-    config.in_0!.enabled = true;
-    config.in_0!.choices = [true];
+    requireConfig(config, 'in_0').enabled = true;
+    requireConfig(config, 'in_0').choices = [true];
 
     expect(() => buildSearchSpace(inputs, config)).toThrow(
       /at least two selected choices/,
