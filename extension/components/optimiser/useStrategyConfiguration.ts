@@ -139,7 +139,9 @@ export function useStrategyConfiguration(
       }
     } catch (cause) {
       setStrategies([]);
+      selectedStrategyIdRef.current = '';
       setSelectedStrategyId('');
+      clearLoadedStrategy();
       setError(
         cause instanceof Error ? cause.message : String(cause),
       );
