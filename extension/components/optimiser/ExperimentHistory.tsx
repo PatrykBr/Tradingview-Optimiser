@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
 import { formatMetric } from '../../lib/optimisation/metrics';
 import type {
@@ -193,23 +193,19 @@ export default function ExperimentHistory({
       experiment.runId === rightRunId,
   );
 
-  const comparisonParameters = useMemo(
-    () => {
-      if (!left || !right) return [];
-
-      return [
-        ...new Set([
-          ...Object.keys(
-            left.best?.parameters ?? {},
-          ),
-          ...Object.keys(
-            right.best?.parameters ?? {},
-          ),
-        ]),
-      ].slice(0, 20);
-    },
-    [left, right],
-  );
+  const comparisonParameters =
+    left && right
+      ? [
+          ...new Set([
+            ...Object.keys(
+              left.best?.parameters ?? {},
+            ),
+            ...Object.keys(
+              right.best?.parameters ?? {},
+            ),
+          ]),
+        ].slice(0, 20)
+      : [];
 
   if (experiments.length === 0) {
     return null;
