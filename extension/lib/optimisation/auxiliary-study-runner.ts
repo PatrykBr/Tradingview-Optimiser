@@ -16,9 +16,9 @@ import {
 } from './trial-executor';
 
 export interface AuxiliaryStudyTransport {
-  request<T = unknown>(
+  request(
     request: ExtensionRequest,
-  ): Promise<T>;
+  ): Promise<unknown>;
   subscribe(
     listener: (
       message: BackgroundMessage,
