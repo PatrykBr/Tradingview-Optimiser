@@ -143,12 +143,10 @@ export class BackendClient {
       throw new Error('Backend returned an invalid pairing token');
     }
 
-    this.#token = body.token;
     this.#pairingRequired = false;
     await browser.storage.local.set({ backendToken: body.token });
 
     this.#disconnect();
-    this.#manualClose = false;
     await this.connect();
   }
 
