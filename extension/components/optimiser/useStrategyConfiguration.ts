@@ -220,7 +220,7 @@ export function useStrategyConfiguration(
   ]);
 
   const refreshStrategyPresets = useCallback(
-    async (strategyId: string): Promise<string> => {
+    async (strategyId: string): Promise<void> => {
       const signature =
         await adapter.getStrategySignature(strategyId);
       const presets = await loadStrategyPresets(signature);
@@ -233,7 +233,6 @@ export function useStrategyConfiguration(
           : '',
       );
 
-      return signature;
     },
     [adapter],
   );
@@ -242,7 +241,7 @@ export function useStrategyConfiguration(
     async (
       strategyId: string,
       restoreConfig?: CreateRun,
-    ): Promise<StrategyInput[]> => {
+    ): Promise<void> => {
       const detectedInputs =
         await adapter.readStrategyInputs(strategyId);
 
@@ -260,7 +259,6 @@ export function useStrategyConfiguration(
         setForm(formFromRun(restoreConfig));
       }
 
-      return detectedInputs;
     },
     [adapter],
   );
