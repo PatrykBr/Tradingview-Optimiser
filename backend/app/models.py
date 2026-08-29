@@ -330,6 +330,7 @@ class TrialSummary(BaseModel):
     constraints: dict[str, float]
     failure_reason: str | None = None
     duration_ms: int | None = None
+    reused_from_trial: int | None = Field(default=None, ge=0)
 
 
 class RunProgress(BaseModel):
@@ -338,6 +339,7 @@ class RunProgress(BaseModel):
     completed_trials: int
     target_trials: int
     failed_trials: int
+    reused_trials: int = 0
     best: BestTrial | None
     termination_reason: Literal["target_trials", "converged", "user"] | None = None
     trials: list[TrialSummary] = Field(default_factory=list)
