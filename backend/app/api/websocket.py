@@ -127,6 +127,9 @@ async def _dispatch(
                 encode("RUN_PROGRESS", progress, envelope.request_id)
             )
         case "GET_RUN_ANALYSIS":
+            if "config" in envelope.payload:
+                config = CreateRun.model_validate(envelope.payload["config"])
+                await manager.create_run(config)
             analysis = await manager.analysis(str(envelope.payload["run_id"]))
             await websocket.send_json(
                 encode("RUN_ANALYSIS", analysis, envelope.request_id)
