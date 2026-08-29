@@ -75,15 +75,17 @@ export class BackendClient {
       return;
     }
 
-    const socket = new WebSocket(
-      BACKEND_WS_URL + '?token=' + encodeURIComponent(this.#token),
-    );
+    const socket = new WebSocket(BACKEND_WS_URL);
     this.#socket = socket;
 
     socket.addEventListener('open', () => {
-      this.#pairingRequired = false;
-      this.#emitConnection(true);
-      this.#startHeartbeat();
+      socket.send(
+        JSON.stringify({
+          type: 'AUTH',
+          request_id: crypto.randomUUID(),
+          payload: { token: this.#token },
+        } satisfies Envelope),
+      );
     });
 
     socket.addEventListener('message', (event) =>
@@ -276,6 +278,7 @@ export class BackendClient {
         this.#optunaVersion = payload.optuna_version;
         this.#pairingRequired = false;
         this.#emitConnection(true);
+        this.#startHeartbeat();
         break;
       }
 
