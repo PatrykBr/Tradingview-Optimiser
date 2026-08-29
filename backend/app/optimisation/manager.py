@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import optuna
-from optuna.trial import Trial, TrialState
+from optuna.importance import get_param_importances
+from optuna.trial import FrozenTrial, Trial, TrialState
 
 from app.models import (
     BestTrial,
@@ -15,6 +16,7 @@ from app.models import (
     IntParameter,
     NextTrial,
     ObjectiveDirection,
+    RunAnalysis,
     RunProgress,
     RunStatus,
     SearchParameter,
@@ -30,6 +32,7 @@ class ActiveRun:
     study: optuna.Study
     status: RunStatus = RunStatus.CREATED
     outstanding_trial: Trial | None = None
+    termination_reason: str | None = None
 
 
 class OptimisationManager:
@@ -92,16 +95,33 @@ class OptimisationManager:
                 )
 
             persisted_status = study.user_attrs.get("run_status")
-            if self._complete_count_for_study(study) >= config.target_trials:
+            persisted_reason = study.user_attrs.get("termination_reason")
+            completed_trials = self._complete_count_for_study(study)
+
+            if completed_trials >= config.target_trials:
                 status = RunStatus.COMPLETED
+                termination_reason = "target_trials"
+            elif (
+                persisted_status == RunStatus.COMPLETED.value
+                and persisted_reason == "converged"
+            ):
+                status = RunStatus.COMPLETED
+                termination_reason = "converged"
             elif persisted_status == RunStatus.STOPPED.value:
                 status = RunStatus.STOPPED
+                termination_reason = "user"
             else:
                 # A previously RUNNING/STOP_REQUESTED study is resumable after a
                 # restart. Expose it as CREATED until the browser explicitly resumes.
                 status = RunStatus.CREATED
+                termination_reason = None
 
-            run = ActiveRun(config=config, study=study, status=status)
+            run = ActiveRun(
+                config=config,
+                study=study,
+                status=status,
+                termination_reason=termination_reason,
+            )
             self._runs[config.run_id] = run
             self._persist_status(run)
             return self._progress(run)
@@ -172,11 +192,27 @@ class OptimisationManager:
             run.outstanding_trial = None
 
             if self._complete_count(run) >= run.config.target_trials:
-                self._set_status(run, RunStatus.COMPLETED)
+                self._set_status(
+                    run,
+                    RunStatus.COMPLETED,
+                    termination_reason="target_trials",
+                )
                 return self._progress(run), None
 
             if run.status == RunStatus.STOP_REQUESTED:
-                self._set_status(run, RunStatus.STOPPED)
+                self._set_status(
+                    run,
+                    RunStatus.STOPPED,
+                    termination_reason="user",
+                )
+                return self._progress(run), None
+
+            if self._should_converge(run):
+                self._set_status(
+                    run,
+                    RunStatus.COMPLETED,
+                    termination_reason="converged",
+                )
                 return self._progress(run), None
 
             return self._progress(run), self._next_trial_locked(run)
@@ -190,7 +226,11 @@ class OptimisationManager:
             run.outstanding_trial = None
 
             if run.status == RunStatus.STOP_REQUESTED:
-                self._set_status(run, RunStatus.STOPPED)
+                self._set_status(
+                    run,
+                    RunStatus.STOPPED,
+                    termination_reason="user",
+                )
                 return self._progress(run), None
 
             return self._progress(run), self._next_trial_locked(run)
@@ -202,7 +242,11 @@ class OptimisationManager:
                 return self._progress(run)
 
             if run.outstanding_trial is None:
-                self._set_status(run, RunStatus.STOPPED)
+                self._set_status(
+                    run,
+                    RunStatus.STOPPED,
+                    termination_reason="user",
+                )
             else:
                 self._set_status(run, RunStatus.STOP_REQUESTED)
 
@@ -211,6 +255,43 @@ class OptimisationManager:
     async def progress(self, run_id: str) -> RunProgress:
         async with self._lock:
             return self._progress(self._require(run_id))
+
+    async def analysis(self, run_id: str) -> RunAnalysis:
+        async with self._lock:
+            run = self._require(run_id)
+            completed = run.study.get_trials(
+                deepcopy=False,
+                states=(TrialState.COMPLETE,),
+            )
+
+            if len(completed) < 2:
+                return RunAnalysis(
+                    run_id=run_id,
+                    parameter_importance={},
+                    completed_trials=len(completed),
+                )
+
+            common_parameters = set(completed[0].params)
+            for trial in completed[1:]:
+                common_parameters.intersection_update(trial.params)
+
+            if not common_parameters:
+                importance: dict[str, float] = {}
+            else:
+                try:
+                    importance = get_param_importances(
+                        run.study,
+                        params=sorted(common_parameters),
+                        target=self._importance_target(run),
+                    )
+                except (ValueError, RuntimeError):
+                    importance = {}
+
+            return RunAnalysis(
+                run_id=run_id,
+                parameter_importance=importance,
+                completed_trials=len(completed),
+            )
 
     def _next_trial_locked(self, run: ActiveRun) -> NextTrial | None:
         if run.status != RunStatus.RUNNING:
@@ -224,7 +305,11 @@ class OptimisationManager:
             )
 
         if self._complete_count(run) >= run.config.target_trials:
-            self._set_status(run, RunStatus.COMPLETED)
+            self._set_status(
+                run,
+                RunStatus.COMPLETED,
+                termination_reason="target_trials",
+            )
             return None
 
         trial = run.study.ask()
@@ -288,6 +373,7 @@ class OptimisationManager:
             target_trials=run.config.target_trials,
             failed_trials=sum(t.state == TrialState.FAIL for t in run.study.trials),
             best=self._best(run),
+            termination_reason=run.termination_reason,
             trials=self._trial_summaries(run),
         )
 
@@ -354,13 +440,112 @@ class OptimisationManager:
             constraints=dict(best.constraints),
         )
 
-    def _set_status(self, run: ActiveRun, status: RunStatus) -> None:
+    def _should_converge(self, run: ActiveRun) -> bool:
+        config = run.config.research.convergence
+        if not config.enabled:
+            return False
+
+        completed = sorted(
+            run.study.get_trials(
+                deepcopy=False,
+                states=(TrialState.COMPLETE,),
+            ),
+            key=lambda trial: trial.number,
+        )
+
+        required = max(
+            config.min_trials,
+            config.patience + 1,
+        )
+        if len(completed) < required:
+            return False
+
+        baseline_trials = completed[: -config.patience]
+        baseline_values = [
+            float(trial.value)
+            for trial in baseline_trials
+            if trial.value is not None
+            and self._is_feasible_trial(trial)
+        ]
+        current_values = [
+            float(trial.value)
+            for trial in completed
+            if trial.value is not None
+            and self._is_feasible_trial(trial)
+        ]
+
+        if not baseline_values or not current_values:
+            return False
+
+        if run.config.direction == ObjectiveDirection.MAXIMIZE:
+            baseline_best = max(baseline_values)
+            current_best = max(current_values)
+            improvement = current_best - baseline_best
+        else:
+            baseline_best = min(baseline_values)
+            current_best = min(current_values)
+            improvement = baseline_best - current_best
+
+        scale = max(abs(baseline_best), 1.0)
+        improvement_percent = max(0.0, improvement) / scale * 100.0
+        return improvement_percent < config.min_improvement_percent
+
+    @staticmethod
+    def _is_feasible_trial(trial: FrozenTrial) -> bool:
+        return all(value <= 0 for value in trial.constraints.values())
+
+    def _importance_target(self, run: ActiveRun):
+        complete = run.study.get_trials(
+            deepcopy=False,
+            states=(TrialState.COMPLETE,),
+        )
+        feasible_values = [
+            float(trial.value)
+            for trial in complete
+            if trial.value is not None
+            and self._is_feasible_trial(trial)
+        ]
+
+        if feasible_values:
+            if run.config.direction == ObjectiveDirection.MAXIMIZE:
+                worst = min(feasible_values)
+                penalty = worst - max(abs(worst) * 0.1, 1.0)
+            else:
+                worst = max(feasible_values)
+                penalty = worst + max(abs(worst) * 0.1, 1.0)
+        else:
+            penalty = 0.0
+
+        def target(trial: FrozenTrial) -> float:
+            if (
+                trial.value is None
+                or not self._is_feasible_trial(trial)
+            ):
+                return penalty
+            return float(trial.value)
+
+        return target
+
+    def _set_status(
+        self,
+        run: ActiveRun,
+        status: RunStatus,
+        *,
+        termination_reason: str | None = None,
+    ) -> None:
         run.status = status
+        if termination_reason is not None:
+            run.termination_reason = termination_reason
         self._persist_status(run)
 
     @staticmethod
     def _persist_status(run: ActiveRun) -> None:
         run.study.set_user_attr("run_status", run.status.value)
+        if run.termination_reason is not None:
+            run.study.set_user_attr(
+                "termination_reason",
+                run.termination_reason,
+            )
 
     def _require(self, run_id: str) -> ActiveRun:
         try:
