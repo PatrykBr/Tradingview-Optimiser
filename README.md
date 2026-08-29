@@ -325,7 +325,7 @@ Double-click the executable and keep its console window open while using the ext
 %LOCALAPPDATA%\TradeCopy\data
 ```
 
-PyInstaller is supplied transiently by `uv run --with`, so it is not added to the project's normal runtime dependencies or lockfile.
+PyInstaller is supplied transiently by `uv run --with`, so it is not added to the project's normal runtime dependencies or lockfile. The companion spec explicitly bundles Optuna's RDB Alembic migration assets. After every build, the script launches the packaged executable with `--self-test` and creates a temporary SQLite study, so a companion missing those runtime files fails the build instead of failing later during the first optimisation.
 
 
 The backend is configured to allow the Optuna v5 pre-release dependency consistently, so plain `uv sync` and `uv run` use the same resolver policy. Commit the generated `backend/uv.lock`.
