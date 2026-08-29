@@ -12,6 +12,40 @@ interface DragState {
   startTop: number;
 }
 
+const isolateTextInputEvents = (element: HTMLElement): (() => void) => {
+  // TradingView installs page-wide keyboard/clipboard handlers. Events from
+  // controls inside our Shadow DOM must still reach React and retain their
+  // browser default behaviour, but must not bubble out to TradingView.
+  const eventTypes = [
+    'keydown',
+    'keyup',
+    'keypress',
+    'beforeinput',
+    'input',
+    'change',
+    'paste',
+    'copy',
+    'cut',
+    'compositionstart',
+    'compositionupdate',
+    'compositionend',
+  ] as const;
+
+  const stopAtPanelBoundary = (event: Event) => {
+    event.stopPropagation();
+  };
+
+  for (const type of eventTypes) {
+    element.addEventListener(type, stopAtPanelBoundary);
+  }
+
+  return () => {
+    for (const type of eventTypes) {
+      element.removeEventListener(type, stopAtPanelBoundary);
+    }
+  };
+};
+
 const makeDraggable = (element: HTMLElement): (() => void) => {
   let drag: DragState | null = null;
 
@@ -99,6 +133,7 @@ export default defineContentScript({
     const bridge = new TradingViewBridge(bridgeScript);
     let mounted = true;
     let removeDragListeners: (() => void) | undefined;
+    let removeInputIsolation: (() => void) | undefined;
 
     const ui = await createShadowRootUi(ctx, {
       name: 'tradingview-optuna-optimiser',
@@ -124,6 +159,7 @@ export default defineContentScript({
         container.append(app);
 
         removeDragListeners = makeDraggable(app);
+        removeInputIsolation = isolateTextInputEvents(app);
 
         const root = ReactDOM.createRoot(app);
         root.render(<App bridge={bridge} />);
@@ -132,6 +168,8 @@ export default defineContentScript({
       onRemove(root) {
         removeDragListeners?.();
         removeDragListeners = undefined;
+        removeInputIsolation?.();
+        removeInputIsolation = undefined;
         root?.unmount();
       },
     });
