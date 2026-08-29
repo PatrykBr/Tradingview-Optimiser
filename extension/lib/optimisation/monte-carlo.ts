@@ -30,7 +30,7 @@ export interface MonteCarloResult {
     | null;
 }
 
-export interface MonteCarloContext {
+interface MonteCarloContext {
   source: 'oos' | 'optimisation';
   range: BacktestRange | null;
 }
