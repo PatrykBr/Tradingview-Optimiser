@@ -425,7 +425,7 @@ async def test_completed_temporary_run_can_be_deleted(tmp_path: Path) -> None:
 
     await manager.delete_run("delete-test")
 
-    with pytest.raises(ValueError, match="unknown run_id"):
+    with pytest.raises(KeyError, match="unknown run_id"):
         await manager.progress("delete-test")
 
     reloaded = OptimisationManager(database_url)
