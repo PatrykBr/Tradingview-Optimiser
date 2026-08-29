@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+from contextlib import suppress
 import logging
 import os
 import secrets
@@ -77,10 +78,8 @@ class PairingManager:
 
         token = secrets.token_urlsafe(32)
         self._token_path.write_text(token, encoding="utf-8")
-        try:
+        with suppress(OSError):
             os.chmod(self._token_path, 0o600)
-        except OSError:
-            pass
         return token
 
     def _rotate_pairing_code(self) -> None:
