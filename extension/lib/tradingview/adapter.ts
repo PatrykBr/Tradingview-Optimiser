@@ -86,6 +86,10 @@ export class TradingViewAdapter {
     });
   }
 
+  getBacktestMode(): Promise<'chart' | 'deep'> {
+    return this.bridge.request<'chart' | 'deep'>('getBacktestMode');
+  }
+
   async resetToChartSession(): Promise<void> {
     await this.bridge.request<{ reset: boolean; changed: boolean }>(
       'resetToChartSession',
