@@ -15,7 +15,7 @@ import {
   type WalkForwardResult,
 } from './walk-forward';
 
-export interface WalkForwardStudyRunner {
+interface WalkForwardStudyRunner {
   (
     config: CreateRun,
     strategyId: string,
@@ -60,7 +60,7 @@ export interface WalkForwardBacktestAdapter {
   ): Promise<Record<string, unknown>>;
 }
 
-export interface WalkForwardExecutionRequest {
+interface WalkForwardExecutionRequest {
   adapter: WalkForwardBacktestAdapter;
   runStudy: WalkForwardStudyRunner;
   strategyId: string;
