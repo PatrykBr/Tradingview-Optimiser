@@ -123,8 +123,22 @@ export default function ParameterSearchSpaceSection({
                         }
                       />
                     </label>
-                    <label>
-                      <span>Step</span>
+                    <label
+                      title={
+                        input.type === 'integer'
+                          ? input.step !== undefined
+                            ? 'Optional. Leave blank for Auto, which uses Pine\'s declared step of ' +
+                              input.step +
+                              '. Enter a value only to override that granularity.'
+                            : 'Optional. Leave blank for Auto, which uses step 1 for integer parameters. Enter a value only to override it.'
+                          : input.step !== undefined
+                            ? 'Optional. Leave blank for Auto, which uses Pine\'s declared step of ' +
+                              input.step +
+                              '. If Pine declares no step, Auto lets Optuna search continuously.'
+                            : 'Optional. Leave blank for Auto, which lets Optuna search this float continuously. Enter a value only when you deliberately want a fixed grid.'
+                      }
+                    >
+                      <span>Step (optional)</span>
                       <input
                         type="number"
                         value={config.step}
@@ -133,8 +147,16 @@ export default function ParameterSearchSpaceSection({
                         }
                         placeholder={
                           input.type === 'integer'
-                            ? '1'
-                            : 'auto'
+                            ? input.step !== undefined
+                              ? 'Auto (' +
+                                input.step +
+                                ')'
+                              : 'Auto (1)'
+                            : input.step !== undefined
+                              ? 'Auto (' +
+                                input.step +
+                                ')'
+                              : 'Auto (continuous)'
                         }
                         onChange={(event) =>
                           model.setParameterField(
