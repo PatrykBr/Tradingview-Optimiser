@@ -159,3 +159,65 @@ def test_conditional_parameter_matches_sampled_parent() -> None:
     child = config.parameters[1]
     assert OptimisationManager._condition_matches(child, {"enabled": True})
     assert not OptimisationManager._condition_matches(child, {"enabled": False})
+
+
+
+@pytest.mark.asyncio
+async def test_restart_fails_orphaned_running_trial(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+    first_manager = OptimisationManager(database_url)
+    config = make_config("restart-test", target_trials=3)
+
+    await first_manager.create_run(config)
+    _, orphaned_trial = await first_manager.start("restart-test")
+    assert orphaned_trial is not None
+
+    restarted_manager = OptimisationManager(database_url)
+    progress = await restarted_manager.create_run(config)
+
+    assert progress.status == "created"
+    assert progress.failed_trials == 1
+
+    progress, replacement_trial = await restarted_manager.start("restart-test")
+    assert progress.status == "running"
+    assert replacement_trial is not None
+    assert replacement_trial.trial_number != orphaned_trial.trial_number
+
+
+@pytest.mark.asyncio
+async def test_restart_rejects_different_persisted_configuration(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+    first_manager = OptimisationManager(database_url)
+    await first_manager.create_run(make_config("config-test", target_trials=2))
+
+    restarted_manager = OptimisationManager(database_url)
+    with pytest.raises(ValueError, match="different configuration"):
+        await restarted_manager.create_run(make_config("config-test", target_trials=3))
+
+
+@pytest.mark.asyncio
+async def test_stopped_run_remains_stopped_after_backend_restart(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+    first_manager = OptimisationManager(database_url)
+    config = make_config("stopped-test", target_trials=3)
+    await first_manager.create_run(config)
+    _, active = await first_manager.start("stopped-test")
+    assert active is not None
+
+    await first_manager.stop("stopped-test")
+    progress, _ = await first_manager.submit_result(
+        TrialResult(
+            run_id="stopped-test",
+            trial_number=active.trial_number,
+            metrics={
+                "profitFactor": 1.5,
+                "maxDrawdownPercent": 5,
+                "totalTrades": 150,
+            },
+        )
+    )
+    assert progress.status == "stopped"
+
+    restarted_manager = OptimisationManager(database_url)
+    progress = await restarted_manager.create_run(config)
+    assert progress.status == "stopped"
