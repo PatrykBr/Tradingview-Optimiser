@@ -232,6 +232,7 @@ export default function App({ bridge }: AppProps) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const [clock, setClock] = useState(Date.now());
 
   const activeRunIdRef = useRef<string | null>(null);
@@ -915,6 +916,7 @@ export default function App({ bridge }: AppProps) {
 
       setRunConfig(config);
       setStartedAt(now);
+      setFinishedAt(null);
       setActiveRunId(config.run_id);
       setProgress(null);
       setCurrentTrial(null);
@@ -1019,6 +1021,7 @@ export default function App({ bridge }: AppProps) {
       setRunConfig(candidate.config);
       setProgress(candidate.lastProgress ?? null);
       setStartedAt(candidate.startedAt);
+      setFinishedAt(null);
       setActiveRunId(candidate.config.run_id);
       setResumeCandidate(null);
 
@@ -1200,6 +1203,7 @@ export default function App({ bridge }: AppProps) {
         setProgress(saved.lastProgress ?? null);
         setRunConfig(saved.config);
         setStartedAt(saved.startedAt);
+        setFinishedAt(null);
         originalParametersRef.current =
           saved.originalParameters;
       } else {
@@ -1208,6 +1212,7 @@ export default function App({ bridge }: AppProps) {
           setProgress(last.lastProgress);
           setRunConfig(last.config);
           setStartedAt(last.startedAt);
+          setFinishedAt(last.finishedAt ?? null);
           originalParametersRef.current =
             last.originalParameters;
         }
@@ -1266,6 +1271,7 @@ export default function App({ bridge }: AppProps) {
 
           activeRunIdRef.current = null;
           pendingTrialRef.current = null;
+          setFinishedAt(Date.now());
           setActiveRunId(null);
           setCurrentTrial(null);
 
@@ -1360,7 +1366,11 @@ export default function App({ bridge }: AppProps) {
     : null;
 
   const elapsed =
-    startedAt === null ? null : clock - startedAt;
+    startedAt === null
+      ? null
+      : (activeRunId !== null
+          ? clock
+          : finishedAt ?? clock) - startedAt;
 
   const inputLabel = (id: string): string =>
     inputs.find((input) => input.id === id)?.label ??
