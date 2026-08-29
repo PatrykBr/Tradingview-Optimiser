@@ -31,6 +31,19 @@ const inputs: StrategyInput[] = [
   },
 ];
 
+const requireInput = (
+  index: number,
+): StrategyInput => {
+  const input = inputs[index];
+  if (!input) {
+    throw new Error(
+      'Missing advisor test input: ' +
+        index,
+    );
+  }
+  return input;
+};
+
 const enable = (
   configs: ReturnType<
     typeof createParameterConfigs
@@ -106,15 +119,15 @@ describe('search-space advisor', () => {
   it('reports discrete cardinality when every parameter is discrete', () => {
     const configs =
       createParameterConfigs([
-        inputs[0]!,
-        inputs[2]!,
+        requireInput(0),
+        requireInput(2),
       ]);
 
     enable(configs, 'length');
     enable(configs, 'mode');
 
     const advice = analyseSearchSpace(
-      [inputs[0]!, inputs[2]!],
+      [requireInput(0), requireInput(2)],
       configs,
       '100',
     );
