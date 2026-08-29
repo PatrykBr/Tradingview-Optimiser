@@ -314,6 +314,85 @@ export function useOptimisationRun({
     ],
   );
 
+  const beginPreparedRun = useCallback(
+    async (
+      prepared: PreparedOptimisationRun,
+    ) => {
+      const now = Date.now();
+
+      const persisted: PersistedOptimisationRun = {
+        version: 1,
+        config: prepared.config,
+        strategyId: prepared.strategyId,
+        originalParameters:
+          prepared.originalParameters,
+        startedAt: now,
+      };
+
+      await saveActiveRun(persisted);
+
+      activeRunIdRef.current =
+        prepared.config.run_id;
+      activeStrategyIdRef.current =
+        prepared.strategyId;
+      activeConfigRef.current =
+        prepared.config;
+      originalParametersRef.current =
+        prepared.originalParameters;
+      pendingTrialRef.current = null;
+      consecutiveExecutionFailuresRef.current = 0;
+
+      setRunConfig(prepared.config);
+      setStartedAt(now);
+      setFinishedAt(null);
+      setActiveRunId(
+        prepared.config.run_id,
+      );
+      setProgress(null);
+      setCurrentTrial(null);
+      setResumeCandidate(null);
+      setStopChoiceVisible(false);
+
+      await sendRequest({
+        type: 'CREATE_RUN',
+        payload: prepared.config,
+      });
+      await sendRequest({
+        type: 'START_RUN',
+        payload: {
+          runId:
+            prepared.config.run_id,
+        },
+      });
+    },
+    [sendRequest],
+  );
+
+  const resetFailedStart =
+    useCallback(async () => {
+      await clearActiveRun();
+      activeRunIdRef.current = null;
+      activeStrategyIdRef.current = null;
+      activeConfigRef.current = null;
+      originalParametersRef.current = null;
+      pendingTrialRef.current = null;
+      setActiveRunId(null);
+    }, []);
+
+  const assertBackendReady =
+    useCallback(() => {
+      if (connected) return;
+
+      throw new Error(
+        pairingRequired
+          ? 'Pair the extension with the backend first'
+          : 'Start the local FastAPI backend before optimising',
+      );
+    }, [
+      connected,
+      pairingRequired,
+    ]);
+
   const startOptimisation =
     useCallback(async () => {
       setError(undefined);
@@ -321,64 +400,14 @@ export function useOptimisationRun({
       setStopChoiceVisible(false);
 
       try {
-        if (!connected) {
-          throw new Error(
-            pairingRequired
-              ? 'Pair the extension with the backend first'
-              : 'Start the local FastAPI backend before optimising',
-          );
-        }
-
-        const prepared = await prepareRun();
-        const now = Date.now();
-
-        const persisted: PersistedOptimisationRun = {
-          version: 1,
-          config: prepared.config,
-          strategyId: prepared.strategyId,
-          originalParameters:
-            prepared.originalParameters,
-          startedAt: now,
-        };
-
-        await saveActiveRun(persisted);
-
-        activeRunIdRef.current =
-          prepared.config.run_id;
-        activeStrategyIdRef.current =
-          prepared.strategyId;
-        activeConfigRef.current =
-          prepared.config;
-        originalParametersRef.current =
-          prepared.originalParameters;
-        pendingTrialRef.current = null;
-        consecutiveExecutionFailuresRef.current = 0;
-
-        setRunConfig(prepared.config);
-        setStartedAt(now);
-        setFinishedAt(null);
-        setActiveRunId(
-          prepared.config.run_id,
+        assertBackendReady();
+        const prepared =
+          await prepareRun();
+        await beginPreparedRun(
+          prepared,
         );
-        setProgress(null);
-        setCurrentTrial(null);
-        setResumeCandidate(null);
-
-        await sendRequest({
-          type: 'CREATE_RUN',
-          payload: prepared.config,
-        });
-        await sendRequest({
-          type: 'START_RUN',
-          payload: {
-            runId: prepared.config.run_id,
-          },
-        });
       } catch (cause) {
-        await clearActiveRun();
-        activeRunIdRef.current = null;
-        activeConfigRef.current = null;
-        setActiveRunId(null);
+        await resetFailedStart();
         setError(
           cause instanceof Error
             ? cause.message
@@ -388,12 +417,46 @@ export function useOptimisationRun({
         setBusy(false);
       }
     }, [
-      connected,
-      pairingRequired,
+      assertBackendReady,
+      beginPreparedRun,
       prepareRun,
-      sendRequest,
+      resetFailedStart,
       setError,
     ]);
+
+  const startPreparedOptimisation =
+    useCallback(
+      async (
+        prepared:
+          PreparedOptimisationRun,
+      ) => {
+        setError(undefined);
+        setBusy(true);
+        setStopChoiceVisible(false);
+
+        try {
+          assertBackendReady();
+          await beginPreparedRun(
+            prepared,
+          );
+        } catch (cause) {
+          await resetFailedStart();
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : String(cause),
+          );
+        } finally {
+          setBusy(false);
+        }
+      },
+      [
+        assertBackendReady,
+        beginPreparedRun,
+        resetFailedStart,
+        setError,
+      ],
+    );
 
   const resumeOptimisation =
     useCallback(async () => {
@@ -886,6 +949,7 @@ export function useOptimisationRun({
     setPairingCode: backend.setPairingCode,
     pairBackend: backend.pairBackend,
     startOptimisation,
+    startPreparedOptimisation,
     resumeOptimisation,
     discardResumeCandidate,
     stopOptimisation,
