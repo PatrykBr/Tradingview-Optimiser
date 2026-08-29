@@ -157,7 +157,10 @@ export default defineBackground(() => {
             return { ok: true };
 
           case 'GET_RUN_ANALYSIS':
-            return backend.getRunAnalysis(msg.payload.runId);
+            return backend.getRunAnalysis(
+              msg.payload.runId,
+              msg.payload.config,
+            );
 
           case 'TRIAL_RESULT':
             await backend.submitTrialResult(msg.payload);
