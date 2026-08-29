@@ -31,7 +31,9 @@ const experimentLabel = (
   return (
     date +
     ' · ' +
-    experiment.config.chart.strategy_name
+    experiment.config.chart.strategy_name +
+    ' · #' +
+    experiment.runId.slice(0, 6)
   );
 };
 
@@ -137,6 +139,24 @@ export default function ResearchSection({
   const right = research.experiments.find(
     (experiment) =>
       experiment.runId === rightRunId,
+  );
+
+  const comparisonParameters = useMemo(
+    () => {
+      if (!left || !right) return [];
+
+      return [
+        ...new Set([
+          ...Object.keys(
+            left.best?.parameters ?? {},
+          ),
+          ...Object.keys(
+            right.best?.parameters ?? {},
+          ),
+        ]),
+      ].slice(0, 20);
+    },
+    [left, right],
   );
 
   const comparisonRows = [
@@ -528,6 +548,39 @@ export default function ResearchSection({
                     right.status}
                 </code>
               </div>
+
+              {comparisonParameters.length > 0 && (
+                <div className="comparisonDivider">
+                  Best parameters
+                </div>
+              )}
+
+              {comparisonParameters.map(
+                (parameter) => (
+                  <div
+                    className="comparisonRow"
+                    key={parameter}
+                  >
+                    <span>
+                      {inputLabel(parameter)}
+                    </span>
+                    <code>
+                      {String(
+                        left.best?.parameters[
+                          parameter
+                        ] ?? '—',
+                      )}
+                    </code>
+                    <code>
+                      {String(
+                        right.best?.parameters[
+                          parameter
+                        ] ?? '—',
+                      )}
+                    </code>
+                  </div>
+                ),
+              )}
             </div>
           )}
 
