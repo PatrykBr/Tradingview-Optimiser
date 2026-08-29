@@ -16,9 +16,6 @@ import {
 import {
   runWalkForwardValidation,
 } from '../../lib/optimisation/walk-forward-runner';
-import type {
-  ResearchEvaluation,
-} from '../../lib/optimisation/research';
 import {
   deleteExperiment,
   loadExperimentHistory,
@@ -26,9 +23,6 @@ import {
   updateExperimentResearch,
   type ExperimentRecord,
 } from '../../lib/optimisation/storage';
-import type {
-  RunAnalysis,
-} from '../../lib/protocol/types';
 import type {
   TradingViewAdapter,
 } from '../../lib/tradingview/adapter';
@@ -66,12 +60,6 @@ export function useResearchValidation({
   strategyId,
   setError,
 }: UseResearchValidationOptions) {
-  const [analysis, setAnalysis] =
-    useState<RunAnalysis | null>(null);
-  const [research, setResearch] =
-    useState<ResearchEvaluation | null>(
-      null,
-    );
   const [experiments, setExperiments] =
     useState<ExperimentRecord[]>([]);
   const [busy, setBusy] =
@@ -85,27 +73,10 @@ export function useResearchValidation({
 
   const refreshHistory =
     useCallback(async () => {
-      const history =
-        await loadExperimentHistory();
-      setExperiments(history);
-
-      const runId =
-        run.runConfig?.run_id;
-      if (!runId) return;
-
-      const current = history.find(
-        (experiment) =>
-          experiment.runId === runId,
+      setExperiments(
+        await loadExperimentHistory(),
       );
-
-      if (current?.analysis) {
-        setAnalysis(current.analysis);
-      }
-
-      if (current?.research) {
-        setResearch(current.research);
-      }
-    }, [run.runConfig?.run_id]);
+    }, []);
 
   useEffect(
     () => () => {
@@ -115,8 +86,6 @@ export function useResearchValidation({
   );
 
   useEffect(() => {
-    setAnalysis(null);
-    setResearch(null);
     void refreshHistory();
   }, [refreshHistory]);
 
@@ -139,6 +108,17 @@ export function useResearchValidation({
     run.progress?.status,
   ]);
 
+  const currentExperiment =
+    experiments.find(
+      (experiment) =>
+        experiment.runId ===
+        run.runConfig?.run_id,
+    );
+  const analysis =
+    currentExperiment?.analysis ?? null;
+  const research =
+    currentExperiment?.research ?? null;
+
   useEffect(() => {
     const status =
       run.progress?.status;
@@ -147,6 +127,7 @@ export function useResearchValidation({
 
     if (
       !runId ||
+      analysis ||
       !terminalStatus(status) ||
       !run.connected
     ) {
@@ -158,23 +139,6 @@ export function useResearchValidation({
     const loadAnalysis =
       async () => {
         try {
-          const history =
-            await loadExperimentHistory();
-          const stored = history.find(
-            (experiment) =>
-              experiment.runId === runId,
-          );
-
-          if (stored?.analysis) {
-            if (!cancelled) {
-              setAnalysis(
-                stored.analysis,
-              );
-              setExperiments(history);
-            }
-            return;
-          }
-
           const result =
             await run.getRunAnalysis();
 
@@ -182,12 +146,14 @@ export function useResearchValidation({
             return;
           }
 
-          setAnalysis(result);
           await updateExperimentAnalysis(
             runId,
             result,
           );
-          await refreshHistory();
+
+          if (!cancelled) {
+            await refreshHistory();
+          }
         } catch {
           // Importance is supplemental; the completed optimisation stays valid.
         }
@@ -202,6 +168,7 @@ export function useResearchValidation({
       clearTimeout(timer);
     };
   }, [
+    analysis,
     refreshHistory,
     run.connected,
     run.getRunAnalysis,
@@ -295,7 +262,6 @@ export function useResearchValidation({
             });
         }
 
-        setResearch(evaluation);
         await updateExperimentResearch(
           config.run_id,
           evaluation,
