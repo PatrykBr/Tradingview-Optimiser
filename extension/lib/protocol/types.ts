@@ -7,6 +7,13 @@ export type RunStatus =
   | 'completed'
   | 'failed';
 
+export type Primitive = string | number | boolean;
+
+export interface ParameterCondition {
+  parameter: string;
+  values: Primitive[];
+}
+
 export type SearchParameter =
   | {
       type: 'float';
@@ -15,6 +22,7 @@ export type SearchParameter =
       high: number;
       step?: number;
       log?: boolean;
+      condition?: ParameterCondition;
     }
   | {
       type: 'int';
@@ -23,11 +31,13 @@ export type SearchParameter =
       high: number;
       step?: number;
       log?: boolean;
+      condition?: ParameterCondition;
     }
   | {
       type: 'categorical';
       name: string;
-      choices: Array<string | number | boolean>;
+      choices: Primitive[];
+      condition?: ParameterCondition;
     };
 
 export interface MetricFilter {
@@ -36,10 +46,17 @@ export interface MetricFilter {
   value: number;
 }
 
+export interface BacktestRange {
+  mode: 'deep';
+  start_date: string;
+  end_date: string;
+}
+
 export interface ChartContext {
   symbol: string;
   timeframe: string;
   strategy_name: string;
+  strategy_signature: string;
 }
 
 export interface CreateRun {
@@ -50,6 +67,7 @@ export interface CreateRun {
   parameters: SearchParameter[];
   filters: MetricFilter[];
   chart: ChartContext;
+  backtest_range?: BacktestRange | null;
 }
 
 export interface NextTrial {
@@ -81,6 +99,7 @@ export interface TrialSummary {
   metrics: Record<string, number>;
   constraints: Record<string, number>;
   failure_reason: string | null;
+  duration_ms: number | null;
 }
 
 export interface RunProgress {
