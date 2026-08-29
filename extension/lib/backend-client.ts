@@ -38,6 +38,7 @@ export class BackendClient {
   #reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   #token: string | null = null;
   #manualClose = false;
+  #authenticated = false;
   #pairingRequired = false;
   #optunaVersion: string | undefined;
 
@@ -52,7 +53,7 @@ export class BackendClient {
     pairingRequired: boolean;
   } {
     return {
-      connected: this.#socket?.readyState === WebSocket.OPEN,
+      connected: this.#authenticated,
       ...(this.#optunaVersion ? { optunaVersion: this.#optunaVersion } : {}),
       pairingRequired: this.#pairingRequired,
     };
@@ -67,6 +68,7 @@ export class BackendClient {
     }
 
     this.#manualClose = false;
+    this.#authenticated = false;
     this.#token = await this.#loadToken();
 
     if (!this.#token) {
@@ -94,6 +96,7 @@ export class BackendClient {
 
     socket.addEventListener('close', (event) => {
       this.#stopHeartbeat();
+      this.#authenticated = false;
       if (this.#socket === socket) this.#socket = null;
 
       this.#rejectPending(
@@ -154,6 +157,7 @@ export class BackendClient {
 
   disconnect(): void {
     this.#manualClose = true;
+    this.#authenticated = false;
     this.#stopHeartbeat();
 
     if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
@@ -276,6 +280,7 @@ export class BackendClient {
       case 'CONNECTED': {
         const payload = message.payload as { optuna_version?: string };
         this.#optunaVersion = payload.optuna_version;
+        this.#authenticated = true;
         this.#pairingRequired = false;
         this.#emitConnection(true);
         this.#startHeartbeat();
