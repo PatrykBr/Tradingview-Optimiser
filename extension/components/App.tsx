@@ -68,7 +68,6 @@ import type {
   DetectedStrategy,
   StrategyInput,
   TradingViewDiagnostics,
-  TradingViewMetrics,
 } from '../lib/tradingview/types';
 
 interface AppProps {
@@ -83,11 +82,7 @@ interface FilterConfig {
 interface TrialExecution {
   number: number;
   parameters: Record<string, unknown>;
-  phase:
-    | 'checking'
-    | 'applying'
-    | 'recalculating'
-    | 'submitting';
+  phase: 'checking' | 'recalculating' | 'submitting';
 }
 
 const numberOrThrow = (value: string, label: string): number => {
@@ -825,92 +820,23 @@ export default function App({ bridge }: AppProps) {
 
         await assertRunContext(strategyId, config);
 
-        const previousSnapshot =
-          await adapter.readReportSnapshot(strategyId);
-
-        setCurrentTrial({
-          number: trial.trial_number,
-          parameters: trial.parameters,
-          phase: 'applying',
-        });
-
-        await adapter.applyParameters(
-          strategyId,
-          trial.parameters,
-        );
-
         setCurrentTrial({
           number: trial.trial_number,
           parameters: trial.parameters,
           phase: 'recalculating',
         });
 
-        if (config.backtest_range) {
-          const deep = await adapter.configureDeepBacktestRange(
-            config.backtest_range.start_date,
-            config.backtest_range.end_date,
-          );
-
-          if (!deep.supported || !deep.applied) {
-            throw new Error(
-              deep.reason ??
-                'TradingView Deep Backtesting could not be updated',
-            );
-          }
-        }
-
-        let metrics: TradingViewMetrics;
-        try {
-          metrics = await adapter.waitForMetricsAfterChange(
-            strategyId,
-            previousSnapshot,
-            controller.signal,
-          );
-        } catch (firstFailure) {
-          const firstMessage =
-            firstFailure instanceof Error
-              ? firstFailure.message
-              : String(firstFailure);
-
-          if (
-            !/timed out|remained ambiguous/i.test(firstMessage)
-          ) {
-            throw firstFailure;
-          }
-
-          await adapter.ensureStrategyTester();
-          const retrySnapshot =
-            await adapter.readReportSnapshot(strategyId);
-          await adapter.applyParameters(
-            strategyId,
-            trial.parameters,
-          );
-
-          if (config.backtest_range) {
-            const retryDeep =
-              await adapter.configureDeepBacktestRange(
-                config.backtest_range.start_date,
-                config.backtest_range.end_date,
-              );
-            if (
-              !retryDeep.supported ||
-              !retryDeep.applied
-            ) {
-              throw new Error(
-                retryDeep.reason ??
-                  'TradingView Deep Backtesting retry failed',
-              );
-            }
-          }
-
-          metrics =
-            await adapter.waitForMetricsAfterChange(
-              strategyId,
-              retrySnapshot,
-              controller.signal,
-              35_000,
-            );
-        }
+        const metrics = await adapter.evaluateParameters(
+          strategyId,
+          trial.parameters,
+          config.backtest_range
+            ? {
+                startDate: config.backtest_range.start_date,
+                endDate: config.backtest_range.end_date,
+              }
+            : null,
+          controller.signal,
+        );
 
         await assertRunContext(strategyId, config);
 
@@ -1017,39 +943,6 @@ export default function App({ bridge }: AppProps) {
     [adapter, assertRunContext, sendRequest],
   );
 
-  const prepareDateRange = async (
-    strategyId: string,
-    config: CreateRun,
-  ) => {
-    if (!config.backtest_range) return;
-
-    const before = await adapter.readReportSnapshot(strategyId);
-    const result = await adapter.configureDeepBacktestRange(
-      config.backtest_range.start_date,
-      config.backtest_range.end_date,
-    );
-
-    if (!result.supported || !result.applied) {
-      throw new Error(
-        result.reason ??
-          'Could not configure TradingView Deep Backtesting',
-      );
-    }
-
-    await adapter.waitForMetricsAfterChange(
-      strategyId,
-      before,
-      undefined,
-      30_000,
-    );
-
-    await adapter.assertDeepBacktestRange(
-      strategyId,
-      config.backtest_range.start_date,
-      config.backtest_range.end_date,
-    );
-  };
-
   const startOptimisation = async () => {
     if (!selected) return;
 
@@ -1121,12 +1014,6 @@ export default function App({ bridge }: AppProps) {
       const strategySignature =
         await adapter.getStrategySignature(selected);
 
-      await adapter.ensureStrategyTester();
-
-      if (!backtestRange) {
-        await adapter.resetToChartSession();
-      }
-
       const config: CreateRun = {
         run_id: crypto.randomUUID(),
         objective_metric: objectiveMetric,
@@ -1145,7 +1032,15 @@ export default function App({ bridge }: AppProps) {
         baseline_parameters: baselineParameters,
       };
 
-      await prepareDateRange(selected, config);
+      await adapter.prepareBacktest(
+        selected,
+        backtestRange
+          ? {
+              startDate: backtestRange.start_date,
+              endDate: backtestRange.end_date,
+            }
+          : null,
+      );
 
       const initialMetrics =
         await adapter.waitForMetricsAfterChange(
@@ -1172,14 +1067,6 @@ export default function App({ bridge }: AppProps) {
             );
           }
         }
-      }
-
-      if (backtestRange) {
-        await adapter.assertDeepBacktestRange(
-          selected,
-          backtestRange.start_date,
-          backtestRange.end_date,
-        );
       }
 
       config.chart.strategy_settings_signature =
@@ -1302,15 +1189,17 @@ export default function App({ bridge }: AppProps) {
       await refreshStrategyPresets(matchingStrategy.id);
       originalParametersRef.current =
         candidate.originalParameters;
-      await adapter.ensureStrategyTester();
-      if (candidate.config.backtest_range) {
-        await prepareDateRange(
-          matchingStrategy.id,
-          candidate.config,
-        );
-      } else {
-        await adapter.resetToChartSession();
-      }
+      await adapter.prepareBacktest(
+        matchingStrategy.id,
+        candidate.config.backtest_range
+          ? {
+              startDate:
+                candidate.config.backtest_range.start_date,
+              endDate:
+                candidate.config.backtest_range.end_date,
+            }
+          : null,
+      );
 
       await assertRunContext(
         matchingStrategy.id,
@@ -2526,13 +2415,9 @@ export default function App({ bridge }: AppProps) {
               Trial #{currentTrial.number} ·{' '}
               {currentTrial.phase === 'checking'
                 ? 'checking chart'
-                : currentTrial.phase ===
-                    'applying'
-                  ? 'applying parameters'
-                  : currentTrial.phase ===
-                      'recalculating'
-                    ? 'waiting for TradingView'
-                    : 'submitting result'}
+                : currentTrial.phase === 'recalculating'
+                  ? 'running TradingView backtest'
+                  : 'submitting result'}
             </div>
           )}
 
