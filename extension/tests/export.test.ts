@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildRunExport,
   buildRunJson,
   buildTrialsCsv,
 } from '../lib/optimisation/export';
@@ -86,6 +87,24 @@ describe('run export', () => {
     expect(csv).toContain('"reused_from_trial"');
     expect(csv).toContain('"14"');
     expect(csv).toContain('"1","complete","1.8","","0"');
+  });
+
+  it('builds a complete downloadable export payload', () => {
+    const payload = buildRunExport(
+      config,
+      progress,
+      'csv',
+    );
+
+    expect(payload.filename).toBe(
+      'Strategy-A-12345678.csv',
+    );
+    expect(payload.mimeType).toBe(
+      'text/csv',
+    );
+    expect(payload.content).toContain(
+      '"reused_from_trial"',
+    );
   });
 
   it('exports complete JSON', () => {
