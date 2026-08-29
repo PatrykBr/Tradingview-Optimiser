@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBaselineParameters,
   buildSearchSpace,
+  conditionCandidatesFor,
   defaultParameterConfig,
   type ParameterConfig,
 } from '../lib/optimisation/search-space';
@@ -180,6 +181,140 @@ describe('buildSearchSpace', () => {
       in_0: true,
       in_1: 14,
     });
+  });
+
+  it('allows a later dropdown to control an earlier parameter', () => {
+    const conditionalInputs: StrategyInput[] = [
+      {
+        id: 'in_0',
+        label: 'ATR period',
+        type: 'integer',
+        currentValue: 14,
+        min: 1,
+        max: 100,
+        step: 1,
+      },
+      {
+        id: 'in_1',
+        label: 'Stop-Loss Type',
+        type: 'categorical',
+        currentValue: 'ATR Bars',
+        options: ['ATR Bars', 'Percent', 'Swing H/L'],
+      },
+    ];
+
+    const config = Object.fromEntries(
+      conditionalInputs.map((input) => [
+        input.id,
+        defaultParameterConfig(input),
+      ]),
+    ) as Record<string, ParameterConfig>;
+
+    config.in_0!.enabled = true;
+    config.in_1!.enabled = true;
+    config.in_0!.low = '5';
+    config.in_0!.high = '30';
+    config.in_0!.conditionParameter = 'in_1';
+    config.in_0!.conditionValues = ['ATR Bars'];
+
+    const searchSpace = buildSearchSpace(
+      conditionalInputs,
+      config,
+    );
+
+    expect(searchSpace.map((parameter) => parameter.name)).toEqual([
+      'in_1',
+      'in_0',
+    ]);
+    expect(searchSpace[1]).toMatchObject({
+      condition: {
+        parameter: 'in_1',
+        values: ['ATR Bars'],
+      },
+    });
+  });
+
+  it('offers disabled dropdowns and booleans as generic controllers', () => {
+    const candidateInputs: StrategyInput[] = [
+      {
+        id: 'in_0',
+        label: 'ATR period',
+        type: 'integer',
+        currentValue: 14,
+      },
+      {
+        id: 'in_1',
+        label: 'Stop-Loss Type',
+        type: 'categorical',
+        currentValue: 'ATR Bars',
+        options: ['ATR Bars', 'Percent'],
+      },
+      {
+        id: 'in_2',
+        label: 'Override',
+        type: 'boolean',
+        currentValue: false,
+      },
+      {
+        id: 'in_3',
+        label: 'Numeric controller',
+        type: 'float',
+        currentValue: 1,
+      },
+    ];
+
+    const config = Object.fromEntries(
+      candidateInputs.map((input) => [
+        input.id,
+        defaultParameterConfig(input),
+      ]),
+    ) as Record<string, ParameterConfig>;
+
+    expect(
+      conditionCandidatesFor(
+        'in_0',
+        candidateInputs,
+        config,
+      ).map((input) => input.id),
+    ).toEqual(['in_1', 'in_2']);
+  });
+
+  it('rejects cyclic conditional dependencies', () => {
+    const conditionalInputs: StrategyInput[] = [
+      {
+        id: 'in_0',
+        label: 'Mode A',
+        type: 'boolean',
+        currentValue: true,
+      },
+      {
+        id: 'in_1',
+        label: 'Mode B',
+        type: 'boolean',
+        currentValue: false,
+      },
+    ];
+    const config = Object.fromEntries(
+      conditionalInputs.map((input) => [
+        input.id,
+        {
+          ...defaultParameterConfig(input),
+          enabled: true,
+        },
+      ]),
+    ) as Record<string, ParameterConfig>;
+
+    config.in_0!.conditionParameter = 'in_1';
+    config.in_0!.conditionValues = [true];
+    config.in_1!.conditionParameter = 'in_0';
+    config.in_1!.conditionValues = [true];
+
+    expect(() =>
+      buildSearchSpace(
+        conditionalInputs,
+        config,
+      ),
+    ).toThrow(/contain a cycle/);
   });
 
   it('supports conditional dynamic search parameters', () => {
