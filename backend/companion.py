@@ -31,19 +31,27 @@ def _run_packaged_storage_self_test() -> None:
         database_path = Path(temp_dir) / "self-test.db"
         storage_url = f"sqlite:///{database_path.resolve()}"
 
-        study = optuna.create_study(
-            study_name="tradecopy-companion-self-test",
-            storage=storage_url,
-            direction="maximize",
-        )
-        trial = study.ask()
-        trial.suggest_int("value", 1, 2)
-        study.tell(trial, 1.0)
-
-        if study.best_value != 1.0:
-            raise RuntimeError(
-                "Optuna packaged storage self-test produced an unexpected result"
+        storage = optuna.storages.RDBStorage(storage_url)
+        try:
+            study = optuna.create_study(
+                study_name="tradecopy-companion-self-test",
+                storage=storage,
+                direction="maximize",
             )
+            trial = study.ask()
+            trial.suggest_int("value", 1, 2)
+            study.tell(trial, 1.0)
+
+            if study.best_value != 1.0:
+                raise RuntimeError(
+                    "Optuna packaged storage self-test produced an unexpected result"
+                )
+        finally:
+            # Windows cannot remove a SQLite database while SQLAlchemy still
+            # has pooled connections open. Close the thread-local session and
+            # dispose the engine before TemporaryDirectory cleans up.
+            storage.remove_session()
+            storage.engine.dispose()
 
     print("TradeCopy Companion packaged storage self-test passed.")
 
