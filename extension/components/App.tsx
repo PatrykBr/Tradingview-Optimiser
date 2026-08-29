@@ -52,6 +52,51 @@ export default function App({ bridge }: AppProps) {
     run.clearDisplayedRun();
   };
 
+  const loadExperiment = async (
+    config: Parameters<
+      typeof configuration.loadExperimentConfiguration
+    >[0],
+  ) => {
+    setError(undefined);
+
+    try {
+      await configuration.loadExperimentConfiguration(
+        config,
+      );
+      run.clearDisplayedRun();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : String(cause),
+      );
+    }
+  };
+
+  const rerunExperiment = async (
+    config: Parameters<
+      typeof configuration.prepareExperimentRerun
+    >[0],
+  ) => {
+    setError(undefined);
+
+    try {
+      const prepared =
+        await configuration.prepareExperimentRerun(
+          config,
+        );
+      await run.startPreparedOptimisation(
+        prepared,
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : String(cause),
+      );
+    }
+  };
+
   return (
     <main className="panel">
       <BackendSection
@@ -86,6 +131,8 @@ export default function App({ bridge }: AppProps) {
         run={run}
         research={research}
         inputLabel={configuration.inputLabel}
+        onLoadExperiment={loadExperiment}
+        onRerunExperiment={rerunExperiment}
       />
 
       {error && (
