@@ -52,10 +52,9 @@ export default function ResearchValidationResults({
         evaluation,
       )
     : null;
-  const robustness =
-    evaluation?.robustness;
   const robustWinner =
-    robustness?.candidates[0];
+    evaluation?.robustness
+      ?.candidates[0];
   const stability =
     evaluation?.stability;
   const walkForward =
