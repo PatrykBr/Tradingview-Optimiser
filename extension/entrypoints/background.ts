@@ -1,66 +1,148 @@
 import { BackendClient } from '../lib/backend-client';
-import type { BackgroundMessage } from '../lib/messages';
+import type {
+  BackendState,
+  BackgroundMessage,
+  ExtensionRequest,
+} from '../lib/messages';
+import type { NextTrial, RunProgress } from '../lib/protocol/types';
 
 export default defineBackground(() => {
   const backend = new BackendClient();
+  const runOwners = new Map<string, number>();
+
+  let backendState: BackendState = { connected: false };
+
+  const sendToTab = (tabId: number, message: BackgroundMessage) =>
+    browser.tabs.sendMessage(tabId, message).catch(() => undefined);
+
+  const broadcast = (message: BackgroundMessage) => {
+    void browser.tabs
+      .query({ url: ['https://*.tradingview.com/*'] })
+      .then((tabs) => {
+        for (const tab of tabs) {
+          if (tab.id !== undefined) void sendToTab(tab.id, message);
+        }
+      });
+  };
+
+  const routeRunMessage = (
+    runId: string,
+    message: BackgroundMessage,
+  ) => {
+    const owner = runOwners.get(runId);
+    if (owner !== undefined) {
+      void sendToTab(owner, message);
+      return;
+    }
+    broadcast(message);
+  };
 
   backend.subscribe((event) => {
-    let message: BackgroundMessage;
     switch (event.type) {
-      case 'connection':
-        message = {
-          type: 'BACKEND_STATE',
+      case 'connection': {
+        backendState = {
           connected: event.connected,
-          ...(event.optunaVersion ? { optunaVersion: event.optunaVersion } : {}),
+          ...(event.optunaVersion
+            ? { optunaVersion: event.optunaVersion }
+            : backendState.optunaVersion
+              ? { optunaVersion: backendState.optunaVersion }
+              : {}),
         };
+        broadcast({ type: 'BACKEND_STATE', ...backendState });
         break;
-      case 'progress':
-        message = { type: 'RUN_PROGRESS', progress: event.progress };
+      }
+
+      case 'progress': {
+        const progress: RunProgress = event.progress;
+        routeRunMessage(progress.run_id, {
+          type: 'RUN_PROGRESS',
+          progress,
+        });
         break;
-      case 'trial':
-        message = { type: 'NEXT_TRIAL', trial: event.trial };
+      }
+
+      case 'trial': {
+        const trial: NextTrial = event.trial;
+        routeRunMessage(trial.run_id, {
+          type: 'NEXT_TRIAL',
+          trial,
+        });
         break;
+      }
+
       case 'error':
-        message = { type: 'BACKEND_ERROR', message: event.message };
+        broadcast({ type: 'BACKEND_ERROR', message: event.message });
         break;
     }
-    void browser.tabs.query({ url: ['https://*.tradingview.com/*'] }).then((tabs) => {
-      for (const tab of tabs) {
-        if (tab.id !== undefined) void browser.tabs.sendMessage(tab.id, message).catch(() => undefined);
-      }
-    });
   });
 
   browser.action.onClicked.addListener(async (tab) => {
     if (tab.id === undefined) return;
-    await browser.tabs.sendMessage(tab.id, { type: 'TOGGLE_UI' } satisfies BackgroundMessage);
+    await sendToTab(tab.id, { type: 'TOGGLE_UI' });
   });
 
-  browser.runtime.onMessage.addListener((message: unknown) => {
-    const msg = message as { type?: string; payload?: unknown };
-    switch (msg.type) {
-      case 'BACKEND_CONNECT':
-        void backend.connect();
-        break;
-      case 'CREATE_RUN':
-        backend.createRun(msg.payload as never);
-        break;
-      case 'START_RUN':
-        backend.startRun((msg.payload as { runId: string }).runId);
-        break;
-      case 'STOP_RUN':
-        backend.stopRun((msg.payload as { runId: string }).runId);
-        break;
-      case 'TRIAL_RESULT':
-        backend.submitTrialResult(msg.payload as never);
-        break;
-      case 'TRIAL_FAILED': {
-        const payload = msg.payload as { runId: string; trialNumber: number; reason: string };
-        backend.submitTrialFailure(payload.runId, payload.trialNumber, payload.reason);
-        break;
+  browser.runtime.onMessage.addListener(
+    (
+      message: unknown,
+      sender,
+      sendResponse: (response?: unknown) => void,
+    ) => {
+      const msg = message as ExtensionRequest;
+
+      try {
+        switch (msg.type) {
+          case 'GET_BACKEND_STATE':
+            sendResponse(backendState);
+            return false;
+
+          case 'BACKEND_CONNECT':
+            void backend.connect();
+            sendResponse(backendState);
+            return false;
+
+          case 'CREATE_RUN':
+            if (sender.tab?.id !== undefined) {
+              runOwners.set(msg.payload.run_id, sender.tab.id);
+            }
+            backend.createRun(msg.payload);
+            sendResponse({ ok: true });
+            return false;
+
+          case 'START_RUN':
+            backend.startRun(msg.payload.runId);
+            sendResponse({ ok: true });
+            return false;
+
+          case 'STOP_RUN':
+            backend.stopRun(msg.payload.runId);
+            sendResponse({ ok: true });
+            return false;
+
+          case 'TRIAL_RESULT':
+            backend.submitTrialResult(msg.payload);
+            sendResponse({ ok: true });
+            return false;
+
+          case 'TRIAL_FAILED':
+            backend.submitTrialFailure(
+              msg.payload.runId,
+              msg.payload.trialNumber,
+              msg.payload.reason,
+            );
+            sendResponse({ ok: true });
+            return false;
+
+          default:
+            return false;
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        sendResponse({ ok: false, error: message });
+        return false;
       }
-    }
-  });
+    },
+  );
 
   void backend.connect();
 });
