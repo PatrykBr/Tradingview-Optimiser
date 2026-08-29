@@ -2,6 +2,7 @@ import ReactDOM from 'react-dom/client';
 
 import App from '../../components/App';
 import '../../components/App.css';
+import { TradingViewBridge } from '../../lib/tradingview/bridge';
 
 export default defineContentScript({
   matches: ['https://*.tradingview.com/*'],
@@ -9,7 +10,22 @@ export default defineContentScript({
   cssInjectionMode: 'ui',
 
   async main(ctx) {
+    let bridgeScript: HTMLScriptElement | undefined;
+
+    await injectScript('/tradingview-main-world.js', {
+      keepInDom: true,
+      modifyScript(script) {
+        bridgeScript = script;
+      },
+    });
+
+    if (!bridgeScript) {
+      throw new Error('Could not initialise the TradingView page bridge');
+    }
+
+    const bridge = new TradingViewBridge(bridgeScript);
     let mounted = true;
+
     const ui = await createShadowRootUi(ctx, {
       name: 'tradingview-optuna-optimiser',
       position: 'overlay',
@@ -27,7 +43,7 @@ export default defineContentScript({
         container.append(app);
 
         const root = ReactDOM.createRoot(app);
-        root.render(<App />);
+        root.render(<App bridge={bridge} />);
         return root;
       },
       onRemove(root) {
@@ -46,6 +62,11 @@ export default defineContentScript({
         ui.mount();
       }
       mounted = !mounted;
+    });
+
+    ctx.onInvalidated(() => {
+      bridge.dispose();
+      ui.remove();
     });
   },
 });
