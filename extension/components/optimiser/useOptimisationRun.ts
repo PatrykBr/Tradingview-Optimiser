@@ -284,9 +284,6 @@ export function useOptimisationRun({
                 'Backend connection was interrupted. The run is saved and will recover when the backend reconnects.',
               );
             },
-            onStaleTrial: () => {
-              // Recovery will issue the current backend trial.
-            },
             onReportError: (
               error,
             ) => {
