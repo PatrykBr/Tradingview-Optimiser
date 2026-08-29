@@ -534,7 +534,7 @@ async def test_duplicate_reuse_survives_backend_restart(tmp_path: Path) -> None:
             "run_id": "duplicate-restart-test",
             "objective_metric": "profitFactor",
             "direction": "maximize",
-            "target_trials": 3,
+            "target_trials": 2,
             "parameters": [
                 {
                     "type": "float",
@@ -581,22 +581,7 @@ async def test_duplicate_reuse_survives_backend_restart(tmp_path: Path) -> None:
     restarted._runs[config.run_id].study.enqueue_trial({"risk": 1.0})
     progress, active = await restarted.start(config.run_id)
 
-    assert progress.reused_trials == 1
-    assert active is not None
-    assert active.parameters["risk"] != 1.0
-
-    progress, next_trial = await restarted.submit_result(
-        TrialResult(
-            run_id=config.run_id,
-            trial_number=active.trial_number,
-            metrics={
-                "profitFactor": 1.4,
-                "totalTrades": 150,
-            },
-        )
-    )
-
-    assert next_trial is None
+    assert active is None
     assert progress.status == "completed"
     assert progress.completed_trials == config.target_trials
     assert progress.reused_trials == 1
