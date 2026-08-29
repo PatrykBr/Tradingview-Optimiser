@@ -1,5 +1,5 @@
 import type { CreateRun } from '../protocol/types';
-import { TradingViewBridge } from './bridge';
+import type { TradingViewBridge } from './bridge';
 import type {
   DeepBacktestResult,
   DetectedStrategy,
@@ -87,9 +87,15 @@ export class TradingViewAdapter {
   diagnostics(
     strategyId?: string,
   ): Promise<TradingViewDiagnostics> {
-    return this.bridge.request<TradingViewDiagnostics>('diagnostics', {
-      ...(strategyId ? { strategyId } : {}),
-    });
+    const payload =
+      strategyId === undefined
+        ? undefined
+        : { strategyId };
+
+    return this.bridge.request<TradingViewDiagnostics>(
+      'diagnostics',
+      payload,
+    );
   }
 
   getBacktestMode(): Promise<'chart' | 'deep'> {
