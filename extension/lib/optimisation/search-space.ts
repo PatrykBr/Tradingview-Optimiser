@@ -40,12 +40,9 @@ export const defaultParameterConfig = (
     input.type === 'integer' || input.type === 'float'
       ? input.max?.toString() ?? ''
       : '',
-  step:
-    input.type === 'integer'
-      ? (input.step ?? 1).toString()
-      : input.type === 'float'
-        ? input.step?.toString() ?? ''
-        : '',
+  // Blank means Auto. buildSearchSpace resolves the Pine-declared
+  // granularity when available, otherwise integer=1 and float=continuous.
+  step: '',
   log: false,
   choices:
     input.type === 'boolean'
@@ -137,9 +134,20 @@ export const buildSearchSpace = (
           throw new Error(input.label + ' requires integer bounds');
         }
 
-        const step = config.step
-          ? numberOrThrow(config.step, input.label + ' step')
-          : 1;
+        const automaticStep =
+          typeof input.step === 'number' &&
+          Number.isInteger(input.step) &&
+          input.step > 0
+            ? input.step
+            : 1;
+        const step = config.log
+          ? 1
+          : config.step
+            ? numberOrThrow(
+                config.step,
+                input.label + ' step',
+              )
+            : automaticStep;
 
         if (!Number.isInteger(step) || step <= 0) {
           throw new Error(
@@ -163,9 +171,19 @@ export const buildSearchSpace = (
           ...(condition ? { condition } : {}),
         });
       } else {
-        const step = config.step
-          ? numberOrThrow(config.step, input.label + ' step')
-          : undefined;
+        const automaticStep =
+          typeof input.step === 'number' &&
+          input.step > 0
+            ? input.step
+            : undefined;
+        const step = config.log
+          ? undefined
+          : config.step
+            ? numberOrThrow(
+                config.step,
+                input.label + ' step',
+              )
+            : automaticStep;
 
         if (step !== undefined && step <= 0) {
           throw new Error(input.label + ' step must be positive');
