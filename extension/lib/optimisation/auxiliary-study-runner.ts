@@ -148,10 +148,12 @@ export const runAuxiliaryStudy =
             trial,
             originalParameters:
               request.originalParameters,
-            signal:
-              request.signal,
-            onPhase:
-              request.onPhase,
+            ...(request.signal
+              ? { signal: request.signal }
+              : {}),
+            ...(request.onPhase
+              ? { onPhase: request.onPhase }
+              : {}),
           });
 
         await request.transport.request({
