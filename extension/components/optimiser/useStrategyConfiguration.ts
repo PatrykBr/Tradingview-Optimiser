@@ -59,6 +59,79 @@ export interface PreparedOptimisationRun {
 
 type ErrorSetter = Dispatch<SetStateAction<string | undefined>>;
 
+const prepareTradingViewRun = async (
+  adapter: TradingViewAdapter,
+  strategyId: string,
+  config: CreateRun,
+  inputs: StrategyInput[],
+): Promise<PreparedOptimisationRun> => {
+  const range = config.backtest_range;
+
+  await adapter.prepareBacktest(
+    strategyId,
+    range
+      ? {
+          startDate: range.start_date,
+          endDate: range.end_date,
+        }
+      : null,
+  );
+
+  const initialMetrics =
+    await adapter.waitForMetricsAfterChange(
+      strategyId,
+      null,
+      undefined,
+      12_000,
+    );
+  const requiredMetrics = [
+    config.objective_metric,
+    ...config.filters.map(
+      (filter) => filter.metric,
+    ),
+  ];
+
+  if ((initialMetrics.totalTrades ?? 0) > 0) {
+    for (const requiredMetric of requiredMetrics) {
+      if (
+        requiredMetric !== 'profitFactor' &&
+        !Number.isFinite(
+          initialMetrics[requiredMetric],
+        )
+      ) {
+        throw new Error(
+          'TradingView did not expose the required metric: ' +
+            metricDefinition(requiredMetric).label,
+        );
+      }
+    }
+  }
+
+  const settingsSignature =
+    await adapter.getStrategySettingsSignature(
+      strategyId,
+    );
+
+  return {
+    config: {
+      ...config,
+      chart: {
+        ...config.chart,
+        strategy_settings_signature:
+          settingsSignature,
+      },
+    },
+    strategyId,
+    originalParameters:
+      Object.fromEntries(
+        inputs.map((input) => [
+          input.id,
+          input.currentValue,
+        ]),
+      ),
+  };
+};
+
 export function useStrategyConfiguration(
   adapter: TradingViewAdapter,
   setError: ErrorSetter,
@@ -503,60 +576,12 @@ export function useStrategyConfiguration(
         research: researchPlan.research,
       };
 
-      await adapter.prepareBacktest(
+      return prepareTradingViewRun(
+        adapter,
         selectedStrategyId,
-        backtestRange
-          ? {
-              startDate: backtestRange.start_date,
-              endDate: backtestRange.end_date,
-            }
-          : null,
-      );
-
-      const initialMetrics =
-        await adapter.waitForMetricsAfterChange(
-          selectedStrategyId,
-          null,
-          undefined,
-          12_000,
-        );
-
-      const requiredMetrics = [
-        form.objectiveMetric,
-        ...filters.map((filter) => filter.metric),
-      ];
-
-      if ((initialMetrics.totalTrades ?? 0) > 0) {
-        for (const requiredMetric of requiredMetrics) {
-          if (
-            requiredMetric !== 'profitFactor' &&
-            !Number.isFinite(
-              initialMetrics[requiredMetric],
-            )
-          ) {
-            throw new Error(
-              'TradingView did not expose the required metric: ' +
-                metricDefinition(requiredMetric).label,
-            );
-          }
-        }
-      }
-
-      config.chart.strategy_settings_signature =
-        await adapter.getStrategySettingsSignature(
-          selectedStrategyId,
-        );
-
-      return {
         config,
-        strategyId: selectedStrategyId,
-        originalParameters: Object.fromEntries(
-          inputs.map((input) => [
-            input.id,
-            input.currentValue,
-          ]),
-        ),
-      };
+        inputs,
+      );
     },
     [
       adapter,
@@ -718,80 +743,12 @@ export function useStrategyConfiguration(
           },
         };
 
-        await adapter.prepareBacktest(
+        return prepareTradingViewRun(
+          adapter,
           strategyId,
-          config.backtest_range
-            ? {
-                startDate:
-                  config.backtest_range
-                    .start_date,
-                endDate:
-                  config.backtest_range
-                    .end_date,
-              }
-            : null,
-        );
-
-        const initialMetrics =
-          await adapter.waitForMetricsAfterChange(
-            strategyId,
-            null,
-            undefined,
-            12_000,
-          );
-        const requiredMetrics = [
-          config.objective_metric,
-          ...config.filters.map(
-            (filter) =>
-              filter.metric,
-          ),
-        ];
-
-        if (
-          (initialMetrics.totalTrades ??
-            0) > 0
-        ) {
-          for (
-            const requiredMetric of
-            requiredMetrics
-          ) {
-            if (
-              requiredMetric !==
-                'profitFactor' &&
-              !Number.isFinite(
-                initialMetrics[
-                  requiredMetric
-                ],
-              )
-            ) {
-              throw new Error(
-                'TradingView did not expose the required metric: ' +
-                  metricDefinition(
-                    requiredMetric,
-                  ).label,
-              );
-            }
-          }
-        }
-
-        config.chart.strategy_settings_signature =
-          await adapter.getStrategySettingsSignature(
-            strategyId,
-          );
-
-        return {
           config,
-          strategyId,
-          originalParameters:
-            Object.fromEntries(
-              detectedInputs.map(
-                (input) => [
-                  input.id,
-                  input.currentValue,
-                ],
-              ),
-            ),
-        };
+          detectedInputs,
+        );
       },
       [
         adapter,
