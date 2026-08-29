@@ -228,8 +228,10 @@ export default function ParameterSearchSpaceSection({
               {enabled &&
                 conditionCandidates.length > 0 && (
                   <div className="conditionBlock">
-                    <label>
-                      <span>Only optimise when</span>
+                    <label
+                      title="Make this parameter conditional on any Pine dropdown or boolean input. If the controller is not already being optimised, selecting it here adds it automatically."
+                    >
+                      <span>Active when</span>
                       <select
                         value={
                           config.conditionParameter
@@ -246,47 +248,62 @@ export default function ParameterSearchSpaceSection({
                           Always
                         </option>
                         {conditionCandidates.map(
-                          (candidate) => (
-                            <option
-                              key={candidate.id}
-                              value={candidate.id}
-                            >
-                              {candidate.label}
-                            </option>
-                          ),
+                          (candidate) => {
+                            const controllerEnabled =
+                              model.parameterConfigs[
+                                candidate.id
+                              ]?.enabled ?? false;
+
+                            return (
+                              <option
+                                key={candidate.id}
+                                value={candidate.id}
+                              >
+                                {candidate.label}
+                                {controllerEnabled
+                                  ? ''
+                                  : ' (add to optimisation)'}
+                              </option>
+                            );
+                          },
                         )}
                       </select>
                     </label>
 
                     {config.conditionParameter &&
                       parentChoices.length > 0 && (
-                        <div className="choiceList compactChoices">
-                          {parentChoices.map(
-                            (choice) => (
-                              <label
-                                className="choiceChip"
-                                key={String(choice)}
-                              >
-                                <input
-                                  type="checkbox"
-                                  disabled={locked}
-                                  checked={config.conditionValues.some(
-                                    (value) =>
-                                      value ===
-                                      choice,
-                                  )}
-                                  onChange={() =>
-                                    model.toggleConditionValue(
-                                      input.id,
-                                      choice,
-                                    )
-                                  }
-                                />
-                                {String(choice)}
-                              </label>
-                            ),
-                          )}
-                        </div>
+                        <>
+                          <div className="conditionValueLabel">
+                            {parent?.label ?? 'Controller'} is:
+                          </div>
+                          <div className="choiceList compactChoices">
+                            {parentChoices.map(
+                              (choice) => (
+                                <label
+                                  className="choiceChip"
+                                  key={String(choice)}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    disabled={locked}
+                                    checked={config.conditionValues.some(
+                                      (value) =>
+                                        value ===
+                                        choice,
+                                    )}
+                                    onChange={() =>
+                                      model.toggleConditionValue(
+                                        input.id,
+                                        choice,
+                                      )
+                                    }
+                                  />
+                                  {String(choice)}
+                                </label>
+                              ),
+                            )}
+                          </div>
+                        </>
                       )}
                   </div>
                 )}
