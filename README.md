@@ -169,11 +169,16 @@ For serious research, a good default workflow is:
 
 The extension keeps orchestration at a few explicit seams:
 
-- `components/App.tsx` only composes the optimiser UI.
-- `components/optimiser/useStrategyConfiguration.ts` owns strategy discovery, Pine inputs, search-space configuration, presets and run preparation.
-- `components/optimiser/useOptimisationRun.ts` owns persisted run lifecycle, resume/recovery, trial sequencing and result actions.
+- `components/App.tsx` is only the composition shell for the optimiser UI.
+- `components/optimiser/useStrategyConfiguration.ts` owns React state for strategy discovery, Pine inputs, presets and run preparation; parameter-editing rules are delegated to the optimisation layer.
+- `lib/optimisation/parameter-config.ts` owns parameter draft invariants such as enable/disable behaviour, choices, log/step interaction and conditional-controller relationships.
+- `lib/optimisation/search-space.ts` converts the parameter draft into the validated, dependency-ordered Optuna search space and baseline.
+- `lib/optimisation/draft.ts` owns the version-tolerant optimisation form model used by saved configurations.
+- `lib/optimisation/run-config.ts` converts the UI draft into persisted run configuration, constraints, date ranges and research settings.
+- `components/optimiser/useOptimisationRun.ts` owns the persisted optimisation-run lifecycle, resume/recovery, trial sequencing and result actions.
 - `components/optimiser/useBackendConnection.ts` owns pairing and localhost backend connection state.
-- `components/optimiser/useResearchValidation.ts` owns post-run OOS and stability validation.
+- `components/optimiser/useResearchValidation.ts` owns React state, history persistence and cancellation for post-run research.
+- `lib/optimisation/research-runner.ts` owns the full OOS/stability TradingView research execution behind one testable seam.
 - `lib/optimisation/research.ts` contains pure research splitting, ranking and stability maths.
 - `lib/tradingview/adapter.ts` owns TradingView backtest orchestration and run-safety invariants.
 - `lib/tradingview/page-report.ts` contains the DOM fallback for Strategy Report and Deep Backtesting controls.
