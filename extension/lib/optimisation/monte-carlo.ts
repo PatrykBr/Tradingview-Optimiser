@@ -1,3 +1,4 @@
+import type { BacktestRange } from '../protocol/types';
 import type {
   ClosedTrade,
   ClosedTradeSnapshot,
@@ -11,6 +12,8 @@ export interface MonteCarloInterval {
 
 export interface MonteCarloResult {
   available: boolean;
+  source: 'oos' | 'optimisation';
+  range: BacktestRange | null;
   reason: string | null;
   sampleSize: number;
   simulations: number;
@@ -194,6 +197,10 @@ export const runTradeMonteCarlo = (
   snapshot: ClosedTradeSnapshot,
   simulations: number,
   confidence: number,
+  context: {
+    source: 'oos' | 'optimisation';
+    range: BacktestRange | null;
+  },
 ): MonteCarloResult => {
   if (
     !snapshot.available ||
@@ -201,6 +208,8 @@ export const runTradeMonteCarlo = (
   ) {
     return {
       available: false,
+      source: context.source,
+      range: context.range,
       reason:
         snapshot.reason ??
         'Closed-trade data is unavailable.',
@@ -303,6 +312,8 @@ export const runTradeMonteCarlo = (
 
   return {
     available: true,
+    source: context.source,
+    range: context.range,
     reason: null,
     sampleSize: values.length,
     simulations,
