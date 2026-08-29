@@ -114,9 +114,6 @@ export const splitResearchRange = (
   const trainingEnd = start + trainingDays * DAY_MS;
   const validationStart = trainingEnd + DAY_MS;
   const validationEnd = end;
-  const validationSpanDays =
-    Math.floor((validationEnd - validationStart) / DAY_MS) + 1;
-
   const windows: ValidationWindow[] = [];
   let cursor = validationStart;
 
@@ -157,11 +154,16 @@ export const passesMetricFilters = (
 ): boolean =>
   filters.every((filter) => {
     const actual = metrics[filter.metric];
-    if (!Number.isFinite(actual)) return false;
+    if (
+      typeof actual !== 'number' ||
+      !Number.isFinite(actual)
+    ) {
+      return false;
+    }
 
     return filter.operator === 'lte'
-      ? actual! <= filter.value
-      : actual! >= filter.value;
+      ? actual <= filter.value
+      : actual >= filter.value;
   });
 
 export const topFeasibleCandidates = (
@@ -176,8 +178,12 @@ export const topFeasibleCandidates = (
         trial.objective_value !== null,
     )
     .sort((left, right) => {
-      const a = left.objective_value!;
-      const b = right.objective_value!;
+      const a = left.objective_value;
+      const b = right.objective_value;
+
+      if (a === null) return 1;
+      if (b === null) return -1;
+
       return direction === 'maximize'
         ? b - a
         : a - b;
