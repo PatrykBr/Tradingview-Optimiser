@@ -6,6 +6,7 @@ export interface PersistedOptimisationRun {
   strategyId: string;
   originalParameters: Record<string, unknown>;
   startedAt: number;
+  finishedAt?: number;
   lastProgress?: RunProgress;
 }
 
@@ -60,6 +61,7 @@ export const finishActiveRun = async (
     await browser.storage.local.set({
       [LAST_RUN_KEY]: {
         ...run,
+        finishedAt: Date.now(),
         lastProgress: progress,
       },
     });
