@@ -1,18 +1,15 @@
-type UnknownRecord = Record<string, unknown>;
+import {
+  asRecord,
+  buildStrategySignature,
+  extractTradingViewMetrics,
+  hashString,
+  normalisePineInputs,
+  stableStringify,
+  type RawStudyInput,
+  type UnknownRecord,
+} from '../lib/tradingview/parsers';
 
-interface StudyInputValue {
-  id: string;
-  value: unknown;
-  name?: string;
-  type?: string;
-  options?: unknown[];
-  values?: unknown[];
-  min?: number;
-  max?: number;
-  minval?: number;
-  maxval?: number;
-  step?: number;
-}
+type StudyInputValue = RawStudyInput;
 
 interface StudyLike {
   id?: string;
@@ -51,9 +48,6 @@ interface BridgeRequest {
 
 const REQUEST_EVENT = 'tvopt:request';
 const RESPONSE_EVENT = 'tvopt:response';
-
-const asRecord = (value: unknown): UnknownRecord =>
-  value !== null && typeof value === 'object' ? (value as UnknownRecord) : {};
 
 const readMeta = (study: StudyLike): UnknownRecord => {
   try {
@@ -154,37 +148,6 @@ const detectStrategies = () => {
   return [...found.values()];
 };
 
-const inferInputType = (
-  meta: UnknownRecord,
-  value: unknown,
-):
-  | 'integer'
-  | 'float'
-  | 'boolean'
-  | 'categorical'
-  | 'string'
-  | 'time'
-  | 'timeframe'
-  | 'source'
-  | 'unsupported' => {
-  const declared = String(meta.type ?? meta.inputType ?? '').toLowerCase();
-  const options = meta.options ?? meta.values;
-
-  if (Array.isArray(options) && options.length > 0) return 'categorical';
-  if (declared.includes('bool')) return 'boolean';
-  if (declared.includes('integer') || declared === 'int') return 'integer';
-  if (declared.includes('float')) return 'float';
-  if (declared.includes('resolution') || declared.includes('timeframe')) return 'timeframe';
-  if (declared.includes('source')) return 'source';
-  if (declared.includes('time')) return 'time';
-  if (declared.includes('string') || declared.includes('text')) return 'string';
-
-  if (typeof value === 'boolean') return 'boolean';
-  if (typeof value === 'number') return Number.isInteger(value) ? 'integer' : 'float';
-  if (typeof value === 'string') return 'string';
-  return 'unsupported';
-};
-
 const getInternalStudyMeta = (
   chart: ChartLike,
   strategyId: string,
@@ -224,12 +187,6 @@ const readStrategyInputs = (strategyId: string) => {
   }
 
   const current = study.getInputValues();
-
-  // Pine user inputs are compiled to in_0, in_1, ... . Other entries such as
-  // pineId, pineVersion, pineFeatures and text are TradingView implementation
-  // metadata and must never be exposed as optimisable strategy parameters.
-  const pineInputs = current.filter((input) => /^in_\d+$/.test(input.id));
-
   const publicMeta = readMeta(study);
   const internalMeta = getInternalStudyMeta(chart, strategyId);
   const declaredInputs = [
@@ -237,61 +194,7 @@ const readStrategyInputs = (strategyId: string) => {
     ...(Array.isArray(internalMeta.inputs) ? internalMeta.inputs : []),
   ];
 
-  const metaById = new Map<string, UnknownRecord>();
-  for (const item of declaredInputs) {
-    const record = asRecord(item);
-    if (typeof record.id === 'string') {
-      metaById.set(record.id, {
-        ...(metaById.get(record.id) ?? {}),
-        ...record,
-      });
-    }
-  }
-
-  return pineInputs.map((input) => {
-    // getInputValues() itself may already contain the compiled Pine title/type.
-    // Merge it with the richer metaInfo().inputs definition when available.
-    const inputRecord = asRecord(input);
-    const inputMeta: UnknownRecord = {
-      ...inputRecord,
-      ...(metaById.get(input.id) ?? {}),
-    };
-
-    const optionsCandidate =
-      inputMeta.options ??
-      inputMeta.values;
-    const options = Array.isArray(optionsCandidate)
-      ? optionsCandidate
-      : undefined;
-
-    const labelCandidate =
-      inputMeta.name ??
-      inputMeta.description ??
-      inputMeta.title ??
-      input.id;
-
-    const minCandidate =
-      inputMeta.min ??
-      inputMeta.minval;
-    const maxCandidate =
-      inputMeta.max ??
-      inputMeta.maxval;
-    const stepCandidate = inputMeta.step;
-
-    return {
-      id: input.id,
-      label:
-        typeof labelCandidate === 'string' && labelCandidate.trim()
-          ? labelCandidate.trim()
-          : input.id,
-      type: inferInputType(inputMeta, input.value),
-      currentValue: input.value,
-      ...(options ? { options } : {}),
-      ...(typeof minCandidate === 'number' ? { min: minCandidate } : {}),
-      ...(typeof maxCandidate === 'number' ? { max: maxCandidate } : {}),
-      ...(typeof stepCandidate === 'number' ? { step: stepCandidate } : {}),
-    };
-  });
+  return normalisePineInputs(current, declaredInputs);
 };
 
 const applyParameters = (
@@ -384,115 +287,18 @@ const unwrapValue = (value: unknown): unknown => {
   return value;
 };
 
-const normaliseMetricNumber = (value: unknown): number | undefined => {
-  if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
-  if (value === Number.POSITIVE_INFINITY) return 1.0e12;
-  if (value === Number.NEGATIVE_INFINITY) return -1.0e12;
-  return value;
-};
-
-const hashString = (value: string): string => {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
-};
-
-const stableStringify = (value: unknown): string => {
-  const seen = new WeakSet<object>();
-
-  const normalise = (item: unknown): unknown => {
-    if (Array.isArray(item)) return item.map(normalise);
-    if (item === null || typeof item !== 'object') return item;
-    if (seen.has(item as object)) return '[Circular]';
-    seen.add(item as object);
-
-    return Object.fromEntries(
-      Object.entries(item as UnknownRecord)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, child]) => [key, normalise(child)]),
-    );
-  };
-
-  try {
-    return JSON.stringify(normalise(value));
-  } catch {
-    return String(value);
-  }
-};
-
 const readStrategyMetrics = (strategyId: string) => {
   const chart = getChart();
   const source = getStrategySource(chart, strategyId);
   if (!source || typeof source.reportData !== 'function') return null;
 
-  let rawReport: unknown;
   try {
-    rawReport = unwrapValue(source.reportData());
+    return extractTradingViewMetrics(
+      unwrapValue(source.reportData()),
+    );
   } catch {
     return null;
   }
-
-  const report = asRecord(rawReport);
-  const performance = asRecord(report.performance);
-  const all = asRecord(performance.all);
-
-  if (Object.keys(performance).length === 0 || Object.keys(all).length === 0) {
-    return null;
-  }
-
-  const metrics: Record<string, number> = {};
-
-  const put = (key: string, value: unknown) => {
-    const numeric = normaliseMetricNumber(value);
-    if (numeric !== undefined) metrics[key] = numeric;
-  };
-
-  // Canonical names used by the optimiser UI and Optuna constraints.
-  put('netProfit', all.netProfit);
-  put('netProfitPercent', all.netProfitPercent);
-  put('grossProfit', all.grossProfit);
-  put('grossLoss', all.grossLoss);
-  put('profitFactor', all.profitFactor);
-  put('totalTrades', all.totalTrades);
-  put('winningTrades', all.winningTrades);
-  put('losingTrades', all.losingTrades);
-  put('percentProfitable', all.percentProfitable);
-  put('averageTrade', all.avgTrade ?? all.averageTrade);
-  put('averageWinningTrade', all.avgWinningTrade ?? all.averageWinningTrade);
-  put('averageLosingTrade', all.avgLosingTrade ?? all.averageLosingTrade);
-  put('largestWinningTrade', all.largestWinningTrade);
-  put('largestLosingTrade', all.largestLosingTrade);
-  put(
-    'maxDrawdown',
-    performance.maxStrategyDrawDown ??
-      performance.maxDrawDown ??
-      all.maxDrawDown,
-  );
-  put(
-    'maxDrawdownPercent',
-    performance.maxStrategyDrawDownPercent ??
-      performance.maxDrawDownPercent ??
-      all.maxDrawDownPercent,
-  );
-  put('sharpeRatio', performance.sharpeRatio ?? all.sharpeRatio);
-  put('sortinoRatio', performance.sortinoRatio ?? all.sortinoRatio);
-  put('buyAndHoldReturn', performance.buyAndHoldReturn ?? all.buyAndHoldReturn);
-
-  // Preserve every other numeric field TradingView exposes. Canonical fields
-  // above remain stable, while these names make the full report available for
-  // inspection/export without guessing every TradingView metric in advance.
-  for (const [key, value] of Object.entries(all)) {
-    put('tv.all.' + key, value);
-  }
-  for (const [key, value] of Object.entries(performance)) {
-    if (key === 'all') continue;
-    put('tv.performance.' + key, value);
-  }
-
-  return Object.keys(metrics).length > 0 ? metrics : null;
 };
 
 const readStrategyReportSnapshot = (strategyId: string) => {
@@ -567,46 +373,12 @@ const getStrategySignature = (strategyId: string): string => {
   const study = chart.getStudyById?.(strategyId);
   if (!study) throw new Error('TradingView strategy is no longer on the chart');
 
-  const publicMeta = readMeta(study);
-  const internalMeta = getInternalStudyMeta(chart, strategyId);
-  const inputs = readStrategyInputs(strategyId).map((input) => ({
-    id: input.id,
-    label: input.label,
-    type: input.type,
-    options: input.options ?? null,
-  }));
-
-  const signatureSource = {
-    description:
-      internalMeta.description ??
-      publicMeta.description ??
-      study.name ??
-      study.title ??
-      null,
-    shortDescription:
-      internalMeta.shortDescription ??
-      publicMeta.shortDescription ??
-      null,
-    scriptIdPart:
-      internalMeta.scriptIdPart ??
-      publicMeta.scriptIdPart ??
-      null,
-    pineId:
-      internalMeta.pineId ??
-      publicMeta.pineId ??
-      null,
-    pineVersion:
-      internalMeta.pineVersion ??
-      publicMeta.pineVersion ??
-      null,
-    id:
-      internalMeta.id ??
-      publicMeta.id ??
-      null,
-    inputs,
-  };
-
-  return hashString(stableStringify(signatureSource));
+  return buildStrategySignature(
+    readMeta(study),
+    getInternalStudyMeta(chart, strategyId),
+    study.name ?? study.title ?? null,
+    readStrategyInputs(strategyId),
+  );
 };
 
 const findClickableByText = (pattern: RegExp): HTMLElement | null => {
