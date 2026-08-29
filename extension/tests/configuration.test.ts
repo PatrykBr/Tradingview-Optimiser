@@ -153,6 +153,18 @@ describe('optimisation configuration', () => {
     ).toThrow(/start date must be before/);
   });
 
+  it('rejects blank values for enabled metric filters', () => {
+    expect(() =>
+      buildMetricFilters({
+        ...DEFAULT_OPTIMISATION_FORM,
+        maxDrawdownFilter: {
+          enabled: true,
+          value: '',
+        },
+      }),
+    ).toThrow(/enter maximum drawdown filter/i);
+  });
+
   it('keeps disabled research inert for small runs', () => {
     expect(() =>
       buildResearchPlan(
