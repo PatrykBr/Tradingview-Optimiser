@@ -2,8 +2,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import CreateRun, NextTrial, RunProgress, TrialFailure, TrialResult
-
 
 class Envelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -36,14 +34,3 @@ def encode(
         payload=body,
     ).model_dump(mode="json")
 
-
-INBOUND_MODELS = {
-    "CREATE_RUN": CreateRun,
-    "TRIAL_RESULT": TrialResult,
-    "TRIAL_FAILED": TrialFailure,
-}
-
-OUTBOUND_MODELS = {
-    "NEXT_TRIAL": NextTrial,
-    "RUN_PROGRESS": RunProgress,
-}
