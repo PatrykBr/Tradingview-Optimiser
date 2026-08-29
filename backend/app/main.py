@@ -7,6 +7,7 @@ from app.api.websocket import websocket_endpoint
 from app.optimisation.manager import OptimisationManager
 from app.pairing import PairingManager
 from app.settings import Settings
+from app.version import BACKEND_VERSION
 
 
 @asynccontextmanager
@@ -23,7 +24,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="TradingView Optuna Optimiser",
-    version="0.2.0",
+    version=BACKEND_VERSION,
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
