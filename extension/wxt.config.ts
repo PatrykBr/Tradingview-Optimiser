@@ -1,8 +1,7 @@
 import { defineConfig } from 'wxt';
-import react from '@wxt-dev/module-react';
 
 export default defineConfig({
-  modules: [react()],
+  modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'TradingView Optuna Optimiser',
     description: 'Optimise the Pine strategy on your current TradingView chart with Optuna v5.',
