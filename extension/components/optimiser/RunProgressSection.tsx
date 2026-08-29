@@ -132,6 +132,9 @@ export default function RunProgressSection({
   const best = run.progress?.best ?? null;
   const reusedTrials =
     run.progress?.reused_trials ?? 0;
+  const completionReason = terminationLabel(
+    run.progress?.termination_reason,
+  );
 
   const completion =
     run.progress?.status === 'completed'
@@ -230,15 +233,8 @@ export default function RunProgressSection({
                   ' reused'}
               {run.progress?.status ===
                   'completed' &&
-                terminationLabel(
-                  run.progress
-                    .termination_reason,
-                ) &&
-                ' · ' +
-                  terminationLabel(
-                    run.progress
-                      .termination_reason,
-                  )}
+                completionReason &&
+                ' · ' + completionReason}
             </span>
           </div>
 
