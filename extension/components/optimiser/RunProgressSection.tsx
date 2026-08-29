@@ -106,6 +106,7 @@ export default function RunProgressSection({
     run.runConfig?.objective_metric ??
       'profitFactor',
   );
+  const best = run.progress?.best ?? null;
 
   const completion =
     run.progress?.status === 'completed'
@@ -240,7 +241,7 @@ export default function RunProgressSection({
             />
           )}
 
-          {run.progress?.best && (
+          {best && (
             <div className="bestCard">
               <div className="rowLabel">
                 <strong>
@@ -250,7 +251,7 @@ export default function RunProgressSection({
                   {objective.label}{' '}
                   {formatMetric(
                     objective.key,
-                    run.progress.best
+                    best
                       .objective_value,
                   )}
                 </span>
@@ -266,7 +267,7 @@ export default function RunProgressSection({
                   'sortinoRatio',
                 ].flatMap((key) => {
                   const value =
-                    run.progress.best
+                    best
                       ?.metrics[key];
 
                   if (
@@ -297,7 +298,7 @@ export default function RunProgressSection({
 
               <div className="bestParameters">
                 {Object.entries(
-                  run.progress.best.parameters,
+                  best.parameters,
                 ).map(([id, value]) => (
                   <div key={id}>
                     <span>
