@@ -437,6 +437,23 @@ export function useOptimisationRun({
         originalParameters:
           prepared.originalParameters,
         startedAt: now,
+        environment: {
+          extensionVersion:
+            browser.runtime
+              .getManifest().version,
+          ...(backend.backendVersion
+            ? {
+                backendVersion:
+                  backend.backendVersion,
+              }
+            : {}),
+          ...(backend.optunaVersion
+            ? {
+                optunaVersion:
+                  backend.optunaVersion,
+              }
+            : {}),
+        },
       };
 
       await saveActiveRun(persisted);
@@ -477,6 +494,8 @@ export function useOptimisationRun({
     },
     [
       assertCompatibility,
+      backend.backendVersion,
+      backend.optunaVersion,
       sendRequest,
     ],
   );
@@ -1065,6 +1084,8 @@ export function useOptimisationRun({
     connected,
     pairingRequired,
     pairingCode: backend.pairingCode,
+    backendVersion:
+      backend.backendVersion,
     optunaVersion: backend.optunaVersion,
     progress,
     runConfig,
