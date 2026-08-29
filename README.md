@@ -2,77 +2,38 @@
 
 A Chrome/Firefox extension that automatically optimises the Pine strategy on the user's current TradingView chart using Optuna v5.
 
-TradingView remains the backtest engine. The extension applies parameter combinations and reads Strategy Tester results, while a local FastAPI service runs the Optuna study.
+TradingView performs the backtests. The extension controls the chart and reads Strategy Tester results, while a local FastAPI service runs the Optuna study.
 
-## Architecture
+## Features
 
-```text
-TradingView
-    ↕
-Browser extension
-    ↕ WebSocket
-FastAPI
-    ↕
-Optuna v5 + SQLite
-```
-
-## Current status
-
-Implemented:
-
-- Chrome/Firefox extension with WXT, React and TypeScript
-- local FastAPI backend
-- Optuna v5 `Study.ask()` / `Study.tell()` optimisation flow
-- persistent SQLite studies
-- native Optuna v5 constraints
-- TradingView strategy and Pine input detection
-- numeric, boolean and categorical optimisation parameters
-- configurable min/max/step ranges
-- optimisation metric and trial-count selection
-- maximum drawdown, minimum profit factor and minimum trade filters
-- automatic TradingView parameter application with read-back verification
-- Strategy Tester metric extraction
-- recalculation settling between trials
-- automatic sequential trial execution
-- start/stop handling
-- live progress, completed trials and best feasible result
-- apply-best and restore-original parameter actions
-- chart symbol/timeframe safety checks
-- backend and WebSocket tests
-
-Still to implement:
-
-- custom Deep Backtesting date ranges
-- richer per-trial detail/export UI
-- robust resume after a TradingView tab reload
-- production localhost pairing/authentication
+- Detects Pine strategies and reads their inputs
+- Numeric, boolean and categorical search spaces
+- Min/max/step, logarithmic and conditional parameters
+- Optuna v5 ask/tell optimisation with the current strategy settings used as the baseline trial
+- Profit Factor, Net Profit, Sharpe, Sortino, drawdown and win-rate objectives
+- Native Optuna v5 result constraints
+- Optional TradingView Deep Backtesting date range
+- Automatic parameter application and read-back verification
+- Strategy Tester recalculation detection and retry handling
+- Strategy/symbol/timeframe safety checks
+- Persistent studies and resumable browser runs
+- Live progress, ETA, best-so-far chart and full trial history
+- Per-trial parameters, constraints and TradingView metrics
+- Apply-best, restore-original and stop-state controls
+- CSV and JSON exports
+- TradingView compatibility diagnostics
+- Secure one-time localhost backend pairing
+- Chrome and Firefox builds
+- Backend and extension unit tests
 
 ## Development
 
-Requirements:
+Requirements: Python 3.12+, `uv`, Node.js and pnpm.
 
-- Python 3.12+
-- `uv`
-- Node.js
-- pnpm
-
-Install extension dependencies from the repository root:
+Install dependencies:
 
 ```bash
 pnpm install
-```
-
-Run the Chrome extension:
-
-```bash
-pnpm extension:dev
-```
-
-Run the Firefox extension:
-
-```bash
-cd extension
-pnpm dev:firefox
 ```
 
 Run the backend:
@@ -83,16 +44,30 @@ uv sync --prerelease=allow
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8765
 ```
 
-Type-check and build the extension:
+On first use, enter the pairing code printed by the backend into the extension.
+
+Run Chrome development:
+
+```bash
+pnpm extension:dev
+```
+
+Run Firefox development:
+
+```bash
+pnpm extension:dev:firefox
+```
+
+Checks:
 
 ```bash
 pnpm extension:typecheck
+pnpm extension:test
 pnpm extension:build
-```
+pnpm extension:build:firefox
 
-Run backend tests:
-
-```bash
 cd backend
 uv run pytest
 ```
+
+Deep Backtesting requires TradingView to expose that feature for the current account.
