@@ -4,7 +4,9 @@
   "packageManager": "pnpm@11.13.1",
   "scripts": {
     "extension:dev": "pnpm --filter tradingview-optuna-optimiser-extension dev",
+    "extension:dev:firefox": "pnpm --filter tradingview-optuna-optimiser-extension dev:firefox",
     "extension:build": "pnpm --filter tradingview-optuna-optimiser-extension build",
+    "extension:build:firefox": "pnpm --filter tradingview-optuna-optimiser-extension build:firefox",
     "extension:typecheck": "pnpm --filter tradingview-optuna-optimiser-extension typecheck",
     "extension:test": "pnpm --filter tradingview-optuna-optimiser-extension test"
   }
