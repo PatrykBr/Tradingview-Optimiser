@@ -183,33 +183,69 @@ class CreateRun(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError("parameter names must be unique")
 
-        seen: set[str] = set()
-        by_name: dict[str, SearchParameter] = {}
+        by_name: dict[str, SearchParameter] = {
+            parameter.name: parameter
+            for parameter in self.parameters
+        }
 
         for parameter in self.parameters:
+            if parameter.condition is None:
+                continue
+
+            parent_name = parameter.condition.parameter
+            if parent_name == parameter.name:
+                raise ValueError(
+                    f"conditional parameter {parameter.name!r} cannot depend on itself"
+                )
+
+            parent = by_name.get(parent_name)
+            if parent is None:
+                raise ValueError(
+                    f"conditional parameter {parameter.name!r} depends on "
+                    f"unknown parameter {parent_name!r}"
+                )
+
+            if not isinstance(parent, CategoricalParameter):
+                raise ValueError(
+                    f"conditional parameter {parameter.name!r} must depend on "
+                    "a categorical parameter"
+                )
+
+            invalid = [
+                value
+                for value in parameter.condition.values
+                if value not in parent.choices
+            ]
+            if invalid:
+                raise ValueError(
+                    f"condition for {parameter.name!r} contains values "
+                    f"outside parent choices: {invalid!r}"
+                )
+
+        visiting: set[str] = set()
+        visited: set[str] = set()
+        ordered: list[SearchParameter] = []
+
+        def visit(name: str) -> None:
+            if name in visited:
+                return
+            if name in visiting:
+                raise ValueError("conditional parameter dependencies contain a cycle")
+
+            parameter = by_name[name]
+            visiting.add(name)
+
             if parameter.condition is not None:
-                parent_name = parameter.condition.parameter
-                if parent_name not in seen:
-                    raise ValueError(
-                        f"conditional parameter {parameter.name!r} must depend on "
-                        "an earlier search parameter"
-                    )
+                visit(parameter.condition.parameter)
 
-                parent = by_name[parent_name]
-                if isinstance(parent, CategoricalParameter):
-                    invalid = [
-                        value
-                        for value in parameter.condition.values
-                        if value not in parent.choices
-                    ]
-                    if invalid:
-                        raise ValueError(
-                            f"condition for {parameter.name!r} contains values "
-                            f"outside parent choices: {invalid!r}"
-                        )
+            visiting.remove(name)
+            visited.add(name)
+            ordered.append(parameter)
 
-            seen.add(parameter.name)
-            by_name[parameter.name] = parameter
+        for parameter in self.parameters:
+            visit(parameter.name)
+
+        self.parameters = ordered
 
         unknown_baseline = set(self.baseline_parameters) - set(names)
         if unknown_baseline:
