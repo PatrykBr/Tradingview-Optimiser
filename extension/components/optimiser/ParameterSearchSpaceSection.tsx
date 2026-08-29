@@ -179,7 +179,10 @@ export default function ParameterSearchSpaceSection({
                     </label>
                   </div>
 
-                  <label className="advancedToggle">
+                  <label
+                    className="advancedToggle"
+                    title="Sample this positive range by ratio rather than by equal linear distance. Use this when plausible values span a large scale, such as 0.001–1 or 1–1000. Avoid it for narrow ranges, values that can be zero/negative, or parameters such as ordinary lookback periods where equal numeric steps make more sense. Fixed Step is disabled while logarithmic search is on."
+                  >
                     <input
                       type="checkbox"
                       checked={config.log}
