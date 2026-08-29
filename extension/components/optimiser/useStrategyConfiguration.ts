@@ -11,18 +11,21 @@ import {
 import {
   deleteStrategyPreset,
   loadStrategyPresets,
-  reconcilePresetParameterConfigs,
   saveStrategyPreset,
   type SavedOptimisationPreset,
 } from '../../lib/optimisation/presets';
 import {
+  applyParameterConfigEdit,
+  conditionCandidatesFor,
+  createParameterConfigs,
+  isOptimisableInput,
+  reconcileParameterConfigs,
+  type ParameterConfig,
+  type ParameterConfigEdit,
+} from '../../lib/optimisation/parameter-config';
+import {
   buildBaselineParameters,
   buildSearchSpace,
-  conditionCandidatesFor,
-  defaultParameterConfig,
-  isOptimisableInput,
-  isPrimitive,
-  type ParameterConfig,
 } from '../../lib/optimisation/search-space';
 import { metricDefinition } from '../../lib/optimisation/metrics';
 import type {
@@ -36,18 +39,18 @@ import type {
   TradingViewDiagnostics,
 } from '../../lib/tradingview/types';
 import type { PersistedOptimisationRun } from '../../lib/optimisation/storage';
+import { cloneOptimisationDraft } from '../../lib/optimisation/draft';
 import {
   buildMetricFilters,
   buildResearchPlan,
   DEFAULT_OPTIMISATION_FORM,
-  formFromPreset,
   formFromRun,
   parameterConfigsFromRun,
   parseTargetTrials,
   sameChart,
   type FilterConfig,
   type OptimisationForm,
-} from './configuration';
+} from '../../lib/optimisation/run-config';
 
 export interface PreparedOptimisationRun {
   config: CreateRun;
@@ -56,16 +59,6 @@ export interface PreparedOptimisationRun {
 }
 
 type ErrorSetter = Dispatch<SetStateAction<string | undefined>>;
-
-const freshParameterConfigs = (
-  inputs: StrategyInput[],
-): Record<string, ParameterConfig> =>
-  Object.fromEntries(
-    inputs.map((input) => [
-      input.id,
-      defaultParameterConfig(input),
-    ]),
-  );
 
 export function useStrategyConfiguration(
   adapter: TradingViewAdapter,
@@ -187,7 +180,7 @@ export function useStrategyConfiguration(
               detectedInputs,
               restoreConfig,
             )
-          : freshParameterConfigs(detectedInputs),
+          : createParameterConfigs(detectedInputs),
       );
 
       if (restoreConfig) {
@@ -292,28 +285,7 @@ export function useStrategyConfiguration(
         strategyName: strategy.name,
         strategySignature: signature,
         parameterConfigs,
-        objectiveMetric: form.objectiveMetric,
-        targetTrials: form.targetTrials,
-        maxDrawdownFilter: form.maxDrawdownFilter,
-        minProfitFactorFilter: form.minProfitFactorFilter,
-        minTradesFilter: form.minTradesFilter,
-        dateRangeEnabled: form.dateRangeEnabled,
-        startDate: form.startDate,
-        endDate: form.endDate,
-        convergenceEnabled: form.convergenceEnabled,
-        convergenceMinTrials: form.convergenceMinTrials,
-        convergencePatience: form.convergencePatience,
-        convergenceMinImprovementPercent:
-          form.convergenceMinImprovementPercent,
-        robustnessEnabled: form.robustnessEnabled,
-        robustnessValidationPercent:
-          form.robustnessValidationPercent,
-        robustnessFolds: form.robustnessFolds,
-        robustnessTopCandidates:
-          form.robustnessTopCandidates,
-        stabilityEnabled: form.stabilityEnabled,
-        stabilityPerturbationPercent:
-          form.stabilityPerturbationPercent,
+        draft: form,
       });
 
       setCurrentStrategySignature(signature);
@@ -363,12 +335,16 @@ export function useStrategyConfiguration(
       }
 
       setParameterConfigs(
-        reconcilePresetParameterConfigs(
+        reconcileParameterConfigs(
           inputs,
           preset.parameterConfigs,
         ),
       );
-      setForm(formFromPreset(preset));
+      setForm(
+        cloneOptimisationDraft(
+          preset.draft,
+        ),
+      );
       setPresetName(preset.name);
     } catch (cause) {
       setError(
@@ -429,62 +405,28 @@ export function useStrategyConfiguration(
     [savedPresets],
   );
 
-  const updateParameterConfig = useCallback(
-    (
-      id: string,
-      update: (
-        config: ParameterConfig,
-      ) => ParameterConfig,
-    ) => {
-      setParameterConfigs((current) => {
-        const config = current[id];
-        if (!config) return current;
-
-        return {
-          ...current,
-          [id]: update(config),
-        };
-      });
+  const editParameterConfig = useCallback(
+    (edit: ParameterConfigEdit) => {
+      setParameterConfigs((current) =>
+        applyParameterConfigEdit(
+          current,
+          inputs,
+          edit,
+        ),
+      );
     },
-    [],
+    [inputs],
   );
 
   const setParameterEnabled = useCallback(
     (id: string, enabled: boolean) => {
-      setParameterConfigs((current) => {
-        const config = current[id];
-        if (!config) return current;
-
-        const next: Record<string, ParameterConfig> = {
-          ...current,
-          [id]: {
-            ...config,
-            enabled,
-          },
-        };
-
-        if (!enabled) {
-          for (const [childId, child] of Object.entries(
-            next,
-          )) {
-            if (
-              child.conditionParameter !== id
-            ) {
-              continue;
-            }
-
-            next[childId] = {
-              ...child,
-              conditionParameter: '',
-              conditionValues: [],
-            };
-          }
-        }
-
-        return next;
+      editParameterConfig({
+        type: 'enabled',
+        id,
+        enabled,
       });
     },
-    [],
+    [editParameterConfig],
   );
 
   const setParameterField = useCallback(
@@ -493,161 +435,58 @@ export function useStrategyConfiguration(
       field: 'low' | 'high' | 'step',
       value: string,
     ) => {
-      updateParameterConfig(
+      editParameterConfig({
+        type: 'field',
         id,
-        (config) => ({
-          ...config,
-          [field]: value,
-        }),
-      );
+        field,
+        value,
+      });
     },
-    [updateParameterConfig],
+    [editParameterConfig],
   );
 
   const setParameterLog = useCallback(
     (id: string, log: boolean) => {
-      updateParameterConfig(
+      editParameterConfig({
+        type: 'log',
         id,
-        (config) => ({
-          ...config,
-          log,
-          step: log ? '' : config.step,
-        }),
-      );
+        log,
+      });
     },
-    [updateParameterConfig],
+    [editParameterConfig],
   );
 
   const toggleChoice = useCallback(
     (id: string, choice: Primitive) => {
-      setParameterConfigs((current) => {
-        const config = current[id];
-        if (!config) return current;
-
-        const exists = config.choices.some(
-          (value) => value === choice,
-        );
-        const choices = exists
-          ? config.choices.filter(
-              (value) => value !== choice,
-            )
-          : [...config.choices, choice];
-
-        const next: Record<string, ParameterConfig> = {
-          ...current,
-          [id]: {
-            ...config,
-            choices,
-          },
-        };
-
-        if (exists) {
-          for (const [childId, child] of Object.entries(
-            next,
-          )) {
-            if (
-              child.conditionParameter !== id ||
-              !child.conditionValues.some(
-                (value) => value === choice,
-              )
-            ) {
-              continue;
-            }
-
-            next[childId] = {
-              ...child,
-              conditionValues:
-                child.conditionValues.filter(
-                  (value) => value !== choice,
-                ),
-            };
-          }
-        }
-
-        return next;
+      editParameterConfig({
+        type: 'choice',
+        id,
+        choice,
       });
     },
-    [],
+    [editParameterConfig],
   );
 
   const setConditionParameter = useCallback(
     (id: string, parameterId: string) => {
-      setParameterConfigs((current) => {
-        const config = current[id];
-        if (!config) return current;
-
-        if (!parameterId) {
-          return {
-            ...current,
-            [id]: {
-              ...config,
-              conditionParameter: '',
-              conditionValues: [],
-            },
-          };
-        }
-
-        const parent = current[parameterId];
-        if (!parent) return current;
-
-        const parentInput = inputs.find(
-          (input) => input.id === parameterId,
-        );
-        const currentValue =
-          parentInput?.currentValue;
-        const preferredValue =
-          isPrimitive(currentValue) &&
-          parent.choices.some(
-            (choice) => choice === currentValue,
-          )
-            ? currentValue
-            : parent.choices[0];
-
-        return {
-          ...current,
-          [parameterId]: {
-            ...parent,
-            enabled: true,
-          },
-          [id]: {
-            ...config,
-            conditionParameter: parameterId,
-            conditionValues:
-              preferredValue !== undefined
-                ? [preferredValue]
-                : [],
-          },
-        };
+      editParameterConfig({
+        type: 'condition',
+        id,
+        parameterId,
       });
     },
-    [inputs],
+    [editParameterConfig],
   );
 
   const toggleConditionValue = useCallback(
     (id: string, value: Primitive) => {
-      updateParameterConfig(
+      editParameterConfig({
+        type: 'condition-value',
         id,
-        (config) => {
-          const exists =
-            config.conditionValues.some(
-              (item) => item === value,
-            );
-
-          return {
-            ...config,
-            conditionValues: exists
-              ? config.conditionValues.filter(
-                  (item) => item !== value,
-                )
-              : [
-                  ...config.conditionValues,
-                  value,
-                ],
-          };
-        },
-      );
+        value,
+      });
     },
-    [updateParameterConfig],
+    [editParameterConfig],
   );
 
   const updateForm = useCallback(
