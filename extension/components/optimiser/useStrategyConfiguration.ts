@@ -30,7 +30,6 @@ import {
 import { metricDefinition } from '../../lib/optimisation/metrics';
 import type {
   CreateRun,
-  Primitive,
 } from '../../lib/protocol/types';
 import type { TradingViewAdapter } from '../../lib/tradingview/adapter';
 import type {
@@ -376,8 +375,7 @@ export function useStrategyConfiguration(
       if (currentStrategySignature) {
         setSavedPresets(
           await loadStrategyPresets(
-            currentStrategySignature,
-          ),
+                  ),
         );
       }
 
@@ -418,77 +416,6 @@ export function useStrategyConfiguration(
       );
     },
     [inputs],
-  );
-
-  const setParameterEnabled = useCallback(
-    (id: string, enabled: boolean) => {
-      editParameterConfig({
-        type: 'enabled',
-        id,
-        enabled,
-      });
-    },
-    [editParameterConfig],
-  );
-
-  const setParameterField = useCallback(
-    (
-      id: string,
-      field: 'low' | 'high' | 'step',
-      value: string,
-    ) => {
-      editParameterConfig({
-        type: 'field',
-        id,
-        field,
-        value,
-      });
-    },
-    [editParameterConfig],
-  );
-
-  const setParameterLog = useCallback(
-    (id: string, log: boolean) => {
-      editParameterConfig({
-        type: 'log',
-        id,
-        log,
-      });
-    },
-    [editParameterConfig],
-  );
-
-  const toggleChoice = useCallback(
-    (id: string, choice: Primitive) => {
-      editParameterConfig({
-        type: 'choice',
-        id,
-        choice,
-      });
-    },
-    [editParameterConfig],
-  );
-
-  const setConditionParameter = useCallback(
-    (id: string, parameterId: string) => {
-      editParameterConfig({
-        type: 'condition',
-        id,
-        parameterId,
-      });
-    },
-    [editParameterConfig],
-  );
-
-  const toggleConditionValue = useCallback(
-    (id: string, value: Primitive) => {
-      editParameterConfig({
-        type: 'condition-value',
-        id,
-        value,
-      });
-    },
-    [editParameterConfig],
   );
 
   const updateForm = useCallback(
@@ -966,12 +893,7 @@ export function useStrategyConfiguration(
     saveCurrentPreset,
     loadSelectedPreset,
     deleteSelectedPreset,
-    setParameterEnabled,
-    setParameterField,
-    setParameterLog,
-    toggleChoice,
-    setConditionParameter,
-    toggleConditionValue,
+    editParameterConfig,
     updateForm,
     updateFilter,
     conditionCandidates,
