@@ -448,7 +448,8 @@ export function useStrategyConfiguration(
       if (currentStrategySignature) {
         setSavedPresets(
           await loadStrategyPresets(
-                  ),
+            currentStrategySignature,
+          ),
         );
       }
 
@@ -831,7 +832,6 @@ export function useStrategyConfiguration(
     inputs,
     parameterConfigs,
     form,
-    currentStrategySignature,
     savedPresets,
     selectedPresetId,
     presetName,
