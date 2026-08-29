@@ -63,10 +63,5 @@ export default defineContentScript({
       }
       mounted = !mounted;
     });
-
-    ctx.onInvalidated(() => {
-      bridge.dispose();
-      ui.remove();
-    });
   },
 });
