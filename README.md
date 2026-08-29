@@ -23,7 +23,14 @@ TradingView performs the backtests. The extension controls the chart and reads S
 - PED-ANOVA parameter importance from the completed Optuna study
 - Optional out-of-sample robustness mode that reserves unseen Deep Backtesting data and validates top candidates across sequential OOS folds
 - Optional local stability testing around the robust/best parameter set
-- Compact experiment history with side-by-side run, OOS and stability comparison
+- Search-space pre-flight advisor for range, branch-sampling and trial-budget warnings
+- Full walk-forward re-optimisation with a fresh Optuna study per chronological fold
+- Defensive trade-level Monte Carlo bootstrap analysis when TradingView exposes closed trades
+- Transparent research-evidence verdict with explicit strengths/concerns rather than a black-box score
+- Compact experiment history with side-by-side run, OOS, walk-forward and Monte Carlo comparison
+- Load/edit or exactly re-run historical experiment configurations
+- Experiment reproducibility metadata including extension, backend and Optuna versions
+- TradingView compatibility watchdog with pre-run capability checks and last-successful-trial status
 - Per-trial parameters, constraints and TradingView metrics
 - Apply-best, restore-original and stop-state controls
 - CSV and JSON exports
@@ -48,6 +55,22 @@ The extension keeps the basic workflow simple, while the research controls are o
 | **Min trades** | Marks trials with too few trades as infeasible. | Use it to prevent Optuna from selecting impressive-looking results produced by a very small sample. |
 
 Filters are constraints, not extra objectives. A trial can have a strong objective value and still be rejected if it violates a filter.
+
+### Search-space pre-flight
+
+The parameter section includes a collapsed **Pre-flight check**. It is a heuristic reviewer, not an automatic optimiser and it never changes your settings.
+
+It can flag:
+
+- a trial budget that looks thin for the number/type of selected parameters
+- missing/invalid numeric ranges
+- the current TradingView value falling outside the search range
+- extremely wide ranges that may be accidental
+- positive ranges spanning 100× or more where logarithmic search may be worth considering
+- conditional parameters that will only be active in a small fraction of trials
+- approximately how many combinations exist when the whole search space is discrete
+
+The suggested trial range is deliberately approximate. Optuna can solve some spaces with fewer trials and may need substantially more for noisy or highly conditional strategies. Treat it as a configuration sanity check, not a statistical guarantee.
 
 ### Parameter search settings
 
@@ -140,6 +163,51 @@ These are opt-in. A normal optimisation works exactly as before when they are di
 | **Candidates** | Number of top feasible Optuna trials to validate across the OOS folds. | **3–5** is a sensible default. More candidates reduce dependence on one lucky in-sample winner, but validation cost is roughly Candidates × Folds. |
 | **Best-parameter stability test** | Re-tests the selected winner after slightly perturbing each numeric optimised parameter. | Recommended when you want to detect overfit parameter spikes. A robust strategy should usually tolerate small nearby changes. |
 | **Perturbation %** | Distance moved around each parameter, measured as a percentage of that parameter's complete search range. | Around **5%** is a good default. Use smaller values for very sensitive/narrow ranges. |
+| **Full walk-forward re-optimisation** | Creates a completely fresh Optuna study for every chronological fold. Each fold optimises only its training history and then evaluates that fold's winner on the next unseen period. | Use as a stronger, expensive final validation after the basic strategy/search space is already sensible. It tests whether the *optimisation process* continues to work through time rather than only testing one fixed parameter set. |
+| **Walk-forward folds** | Number of chronological train → unseen-test cycles. Training expands forward through time. | **3** is a sensible default. More folds provide more regime checks but multiply runtime. |
+| **Trials/fold** | Maximum Optuna trials in each independent fold study. | Use enough trials to meaningfully search the space. Total extra optimisation work is roughly **folds × trials/fold**. |
+| **Initial train %** | Fraction of the full date range used by the first training window. Later training windows expand. | Around **50%** is a balanced default. Too high leaves little unseen data; too low gives the first optimiser too little history. |
+| **Trade-level Monte Carlo** | Bootstrap-resamples the selected result's individual closed trades thousands of times and reports the distribution of cumulative PnL, max drawdown, Profit Factor and negative outcomes. | Use when TradingView exposes a recognised closed-trade list. It adds local CPU work but no extra optimisation trials. |
+| **Monte Carlo simulations** | Number of bootstrap paths. | **5,000** is normally enough for a stable summary. Increase it for smoother percentile estimates. |
+| **Monte Carlo confidence %** | Central interval shown for cumulative PnL/PF outcomes. | **90%** is a useful default; **95%** is more conservative. |
+
+#### Full walk-forward vs ordinary OOS robustness
+
+The two modes answer different questions:
+
+```text
+OOS robustness:
+one Optuna study → top parameter sets → several unseen windows
+
+Full walk-forward:
+fresh Optuna study in fold 1 → unseen test 1
+fresh Optuna study in fold 2 → unseen test 2
+fresh Optuna study in fold 3 → unseen test 3
+```
+
+Ordinary OOS robustness is much cheaper and asks whether a fixed parameter set generalises. Full walk-forward is stronger and more expensive because it asks whether repeatedly optimising the strategy on only the history available at each point in time continues to produce useful unseen results.
+
+The walk-forward child studies are temporary. Their fold summaries are persisted in the parent experiment, then the temporary Optuna studies are deleted from the local SQLite store.
+
+#### Monte Carlo interpretation
+
+Monte Carlo only runs when the current TradingView report exposes a closed-trade list that the extension can recognise confidently. If that capability is unavailable, the result explicitly says **unavailable**; the extension does not fabricate trades from aggregate Strategy Tester metrics.
+
+The bootstrap samples **absolute trade PnL** with replacement. Therefore cumulative PnL and drawdown are displayed in the same additive PnL units TradingView exposed, not as an invented account-equity percentage.
+
+The reported probability of loss means:
+
+> the percentage of bootstrap resamples of the historical trade sample that ended with negative cumulative PnL.
+
+It is an uncertainty diagnostic for the observed trade sample, **not** a guaranteed probability of future loss.
+
+If OOS robustness has been run, Monte Carlo uses the reserved unseen OOS period. Otherwise it uses the optimisation period and labels itself as an optimisation/in-sample sample.
+
+#### Research evidence verdict
+
+The **Research evidence** card combines only visible evidence areas such as trade sample size, OOS robustness, parameter stability, full walk-forward and Monte Carlo. Each area is labelled **strong**, **moderate**, **weak** or **insufficient**, with the underlying explanation available in the UI.
+
+There is intentionally no opaque numerical score. Missing/unavailable evidence remains visible instead of being silently treated as positive evidence.
 
 ### Reading the research results
 
@@ -165,6 +233,29 @@ For serious research, a good default workflow is:
 6. Run validation after optimisation finishes.
 7. Prefer the robust winner over the raw in-sample best when the two disagree substantially.
 
+### Experiment history and reproducibility
+
+Finished runs are retained as compact experiment summaries (up to the most recent 50).
+
+From experiment history you can:
+
+- compare two studies side-by-side
+- compare raw best metrics, OOS objective, stability, walk-forward median OOS and Monte Carlo loss frequency
+- compare best parameter values
+- **Load & edit** a historical setup into the current optimiser form
+- **Re-run exact** with a fresh run ID after verifying the same symbol, timeframe and strategy signature are on the current chart
+- inspect reproducibility details such as the strategy signature and extension/backend/Optuna versions
+
+Historical runs are never overwritten when re-run.
+
+### TradingView compatibility watchdog
+
+Every normal/resumed study now performs a compatibility pre-flight before the backend study starts. The watchdog checks the critical TradingView integration capabilities used by the optimiser, including chart access, strategy discovery, readable/writable inputs, report source, metrics and strategy signature. Deep Backtesting availability is also required when the run uses it.
+
+During a study the watchdog records the time of the last successful trial. A fatal integration/safety failure changes the watchdog to failed and the optimiser stops safely instead of continuing to submit questionable trials.
+
+Trade-level-data availability is diagnostic rather than critical: normal optimisation still works if Monte Carlo trade extraction is unavailable.
+
 ## Architecture
 
 The extension keeps orchestration at a few explicit seams:
@@ -178,8 +269,13 @@ The extension keeps orchestration at a few explicit seams:
 - `components/optimiser/useOptimisationRun.ts` owns the persisted optimisation-run lifecycle, resume/recovery, trial sequencing and result actions.
 - `components/optimiser/useBackendConnection.ts` owns pairing and localhost backend connection state.
 - `components/optimiser/useResearchValidation.ts` owns React state, history persistence and cancellation for post-run research.
-- `lib/optimisation/research-runner.ts` owns the full OOS/stability TradingView research execution behind one testable seam.
-- `lib/optimisation/research.ts` contains pure research splitting, ranking and stability maths.
+- `lib/optimisation/trial-executor.ts` is the shared TradingView trial-evaluation seam used by the normal optimiser and temporary walk-forward studies.
+- `lib/optimisation/auxiliary-study-runner.ts` runs temporary Optuna studies through the same authenticated background/backend protocol.
+- `lib/optimisation/research-runner.ts` owns fixed-parameter OOS/stability TradingView research execution.
+- `lib/optimisation/walk-forward-runner.ts` owns fresh-study chronological walk-forward execution.
+- `lib/optimisation/monte-carlo-runner.ts` selects/re-runs the research sample before trade-level Monte Carlo.
+- `lib/optimisation/research.ts`, `walk-forward.ts`, `monte-carlo.ts` and `research-verdict.ts` contain pure analysis/ranking/statistical logic.
+- `lib/optimisation/search-space-advisor.ts` provides heuristic pre-flight diagnostics without mutating user configuration.
 - `lib/tradingview/adapter.ts` owns TradingView backtest orchestration and run-safety invariants.
 - `lib/tradingview/page-report.ts` contains the DOM fallback for Strategy Report and Deep Backtesting controls.
 - `entrypoints/tradingview-main-world.ts` stays focused on TradingView's page-side study/report data bridge.
@@ -197,13 +293,38 @@ pnpm install
 
 Commit the generated `pnpm-lock.yaml` for reproducible extension builds.
 
-Run the backend:
+Run the backend during development:
 
 ```bash
 cd backend
 uv sync
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8765
 ```
+
+### Windows companion executable
+
+For normal local use the backend can be packaged as a single console executable. The executable runs the same FastAPI/Optuna code and prints the existing pairing code; it does not introduce a second backend implementation.
+
+From the repository root on Windows:
+
+```powershell
+pnpm backend:build-companion
+```
+
+The output is:
+
+```text
+backend\dist\TradeCopy Companion.exe
+```
+
+Double-click the executable and keep its console window open while using the extension. When frozen, persistent state is stored under:
+
+```text
+%LOCALAPPDATA%\TradeCopy\data
+```
+
+PyInstaller is supplied transiently by `uv run --with`, so it is not added to the project's normal runtime dependencies or lockfile.
+
 
 The backend is configured to allow the Optuna v5 pre-release dependency consistently, so plain `uv sync` and `uv run` use the same resolver policy. Commit the generated `backend/uv.lock`.
 
@@ -240,8 +361,10 @@ Deep Backtesting requires TradingView to expose that feature for the current acc
 
 Research features are opt-in and do not change a normal optimisation.
 
-When out-of-sample robustness is enabled, the selected Deep Backtesting range is split before optimisation. Optuna only sees the earlier training portion. After the study finishes, the user can run validation, which tests the top feasible parameter sets across sequential windows in the reserved unseen portion and ranks them by constraint passes and median OOS objective.
+When out-of-sample robustness is enabled, the selected Deep Backtesting range is split before optimisation. Optuna only sees the earlier training portion. After the study finishes, **Run validation** tests the top feasible parameter sets across sequential windows in the reserved unseen portion and ranks them by constraint passes and median OOS objective.
 
-Stability validation perturbs each numeric optimised parameter around the selected winner and re-runs TradingView to identify sharp, fragile optima. Parameter importance is calculated on the persisted Optuna study using PED-ANOVA. Post-run TradingView validation is explicitly started by the user and can be cancelled.
+The same validation action then runs any additional enabled research stages in sequence: local stability testing, full fresh-study walk-forward, and trade-level Monte Carlo. All stages are cancellable. Temporary walk-forward studies reuse the normal TradingView trial safety path and are deleted after their fold summaries have been captured.
+
+Stability validation perturbs each numeric optimised parameter around the selected winner and re-runs TradingView to identify sharp, fragile optima. Parameter importance is calculated on the persisted Optuna study using PED-ANOVA.
 
 Experiment history stores compact summaries for the most recent 50 completed/stopped studies rather than duplicating every historical trial in browser storage.
