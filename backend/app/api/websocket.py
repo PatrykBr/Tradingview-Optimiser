@@ -10,6 +10,7 @@ from app.models import CreateRun, TrialFailure, TrialResult
 from app.optimisation.manager import OptimisationManager
 from app.pairing import PairingManager
 from app.protocol import ConnectedPayload, Envelope, ErrorPayload, encode
+from app.version import BACKEND_VERSION
 
 
 async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -24,7 +25,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.send_json(
         encode(
             "CONNECTED",
-            ConnectedPayload(optuna_version=optuna.__version__),
+            ConnectedPayload(
+                backend_version=BACKEND_VERSION,
+                optuna_version=optuna.__version__,
+            ),
         )
     )
 
