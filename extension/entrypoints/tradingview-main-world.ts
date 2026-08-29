@@ -74,13 +74,22 @@ const getChart = (): ChartLike => {
   return chart;
 };
 
-const getInternalStrategyNames = (chart: ChartLike): Set<string> => {
-  const names = new Set<string>();
+const detectStrategies = () => {
+  const chart = getChart();
+  const found = new Map<
+    string,
+    { id: string; name: string; shortTitle?: string }
+  >();
 
+  // Primary path: TradingView's chart model exposes the actual strategy data
+  // sources. This is more reliable than inferring strategy-ness from legend DOM
+  // or from the public study wrapper.
   try {
     const sources = chart._chartWidget?.model?.()?.model?.()?.dataSources?.() ?? [];
+
     for (const source of sources) {
       const candidate = source as {
+        id?: string | (() => string);
         metaInfo?: () => UnknownRecord;
         reportData?: () => unknown;
       };
@@ -94,55 +103,46 @@ const getInternalStrategyNames = (chart: ChartLike): Set<string> => {
 
       const isStrategy =
         isStrategyMeta(meta) || typeof candidate.reportData === 'function';
-
       if (!isStrategy) continue;
+
+      const rawId =
+        typeof candidate.id === 'function' ? candidate.id() : candidate.id;
       const name = metaName(meta);
-      if (name) names.add(name);
+
+      if (typeof rawId !== 'string' || !rawId || !name) continue;
+
+      found.set(rawId, {
+        id: rawId,
+        name,
+        ...(typeof meta.shortDescription === 'string'
+          ? { shortTitle: meta.shortDescription }
+          : {}),
+      });
     }
   } catch {
-    // Internal model details are only a fallback for builds where public study
-    // metadata does not expose the strategy flag.
+    // Fall through to the public study wrapper below.
   }
 
-  return names;
-};
-
-const detectStrategies = () => {
-  const chart = getChart();
-  const studies = chart.getAllStudies?.() ?? [];
-  const internalStrategyNames = getInternalStrategyNames(chart);
-
-  const strategies = studies.flatMap((study) => {
+  // Fallback for TradingView builds where the internal data-source path changes.
+  for (const study of chart.getAllStudies?.() ?? []) {
     const meta = readMeta(study);
     const name =
       metaName(meta) ??
       (typeof study.name === 'string' ? study.name : undefined) ??
       (typeof study.title === 'string' ? study.title : undefined);
 
-    if (!study.id || !name) return [];
+    if (!study.id || !name || !isStrategyMeta(meta)) continue;
 
-    const matchesInternalStrategy = [...internalStrategyNames].some(
-      (internalName) =>
-        internalName === name ||
-        internalName.includes(name) ||
-        name.includes(internalName),
-    );
+    found.set(study.id, {
+      id: study.id,
+      name,
+      ...(typeof meta.shortDescription === 'string'
+        ? { shortTitle: meta.shortDescription }
+        : {}),
+    });
+  }
 
-    if (!isStrategyMeta(meta) && !matchesInternalStrategy) return [];
-
-    return [
-      {
-        id: study.id,
-        name,
-        shortTitle:
-          typeof meta.shortDescription === 'string'
-            ? meta.shortDescription
-            : undefined,
-      },
-    ];
-  });
-
-  return strategies;
+  return [...found.values()];
 };
 
 const inferInputType = (
