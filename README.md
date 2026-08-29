@@ -18,6 +18,7 @@ TradingView performs the backtests. The extension controls the chart and reads S
 - Strategy Tester recalculation detection and retry handling
 - Strategy/symbol/timeframe safety checks
 - Persistent studies and resumable browser runs
+- Exact duplicate parameter sets reuse a completed result within the same study instead of repeating the TradingView backtest
 - Live progress, ETA, best-so-far chart and full trial history
 - Smart convergence stopping with configurable minimum trials, patience and improvement threshold
 - PED-ANOVA parameter importance from the completed Optuna study
@@ -368,3 +369,11 @@ The same validation action then runs any additional enabled research stages in s
 Stability validation perturbs each numeric optimised parameter around the selected winner and re-runs TradingView to identify sharp, fragile optima. Parameter importance is calculated on the persisted Optuna study using PED-ANOVA.
 
 Experiment history stores compact summaries for the most recent 50 completed/stopped studies rather than duplicating every historical trial in browser storage.
+
+### Exact trial reuse
+
+Optuna can legitimately propose the same complete parameter set more than once, especially in small discrete spaces and conditional spaces where inactive child parameters collapse many apparent combinations to the same effective trial. Re-running TradingView for an identical parameter set adds cost without adding information when the chart context and backtest range are unchanged.
+
+Within a single persisted study, the backend therefore reuses the objective, metrics and constraint outcomes from the earliest matching completed trial. The new Optuna trial is still completed normally, so the sampler and target-trial accounting remain consistent, but no duplicate TradingView backtest is submitted. Reused trials are labelled in progress, experiment comparison and CSV/JSON exports.
+
+Reuse is intentionally limited to the same study. Results are not shared across experiments, symbols, timeframes, strategy signatures or date ranges.
