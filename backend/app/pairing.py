@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -76,6 +77,10 @@ class PairingManager:
 
         token = secrets.token_urlsafe(32)
         self._token_path.write_text(token, encoding="utf-8")
+        try:
+            os.chmod(self._token_path, 0o600)
+        except OSError:
+            pass
         return token
 
     def _rotate_pairing_code(self) -> None:
