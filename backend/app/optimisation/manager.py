@@ -332,51 +332,97 @@ class OptimisationManager:
                 parameters=dict(run.outstanding_trial.params),
             )
 
-        if self._complete_count(run) >= run.config.target_trials:
-            self._set_status(
-                run,
-                RunStatus.COMPLETED,
-                termination_reason="target_trials",
-            )
-            return None
+        while run.status == RunStatus.RUNNING:
+            if self._complete_count(run) >= run.config.target_trials:
+                self._set_status(
+                    run,
+                    RunStatus.COMPLETED,
+                    termination_reason="target_trials",
+                )
+                return None
 
-        trial = run.study.ask()
-        parameters: dict[str, Any] = {}
+            if self._should_converge(run):
+                self._set_status(
+                    run,
+                    RunStatus.COMPLETED,
+                    termination_reason="converged",
+                )
+                return None
 
-        for parameter in run.config.parameters:
-            if not self._condition_matches(parameter, parameters):
+            trial = run.study.ask()
+            parameters: dict[str, Any] = {}
+
+            for parameter in run.config.parameters:
+                if not self._condition_matches(parameter, parameters):
+                    continue
+
+                if isinstance(parameter, FloatParameter):
+                    parameters[parameter.name] = trial.suggest_float(
+                        parameter.name,
+                        parameter.low,
+                        parameter.high,
+                        step=parameter.step,
+                        log=parameter.log,
+                    )
+                elif isinstance(parameter, IntParameter):
+                    parameters[parameter.name] = trial.suggest_int(
+                        parameter.name,
+                        parameter.low,
+                        parameter.high,
+                        step=parameter.step,
+                        log=parameter.log,
+                    )
+                elif isinstance(parameter, CategoricalParameter):
+                    parameters[parameter.name] = trial.suggest_categorical(
+                        parameter.name,
+                        parameter.choices,
+                    )
+                else:  # pragma: no cover
+                    raise TypeError(f"unsupported parameter type: {type(parameter)!r}")
+
+            if self._reuse_completed_trial(run, trial):
                 continue
 
-            if isinstance(parameter, FloatParameter):
-                parameters[parameter.name] = trial.suggest_float(
-                    parameter.name,
-                    parameter.low,
-                    parameter.high,
-                    step=parameter.step,
-                    log=parameter.log,
-                )
-            elif isinstance(parameter, IntParameter):
-                parameters[parameter.name] = trial.suggest_int(
-                    parameter.name,
-                    parameter.low,
-                    parameter.high,
-                    step=parameter.step,
-                    log=parameter.log,
-                )
-            elif isinstance(parameter, CategoricalParameter):
-                parameters[parameter.name] = trial.suggest_categorical(
-                    parameter.name,
-                    parameter.choices,
-                )
-            else:  # pragma: no cover
-                raise TypeError(f"unsupported parameter type: {type(parameter)!r}")
+            run.outstanding_trial = trial
+            return NextTrial(
+                run_id=run.config.run_id,
+                trial_number=trial.number,
+                parameters=parameters,
+            )
 
-        run.outstanding_trial = trial
-        return NextTrial(
-            run_id=run.config.run_id,
-            trial_number=trial.number,
-            parameters=parameters,
+        return None
+
+    @staticmethod
+    def _reuse_completed_trial(run: ActiveRun, trial: Trial) -> bool:
+        duplicate = next(
+            (
+                candidate
+                for candidate in run.study.get_trials(
+                    deepcopy=False,
+                    states=(TrialState.COMPLETE,),
+                )
+                if candidate.number != trial.number
+                and candidate.value is not None
+                and candidate.params == trial.params
+                and isinstance(candidate.user_attrs.get("metrics"), dict)
+            ),
+            None,
         )
+        if duplicate is None:
+            return False
+
+        for key, value in duplicate.constraints.items():
+            trial.set_constraint(key, value)
+
+        trial.set_user_attr("metrics", duplicate.user_attrs["metrics"])
+        trial.set_user_attr("reused_from_trial", duplicate.number)
+
+        objective_fallback = duplicate.user_attrs.get("objective_fallback")
+        if objective_fallback is not None:
+            trial.set_user_attr("objective_fallback", objective_fallback)
+
+        run.study.tell(trial, float(duplicate.value))
+        return True
 
     @staticmethod
     def _condition_matches(
@@ -400,6 +446,10 @@ class OptimisationManager:
             completed_trials=self._complete_count(run),
             target_trials=run.config.target_trials,
             failed_trials=sum(t.state == TrialState.FAIL for t in run.study.trials),
+            reused_trials=sum(
+                trial.user_attrs.get("reused_from_trial") is not None
+                for trial in run.study.trials
+            ),
             best=self._best(run),
             termination_reason=run.termination_reason,
             trials=self._trial_summaries(run),
@@ -442,6 +492,7 @@ class OptimisationManager:
                     constraints=dict(trial.constraints),
                     failure_reason=trial.user_attrs.get("failure_reason"),
                     duration_ms=trial.user_attrs.get("duration_ms"),
+                    reused_from_trial=trial.user_attrs.get("reused_from_trial"),
                 )
             )
 
