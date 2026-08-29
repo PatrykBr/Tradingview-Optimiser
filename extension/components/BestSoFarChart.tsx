@@ -70,6 +70,17 @@ export default function BestSoFarChart({
   );
   const best = improvements.at(-1)!;
 
+  const markerStride = Math.max(
+    1,
+    Math.ceil(improvements.length / 10),
+  );
+  const visibleMarkers = improvements.filter(
+    (_, index) =>
+      index === 0 ||
+      index === improvements.length - 1 ||
+      index % markerStride === 0,
+  );
+
   return (
     <div className="bestChart">
       <div className="bestChartHeader">
@@ -108,23 +119,23 @@ export default function BestSoFarChart({
           fill="none"
         />
 
-        {improvements.map((point, index) => (
-          <circle
-            key={point.trial}
-            className={
-              index === improvements.length - 1
-                ? 'bestChartPoint bestChartPointCurrent'
-                : 'bestChartPoint'
-            }
-            cx={point.x}
-            cy={point.y}
-            r={
-              index === improvements.length - 1
-                ? 3
-                : 2
-            }
-          />
-        ))}
+        {visibleMarkers.map((point) => {
+          const current = point.trial === best.trial;
+
+          return (
+            <circle
+              key={point.trial}
+              className={
+                current
+                  ? 'bestChartPoint bestChartPointCurrent'
+                  : 'bestChartPoint'
+              }
+              cx={point.x}
+              cy={point.y}
+              r={current ? 3 : 2}
+            />
+          );
+        })}
       </svg>
 
       <div className="bestChartLabels">
