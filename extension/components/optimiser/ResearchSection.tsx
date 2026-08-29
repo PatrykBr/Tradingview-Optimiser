@@ -160,8 +160,8 @@ export default function ResearchSection({
     Boolean(
       currentResearch?.robustness.enabled ||
         currentResearch?.stability.enabled ||
-        currentResearch?.walk_forward.enabled ||
-        currentResearch?.monte_carlo.enabled,
+        currentResearch?.walk_forward?.enabled ||
+        currentResearch?.monte_carlo?.enabled,
     );
 
   const importanceEntries = useMemo(
