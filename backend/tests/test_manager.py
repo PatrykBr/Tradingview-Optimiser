@@ -595,3 +595,116 @@ async def test_duplicate_reuse_survives_backend_restart(tmp_path: Path) -> None:
     assert progress.reused_trials >= 2
     assert post_restart_evaluations <= 1
 
+def test_finite_search_space_cardinality_accounts_for_conditions() -> None:
+    config = CreateRun.model_validate(
+        {
+            "run_id": "cardinality-test",
+            "objective_metric": "profitFactor",
+            "direction": "maximize",
+            "target_trials": 100,
+            "parameters": [
+                {
+                    "type": "categorical",
+                    "name": "mode",
+                    "choices": ["A", "B"],
+                },
+                {
+                    "type": "int",
+                    "name": "length",
+                    "low": 1,
+                    "high": 3,
+                    "step": 1,
+                    "condition": {
+                        "parameter": "mode",
+                        "values": ["A"],
+                    },
+                },
+            ],
+            "filters": [],
+            "chart": {
+                "symbol": "OANDA:XAUUSD",
+                "timeframe": "5",
+                "strategy_name": "Test Strategy",
+                "strategy_signature": "signature-123",
+            },
+        }
+    )
+
+    assert OptimisationManager._finite_search_space_cardinality(
+        config.parameters,
+        config.target_trials,
+    ) == 4
+
+
+@pytest.mark.asyncio
+async def test_finite_search_space_stops_when_exhausted(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+    manager = OptimisationManager(database_url)
+    config = CreateRun.model_validate(
+        {
+            "run_id": "space-exhausted-test",
+            "objective_metric": "profitFactor",
+            "direction": "maximize",
+            "target_trials": 100,
+            "parameters": [
+                {
+                    "type": "categorical",
+                    "name": "enabled",
+                    "choices": [True, False],
+                }
+            ],
+            "filters": [],
+            "chart": {
+                "symbol": "OANDA:XAUUSD",
+                "timeframe": "5",
+                "strategy_name": "Test Strategy",
+                "strategy_signature": "signature-123",
+            },
+            "baseline_parameters": {"enabled": True},
+        }
+    )
+
+    await manager.create_run(config)
+
+    run = manager._runs[config.run_id]
+    run.study.enqueue_trial({"enabled": False})
+
+    _, first = await manager.start(config.run_id)
+    assert first is not None
+    assert first.parameters == {"enabled": True}
+
+    progress, second = await manager.submit_result(
+        TrialResult(
+            run_id=config.run_id,
+            trial_number=first.trial_number,
+            metrics={
+                "profitFactor": 1.8,
+                "totalTrades": 150,
+            },
+        )
+    )
+    assert second is not None
+    assert second.parameters == {"enabled": False}
+
+    progress, next_trial = await manager.submit_result(
+        TrialResult(
+            run_id=config.run_id,
+            trial_number=second.trial_number,
+            metrics={
+                "profitFactor": 1.4,
+                "totalTrades": 150,
+            },
+        )
+    )
+
+    assert next_trial is None
+    assert progress.status == "completed"
+    assert progress.termination_reason == "search_space_exhausted"
+    assert progress.completed_trials == 2
+    assert progress.reused_trials == 0
+
+    restarted = OptimisationManager(database_url)
+    restored = await restarted.create_run(config)
+    assert restored.status == "completed"
+    assert restored.termination_reason == "search_space_exhausted"
+
