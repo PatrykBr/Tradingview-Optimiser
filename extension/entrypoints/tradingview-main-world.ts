@@ -848,7 +848,7 @@ const ensureStrategyTester = () => {
       return true;
     }
 
-    const button = findClickableByText(/strategy tester/i);
+    const button = findClickableByText(/strategy (?:tester|report)/i);
     if (button) {
       button.click();
       return true;
