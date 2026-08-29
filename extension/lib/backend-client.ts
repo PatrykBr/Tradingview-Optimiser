@@ -25,9 +25,13 @@ export class BackendClient {
   }
 
   async connect(): Promise<void> {
-    if (this.#socket?.readyState === WebSocket.OPEN || this.#socket?.readyState === WebSocket.CONNECTING) {
+    if (
+      this.#socket?.readyState === WebSocket.OPEN ||
+      this.#socket?.readyState === WebSocket.CONNECTING
+    ) {
       return;
     }
+
     this.#manualClose = false;
     this.#token = await this.#loadToken();
     const socket = new WebSocket(BACKEND_URL + '?token=' + encodeURIComponent(this.#token));
@@ -44,7 +48,10 @@ export class BackendClient {
       if (!this.#manualClose) this.#scheduleReconnect();
     });
     socket.addEventListener('error', () => {
-      this.#emit({ type: 'error', message: 'Could not connect to the local optimiser service.' });
+      this.#emit({
+        type: 'error',
+        message: 'Could not connect to the local optimiser service.',
+      });
     });
   }
 
@@ -73,14 +80,23 @@ export class BackendClient {
   }
 
   submitTrialFailure(runId: string, trialNumber: number, reason: string): void {
-    this.#send('TRIAL_FAILED', { run_id: runId, trial_number: trialNumber, reason });
+    this.#send('TRIAL_FAILED', {
+      run_id: runId,
+      trial_number: trialNumber,
+      reason,
+    });
   }
 
   #send(type: string, payload: unknown): void {
     if (this.#socket?.readyState !== WebSocket.OPEN) {
       throw new Error('Backend is not connected');
     }
-    const envelope: Envelope = { type, request_id: crypto.randomUUID(), payload };
+
+    const envelope: Envelope = {
+      type,
+      request_id: crypto.randomUUID(),
+      payload,
+    };
     this.#socket.send(JSON.stringify(envelope));
   }
 
@@ -96,18 +112,28 @@ export class BackendClient {
     switch (message.type) {
       case 'CONNECTED': {
         const payload = message.payload as { optuna_version?: string };
-        this.#emit({ type: 'connection', connected: true, optunaVersion: payload.optuna_version });
+        this.#emit({
+          type: 'connection',
+          connected: true,
+          ...(payload.optuna_version ? { optunaVersion: payload.optuna_version } : {}),
+        });
         break;
       }
       case 'RUN_PROGRESS':
-        this.#emit({ type: 'progress', progress: message.payload as RunProgress });
+        this.#emit({
+          type: 'progress',
+          progress: message.payload as RunProgress,
+        });
         break;
       case 'NEXT_TRIAL':
         this.#emit({ type: 'trial', trial: message.payload as NextTrial });
         break;
       case 'ERROR': {
         const payload = message.payload as { message?: string };
-        this.#emit({ type: 'error', message: payload.message ?? 'Unknown backend error' });
+        this.#emit({
+          type: 'error',
+          message: payload.message ?? 'Unknown backend error',
+        });
         break;
       }
     }
@@ -118,6 +144,7 @@ export class BackendClient {
     if (typeof stored.backendToken === 'string' && stored.backendToken.length >= 16) {
       return stored.backendToken;
     }
+
     const token = 'development-only-change-me';
     await browser.storage.local.set({ backendToken: token });
     return token;
