@@ -146,4 +146,36 @@ describe('TradingView parser fixtures', () => {
 
     expect(a).not.toBe(b);
   });
+  it('ignores TradingView sentinel numeric bounds', () => {
+    const inputs = normalisePineInputs(
+      [
+        {
+          id: 'in_0',
+          value: 14,
+        },
+      ],
+      [
+        {
+          id: 'in_0',
+          name: 'Length',
+          type: 'integer',
+          minval: -1_000_000_000_000,
+          maxval: 1_000_000_000_000,
+          step: 1,
+        },
+      ],
+    );
+
+    expect(inputs[0]).toMatchObject({
+      id: 'in_0',
+      label: 'Length',
+      type: 'integer',
+      currentValue: 14,
+      step: 1,
+    });
+    expect(inputs[0]).not.toHaveProperty('min');
+    expect(inputs[0]).not.toHaveProperty('max');
+  });
+
+
 });
