@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildBaselineParameters,
   buildSearchSpace,
   defaultParameterConfig,
   type ParameterConfig,
@@ -77,6 +78,21 @@ describe('buildSearchSpace', () => {
         log: false,
       },
     ]);
+  });
+
+  it('builds a baseline from current chart values', () => {
+    const config = configs();
+    config.in_0!.enabled = true;
+    config.in_1!.enabled = true;
+    config.in_1!.low = '5';
+    config.in_1!.high = '30';
+
+    const searchSpace = buildSearchSpace(inputs, config);
+
+    expect(buildBaselineParameters(inputs, searchSpace)).toEqual({
+      in_0: true,
+      in_1: 14,
+    });
   });
 
   it('supports conditional dynamic search parameters', () => {
