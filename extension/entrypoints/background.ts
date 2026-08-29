@@ -156,6 +156,12 @@ export default defineBackground(() => {
             await backend.stopRun(msg.payload.runId);
             return { ok: true };
 
+          case 'DELETE_RUN':
+            await backend.deleteRun(msg.payload.runId);
+            runOwners.delete(msg.payload.runId);
+            await persistRunOwners();
+            return { ok: true };
+
           case 'GET_RUN_ANALYSIS':
             return backend.getRunAnalysis(
               msg.payload.runId,
