@@ -239,3 +239,80 @@ async def test_current_parameters_are_enqueued_as_first_trial(tmp_path: Path) ->
 
     assert first is not None
     assert first.parameters == config.baseline_parameters
+
+
+
+@pytest.mark.asyncio
+async def test_convergence_stops_flat_study_early(tmp_path: Path) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
+    config = make_config("convergence-test", target_trials=20)
+    config.research.convergence.enabled = True
+    config.research.convergence.min_trials = 5
+    config.research.convergence.patience = 2
+    config.research.convergence.min_improvement_percent = 1.0
+
+    await manager.create_run(config)
+    _, active = await manager.start("convergence-test")
+    assert active is not None
+
+    progress = None
+    for _ in range(20):
+        progress, next_trial = await manager.submit_result(
+            TrialResult(
+                run_id="convergence-test",
+                trial_number=active.trial_number,
+                metrics={
+                    "profitFactor": 1.5,
+                    "maxDrawdownPercent": 5,
+                    "totalTrades": 150,
+                },
+            )
+        )
+
+        if next_trial is None:
+            break
+
+        active = next_trial
+
+    assert progress is not None
+    assert progress.status == "completed"
+    assert progress.termination_reason == "converged"
+    assert progress.completed_trials < config.target_trials
+
+
+@pytest.mark.asyncio
+async def test_run_analysis_returns_normalised_parameter_importance(
+    tmp_path: Path,
+) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
+    config = make_config("importance-test", target_trials=20)
+    config.filters = []
+
+    await manager.create_run(config)
+    _, active = await manager.start("importance-test")
+    assert active is not None
+
+    while active is not None:
+        length = float(active.parameters["length"])
+
+        progress, active = await manager.submit_result(
+            TrialResult(
+                run_id="importance-test",
+                trial_number=active.trial_number,
+                metrics={
+                    "profitFactor": length,
+                    "totalTrades": 150,
+                },
+            )
+        )
+
+    assert progress.status == "completed"
+
+    analysis = await manager.analysis("importance-test")
+
+    assert analysis.completed_trials == 20
+    assert analysis.parameter_importance
+    assert set(analysis.parameter_importance).issubset(
+        {"length", "risk", "filter"}
+    )
+    assert sum(analysis.parameter_importance.values()) == pytest.approx(1.0)
