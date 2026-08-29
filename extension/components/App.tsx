@@ -254,10 +254,6 @@ export default function App({ bridge }: AppProps) {
   const activeRunIdRef = useRef<string | null>(null);
   const activeStrategyIdRef = useRef<string | null>(null);
   const activeConfigRef = useRef<CreateRun | null>(null);
-  const runChartRef = useRef<{
-    symbol: string;
-    timeframe: string;
-  } | null>(null);
   const originalParametersRef = useRef<Record<string, unknown> | null>(
     null,
   );
@@ -1210,7 +1206,6 @@ export default function App({ bridge }: AppProps) {
       activeRunIdRef.current = config.run_id;
       activeStrategyIdRef.current = selected;
       activeConfigRef.current = config;
-      runChartRef.current = chart;
       originalParametersRef.current =
         originalParameters;
       pendingTrialRef.current = null;
@@ -1327,7 +1322,6 @@ export default function App({ bridge }: AppProps) {
       activeStrategyIdRef.current =
         matchingStrategy.id;
       activeConfigRef.current = candidate.config;
-      runChartRef.current = chart;
       originalParametersRef.current =
         candidate.originalParameters;
       pendingTrialRef.current = null;
