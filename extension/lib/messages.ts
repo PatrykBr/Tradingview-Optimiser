@@ -7,6 +7,7 @@ import type {
 
 export interface BackendState {
   connected: boolean;
+  backendVersion?: string;
   optunaVersion?: string;
   pairingRequired?: boolean;
 }
