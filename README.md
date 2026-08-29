@@ -72,6 +72,27 @@ The extension therefore defaults Step to **Auto**:
 
 In most cases, leave Step blank. Override it only when the strategy has a meaningful custom granularity, such as testing an ATR multiplier strictly in increments of `0.25`.
 
+#### Conditional parameters
+
+**Active when** lets any optimised parameter depend on any Pine boolean or dropdown input. The controller does not need to appear before the child in the Pine settings.
+
+For example, a strategy could define:
+
+```text
+Stop-Loss Type = ATR Bars | Percent | Swing H/L
+
+ATR Period          active when Stop-Loss Type = ATR Bars
+ATR Multiplier      active when Stop-Loss Type = ATR Bars
+Stop-Loss %         active when Stop-Loss Type = Percent
+Swing H/L Lookback  active when Stop-Loss Type = Swing H/L
+```
+
+This is completely generic; the extension does not know about stop-losses specifically. Any boolean/dropdown can control another parameter. Selecting a controller that is not already being optimised automatically adds it to the search space, because Optuna must be able to sample the controller value for the condition to change between trials.
+
+Controller order in the Pine script does not matter. The extension/backend build a dependency graph and sample controllers before their dependent parameters internally. Circular dependencies are rejected.
+
+The relationship itself is intentionally user-defined. TradingView exposes input names, types and dropdown choices, but it does not reliably expose the Pine logic that says which inputs are used by which dropdown mode, so automatically guessing those relationships could silently create the wrong optimisation search space.
+
 ### Research settings
 
 These are opt-in. A normal optimisation works exactly as before when they are disabled.
