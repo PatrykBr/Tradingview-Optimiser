@@ -27,6 +27,19 @@ TradingView performs the backtests. The extension controls the chart and reads S
 - Chrome and Firefox builds
 - Backend and extension unit tests
 
+## Architecture
+
+The extension keeps orchestration at a few explicit seams:
+
+- `components/App.tsx` only composes the optimiser UI.
+- `components/optimiser/useStrategyConfiguration.ts` owns strategy discovery, Pine inputs, search-space configuration, presets and run preparation.
+- `components/optimiser/useOptimisationRun.ts` owns persisted run lifecycle, resume/recovery, trial sequencing and result actions.
+- `components/optimiser/useBackendConnection.ts` owns pairing and localhost backend connection state.
+- `lib/tradingview/adapter.ts` owns TradingView backtest orchestration and run-safety invariants.
+- `lib/tradingview/page-report.ts` contains the DOM fallback for Strategy Report and Deep Backtesting controls.
+- `entrypoints/tradingview-main-world.ts` stays focused on TradingView's page-side study/report data bridge.
+- `backend/app/optimisation/manager.py` owns the persistent Optuna study and ask/tell lifecycle.
+
 ## Development
 
 Requirements: Python 3.12+, `uv`, Node.js and pnpm.
