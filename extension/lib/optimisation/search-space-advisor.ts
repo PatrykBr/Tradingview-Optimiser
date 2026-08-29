@@ -1,18 +1,18 @@
 import type { StrategyInput } from '../tradingview/types';
 import type { ParameterConfig } from './parameter-config';
 
-export type AdviceSeverity =
+type AdviceSeverity =
   | 'good'
   | 'info'
   | 'warning';
 
-export interface SearchSpaceAdviceItem {
+interface SearchSpaceAdviceItem {
   severity: AdviceSeverity;
   title: string;
   detail: string;
 }
 
-export interface SearchSpaceAdvice {
+interface SearchSpaceAdvice {
   selectedParameters: number;
   continuousParameters: number;
   categoricalParameters: number;
