@@ -38,18 +38,13 @@ const responseError = (
 export function useBackendConnection(
   setError: ErrorSetter,
 ) {
-  const [connected, setConnected] =
-    useState(false);
-  const [
-    pairingRequired,
-    setPairingRequired,
-  ] = useState(false);
+  const [backendState, setBackendState] =
+    useState<BackendState>({
+      connected: false,
+      pairingRequired: false,
+    });
   const [pairingCode, setPairingCode] =
     useState('');
-  const [backendVersion, setBackendVersion] =
-    useState<string>();
-  const [optunaVersion, setOptunaVersion] =
-    useState<string>();
   const [busy, setBusy] = useState(false);
 
   const sendRequest = useCallback(
@@ -71,22 +66,6 @@ export function useBackendConnection(
     [],
   );
 
-  const applyState = useCallback(
-    (state: BackendState) => {
-      setConnected(state.connected);
-      setPairingRequired(
-        state.pairingRequired ?? false,
-      );
-      setBackendVersion(
-        state.backendVersion,
-      );
-      setOptunaVersion(
-        state.optunaVersion,
-      );
-    },
-    [],
-  );
-
   const pairBackend =
     useCallback(async () => {
       if (!pairingCode.trim()) return;
@@ -103,7 +82,7 @@ export function useBackendConnection(
             },
           });
 
-        applyState(state);
+        setBackendState(state);
         setPairingCode('');
       } catch (cause) {
         setError(
@@ -115,7 +94,6 @@ export function useBackendConnection(
         setBusy(false);
       }
     }, [
-      applyState,
       pairingCode,
       sendRequest,
       setError,
@@ -128,13 +106,13 @@ export function useBackendConnection(
           type: 'GET_BACKEND_STATE',
         });
 
-      applyState(state);
+      setBackendState(state);
 
       if (
         !state.connected &&
         !state.pairingRequired
       ) {
-        applyState(
+        setBackendState(
           await sendRequest<BackendState>({
             type: 'BACKEND_CONNECT',
           }),
@@ -150,7 +128,6 @@ export function useBackendConnection(
       );
     });
   }, [
-    applyState,
     sendRequest,
     setError,
   ]);
@@ -162,7 +139,7 @@ export function useBackendConnection(
       if (
         message.type === 'BACKEND_STATE'
       ) {
-        applyState(message);
+        setBackendState(message);
         return;
       }
 
@@ -181,14 +158,18 @@ export function useBackendConnection(
       browser.runtime.onMessage.removeListener(
         listener,
       );
-  }, [applyState, setError]);
+  }, [setError]);
 
   return {
-    connected,
-    pairingRequired,
+    connected:
+      backendState.connected,
+    pairingRequired:
+      backendState.pairingRequired ?? false,
     pairingCode,
-    backendVersion,
-    optunaVersion,
+    backendVersion:
+      backendState.backendVersion,
+    optunaVersion:
+      backendState.optunaVersion,
     busy,
     setPairingCode,
     pairBackend,
