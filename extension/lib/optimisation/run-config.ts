@@ -221,13 +221,13 @@ export const formFromRun = (
     ),
     walkForwardTrialsPerFold: String(
       research?.walk_forward
-        .trials_per_fold ??
+        ?.trials_per_fold ??
         draft.walkForwardTrialsPerFold,
     ),
     walkForwardInitialTrainingPercent:
       String(
         (research?.walk_forward
-          .initial_training_fraction ??
+          ?.initial_training_fraction ??
           Number(
             draft.walkForwardInitialTrainingPercent,
           ) /
@@ -238,12 +238,12 @@ export const formFromRun = (
       false,
     monteCarloSimulations: String(
       research?.monte_carlo
-        .simulations ??
+        ?.simulations ??
         draft.monteCarloSimulations,
     ),
     monteCarloConfidencePercent: String(
       (research?.monte_carlo
-        .confidence ??
+        ?.confidence ??
         Number(
           draft.monteCarloConfidencePercent,
         ) /
