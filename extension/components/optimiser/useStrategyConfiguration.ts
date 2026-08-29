@@ -36,8 +36,8 @@ import type {
 } from '../../lib/tradingview/types';
 import type { PersistedOptimisationRun } from '../../lib/optimisation/storage';
 import {
-  buildBacktestRange,
   buildMetricFilters,
+  buildResearchPlan,
   DEFAULT_OPTIMISATION_FORM,
   formFromPreset,
   formFromRun,
@@ -299,6 +299,20 @@ export function useStrategyConfiguration(
         dateRangeEnabled: form.dateRangeEnabled,
         startDate: form.startDate,
         endDate: form.endDate,
+        convergenceEnabled: form.convergenceEnabled,
+        convergenceMinTrials: form.convergenceMinTrials,
+        convergencePatience: form.convergencePatience,
+        convergenceMinImprovementPercent:
+          form.convergenceMinImprovementPercent,
+        robustnessEnabled: form.robustnessEnabled,
+        robustnessValidationPercent:
+          form.robustnessValidationPercent,
+        robustnessFolds: form.robustnessFolds,
+        robustnessTopCandidates:
+          form.robustnessTopCandidates,
+        stabilityEnabled: form.stabilityEnabled,
+        stabilityPerturbationPercent:
+          form.stabilityPerturbationPercent,
       });
 
       setCurrentStrategySignature(signature);
@@ -607,7 +621,12 @@ export function useStrategyConfiguration(
         buildBaselineParameters(inputs, parameters);
       const filters = buildMetricFilters(form);
       const trials = parseTargetTrials(form.targetTrials);
-      const backtestRange = buildBacktestRange(form);
+      const researchPlan = buildResearchPlan(
+        form,
+        trials,
+      );
+      const backtestRange =
+        researchPlan.backtestRange;
       const metric = metricDefinition(form.objectiveMetric);
 
       const chart = await adapter.getChartContext();
@@ -632,6 +651,7 @@ export function useStrategyConfiguration(
         },
         backtest_range: backtestRange,
         baseline_parameters: baselineParameters,
+        research: researchPlan.research,
       };
 
       await adapter.prepareBacktest(
