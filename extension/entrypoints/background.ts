@@ -1,6 +1,5 @@
 import { BackendClient } from '../lib/backend-client';
 import type {
-  BackendState,
   BackgroundMessage,
   ExtensionRequest,
 } from '../lib/messages';
@@ -11,8 +10,6 @@ const RUN_OWNERS_KEY = 'runOwners';
 export default defineBackground(() => {
   const backend = new BackendClient();
   const runOwners = new Map<string, number>();
-
-  let backendState: BackendState = backend.state;
 
   const persistRunOwners = async () => {
     await browser.storage.local.set({
@@ -64,30 +61,26 @@ export default defineBackground(() => {
 
   backend.subscribe((event) => {
     switch (event.type) {
-      case 'connection': {
-        backendState = {
+      case 'connection':
+        broadcast({
+          type: 'BACKEND_STATE',
           connected: event.connected,
           ...(event.backendVersion
             ? {
                 backendVersion:
                   event.backendVersion,
               }
-            : backendState.backendVersion
-              ? {
-                  backendVersion:
-                    backendState.backendVersion,
-                }
-              : {}),
+            : {}),
           ...(event.optunaVersion
-            ? { optunaVersion: event.optunaVersion }
-            : backendState.optunaVersion
-              ? { optunaVersion: backendState.optunaVersion }
-              : {}),
-          pairingRequired: event.pairingRequired ?? false,
-        };
-        broadcast({ type: 'BACKEND_STATE', ...backendState });
+            ? {
+                optunaVersion:
+                  event.optunaVersion,
+              }
+            : {}),
+          pairingRequired:
+            event.pairingRequired ?? false,
+        });
         break;
-      }
 
       case 'progress': {
         const progress: RunProgress = event.progress;
