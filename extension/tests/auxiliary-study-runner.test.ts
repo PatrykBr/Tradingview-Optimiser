@@ -1,0 +1,193 @@
+import {
+  describe,
+  expect,
+  it,
+} from 'vitest';
+
+import {
+  runAuxiliaryStudy,
+  type AuxiliaryStudyTransport,
+} from '../lib/optimisation/auxiliary-study-runner';
+import type {
+  BackgroundMessage,
+  ExtensionRequest,
+} from '../lib/messages';
+import type {
+  CreateRun,
+  RunProgress,
+} from '../lib/protocol/types';
+import type {
+  OptimisationTrialAdapter,
+} from '../lib/optimisation/trial-executor';
+
+const config: CreateRun = {
+  run_id: 'aux-run',
+  objective_metric: 'profitFactor',
+  direction: 'maximize',
+  target_trials: 1,
+  parameters: [
+    {
+      type: 'int',
+      name: 'length',
+      low: 5,
+      high: 20,
+      step: 1,
+    },
+  ],
+  filters: [],
+  chart: {
+    symbol: 'OANDA:XAUUSD',
+    timeframe: '5',
+    strategy_name: 'Strategy',
+    strategy_signature: 'sig',
+  },
+};
+
+class FakeTransport
+  implements AuxiliaryStudyTransport
+{
+  readonly requests:
+    ExtensionRequest[] = [];
+  readonly listeners =
+    new Set<
+      (
+        message: BackgroundMessage,
+      ) => void
+    >();
+
+  async request(
+    request: ExtensionRequest,
+  ): Promise<unknown> {
+    this.requests.push(request);
+
+    if (request.type === 'START_RUN') {
+      queueMicrotask(() => {
+        this.emit({
+          type: 'NEXT_TRIAL',
+          trial: {
+            run_id: config.run_id,
+            trial_number: 0,
+            parameters: {
+              length: 14,
+            },
+          },
+        });
+      });
+    }
+
+    if (request.type === 'TRIAL_RESULT') {
+      const progress: RunProgress = {
+        run_id: config.run_id,
+        status: 'completed',
+        completed_trials: 1,
+        target_trials: 1,
+        failed_trials: 0,
+        best: {
+          trial_number: 0,
+          objective_value: 1.7,
+          parameters: {
+            length: 14,
+          },
+          metrics: {
+            profitFactor: 1.7,
+          },
+          constraints: {},
+        },
+        trials: [],
+      };
+
+      queueMicrotask(() => {
+        this.emit({
+          type: 'RUN_PROGRESS',
+          progress,
+        });
+      });
+    }
+
+    return undefined;
+  }
+
+  subscribe(
+    listener: (
+      message: BackgroundMessage,
+    ) => void,
+  ): () => void {
+    this.listeners.add(listener);
+
+    return () => {
+      this.listeners.delete(
+        listener,
+      );
+    };
+  }
+
+  emit(
+    message: BackgroundMessage,
+  ): void {
+    for (const listener of this.listeners) {
+      listener(message);
+    }
+  }
+}
+
+class FakeAdapter
+  implements OptimisationTrialAdapter
+{
+  evaluations = 0;
+  assertions = 0;
+
+  async assertRunContext(): Promise<void> {
+    this.assertions += 1;
+  }
+
+  async evaluateParameters(): Promise<
+    Record<string, number>
+  > {
+    this.evaluations += 1;
+
+    return {
+      profitFactor: 1.7,
+      totalTrades: 100,
+    };
+  }
+}
+
+describe('auxiliary study runner', () => {
+  it('runs a temporary study through the shared trial runner and cleans it up', async () => {
+    const transport =
+      new FakeTransport();
+    const adapter =
+      new FakeAdapter();
+
+    const progress =
+      await runAuxiliaryStudy({
+        transport,
+        adapter,
+        strategyId: 'strategy-1',
+        config,
+        originalParameters: {
+          length: 14,
+        },
+      });
+
+    expect(progress.status).toBe(
+      'completed',
+    );
+    expect(adapter.evaluations).toBe(1);
+    expect(adapter.assertions).toBe(2);
+    expect(
+      transport.requests.map(
+        (request) => request.type,
+      ),
+    ).toEqual([
+      'REGISTER_RUN_OWNER',
+      'CREATE_RUN',
+      'START_RUN',
+      'TRIAL_RESULT',
+      'DELETE_RUN',
+    ]);
+    expect(
+      transport.listeners.size,
+    ).toBe(0);
+  });
+});
