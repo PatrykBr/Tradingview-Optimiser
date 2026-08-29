@@ -52,6 +52,7 @@ export class BackendClient {
 
   get state(): {
     connected: boolean;
+    backendVersion?: string;
     optunaVersion?: string;
     pairingRequired: boolean;
   } {
