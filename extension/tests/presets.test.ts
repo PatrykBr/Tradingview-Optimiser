@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { reconcilePresetParameterConfigs } from '../lib/optimisation/presets';
-import { defaultParameterConfig } from '../lib/optimisation/search-space';
+import {
+  defaultParameterConfig,
+  reconcileParameterConfigs,
+} from '../lib/optimisation/parameter-config';
 import type { StrategyInput } from '../lib/tradingview/types';
 
 const inputs: StrategyInput[] = [
@@ -39,11 +41,11 @@ describe('saved strategy configurations', () => {
       },
     };
 
-    expect(reconcilePresetParameterConfigs(inputs, saved)).toEqual(saved);
+    expect(reconcileParameterConfigs(inputs, saved)).toEqual(saved);
   });
 
   it('falls back safely for inputs missing from an older saved config', () => {
-    const restored = reconcilePresetParameterConfigs(inputs, {
+    const restored = reconcileParameterConfigs(inputs, {
       in_0: {
         ...defaultParameterConfig(inputs[0]!),
         enabled: true,
