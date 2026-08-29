@@ -154,8 +154,7 @@ export function useOptimisationRun({
       if (
         !config ||
         !runId ||
-        recoveringBackendRef.current ||
-        !connected
+        recoveringBackendRef.current
       ) {
         return;
       }
@@ -185,7 +184,7 @@ export function useOptimisationRun({
       } finally {
         recoveringBackendRef.current = false;
       }
-    }, [connected, sendRequest, setError]);
+    }, [sendRequest, setError]);
 
   const executeTrial = useCallback(
     async (trial: NextTrial) => {
@@ -566,6 +565,9 @@ export function useOptimisationRun({
   const discardResumeCandidate =
     useCallback(async () => {
       await clearActiveRun();
+      originalParametersRef.current = null;
+      activeStrategyIdRef.current = null;
+      activeConfigRef.current = null;
       setResumeCandidate(null);
       setProgress(null);
       setRunConfig(null);
@@ -740,6 +742,9 @@ export function useOptimisationRun({
   const clearDisplayedRun = useCallback(() => {
     if (activeRunIdRef.current) return;
 
+    activeStrategyIdRef.current = null;
+    activeConfigRef.current = null;
+    originalParametersRef.current = null;
     setProgress(null);
     setRunConfig(null);
     setCurrentTrial(null);
@@ -755,6 +760,7 @@ export function useOptimisationRun({
           type: 'GET_BACKEND_STATE',
         });
       applyBackendState(state);
+      wasConnectedRef.current = state.connected;
 
       if (
         !state.connected &&
@@ -765,6 +771,8 @@ export function useOptimisationRun({
             type: 'BACKEND_CONNECT',
           });
         applyBackendState(connectState);
+        wasConnectedRef.current =
+          connectState.connected;
       }
 
       const saved = await loadActiveRun();
