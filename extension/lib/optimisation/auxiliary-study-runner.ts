@@ -26,7 +26,7 @@ export interface AuxiliaryStudyTransport {
   ): () => void;
 }
 
-export interface AuxiliaryStudyRequest {
+interface AuxiliaryStudyRequest {
   transport: AuxiliaryStudyTransport;
   adapter: OptimisationTrialAdapter;
   strategyId: string;
