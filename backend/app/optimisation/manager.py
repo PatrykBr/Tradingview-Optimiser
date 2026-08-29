@@ -263,29 +263,38 @@ class OptimisationManager:
                 deepcopy=False,
                 states=(TrialState.COMPLETE,),
             )
+            feasible = [
+                trial
+                for trial in completed
+                if trial.value is not None
+                and self._is_feasible_trial(trial)
+            ]
 
-            if len(completed) < 5:
+            if len(feasible) < 5:
                 return RunAnalysis(
                     run_id=run_id,
                     parameter_importance={},
                     completed_trials=len(completed),
                 )
 
-            common_parameters = set(completed[0].params)
-            for trial in completed[1:]:
+            common_parameters = set(feasible[0].params)
+            for trial in feasible[1:]:
                 common_parameters.intersection_update(trial.params)
 
             if not common_parameters:
                 importance: dict[str, float] = {}
             else:
                 try:
+                    analysis_study = optuna.create_study(
+                        direction=run.config.direction.value,
+                    )
+                    analysis_study.add_trials(feasible)
                     importance = get_param_importances(
-                        run.study,
+                        analysis_study,
                         evaluator=PedAnovaImportanceEvaluator(
                             target_quantile=0.2,
                         ),
                         params=sorted(common_parameters),
-                        target=self._importance_target(run),
                     )
                 except (ValueError, RuntimeError):
                     importance = {}
@@ -496,38 +505,6 @@ class OptimisationManager:
     @staticmethod
     def _is_feasible_trial(trial: FrozenTrial) -> bool:
         return all(value <= 0 for value in trial.constraints.values())
-
-    def _importance_target(self, run: ActiveRun):
-        complete = run.study.get_trials(
-            deepcopy=False,
-            states=(TrialState.COMPLETE,),
-        )
-        feasible_values = [
-            float(trial.value)
-            for trial in complete
-            if trial.value is not None
-            and self._is_feasible_trial(trial)
-        ]
-
-        if feasible_values:
-            if run.config.direction == ObjectiveDirection.MAXIMIZE:
-                worst = min(feasible_values)
-                penalty = worst - max(abs(worst) * 0.1, 1.0)
-            else:
-                worst = max(feasible_values)
-                penalty = worst + max(abs(worst) * 0.1, 1.0)
-        else:
-            penalty = 0.0
-
-        def target(trial: FrozenTrial) -> float:
-            if (
-                trial.value is None
-                or not self._is_feasible_trial(trial)
-            ):
-                return penalty
-            return float(trial.value)
-
-        return target
 
     def _set_status(
         self,
