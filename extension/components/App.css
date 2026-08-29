@@ -709,3 +709,262 @@ code {
 .presetDelete {
   color: #ffaaa4;
 }
+
+
+.researchSettings .toggleRow + .toggleRow,
+.researchSettings .researchGrid + .toggleRow,
+.researchSettings .researchHint + .researchGrid {
+  margin-top: 10px;
+}
+
+.researchHint {
+  margin-left: 22px;
+}
+
+.researchGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin: 8px 0 2px 22px;
+}
+
+.singleResearchField {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 120px;
+}
+
+.researchGrid label > span {
+  display: block;
+  margin-bottom: 4px;
+  color: #8f98a8;
+  font-size: 10px;
+}
+
+.researchGrid input {
+  padding: 7px 8px;
+}
+
+.researchResults {
+  border-top-color: #33446b;
+}
+
+.researchBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: #222833;
+  color: #aeb7c7;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.researchBadge.good {
+  background: #17261e;
+  color: #8ee2ac;
+}
+
+.researchBadge.warn {
+  background: #2a271b;
+  color: #e7d18a;
+}
+
+.researchBadge.bad {
+  background: #2a2020;
+  color: #ffaaa4;
+}
+
+.researchBlock {
+  margin-top: 10px;
+}
+
+.researchBlock + .researchBlock {
+  padding-top: 10px;
+  border-top: 1px solid #262a33;
+}
+
+.researchBlockTitle {
+  color: #c9cfdb;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.importanceList {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.importanceMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+  font-size: 10px;
+}
+
+.importanceMeta span {
+  overflow: hidden;
+  color: #a7afbd;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.importanceMeta strong {
+  color: #b9c8f8;
+  font-size: 10px;
+}
+
+.importanceTrack {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #252a33;
+}
+
+.importanceFill {
+  height: 100%;
+  border-radius: inherit;
+  background: #718fff;
+}
+
+.researchAction {
+  width: auto;
+  min-width: 104px;
+  padding: 7px 9px;
+  font-size: 10px;
+}
+
+.researchCard {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid #2b303a;
+  border-radius: 9px;
+  background: #15181e;
+}
+
+.researchSummaryGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.researchSummaryGrid > div {
+  padding: 7px;
+  border-radius: 7px;
+  background: #11151d;
+}
+
+.researchSummaryGrid span {
+  display: block;
+  color: #8f98a8;
+  font-size: 9px;
+}
+
+.researchSummaryGrid strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+.researchApply {
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 10px;
+}
+
+.stabilityList {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.stabilityRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid #242933;
+  color: #a7afbd;
+  font-size: 10px;
+}
+
+.stabilityRow:last-child {
+  border-bottom: 0;
+}
+
+.experimentHistory {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #262a33;
+}
+
+.experimentHistory summary {
+  cursor: pointer;
+  color: #aeb7c7;
+  font-size: 11px;
+  font-weight: 700;
+  user-select: none;
+}
+
+.experimentCompare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.experimentCompare select {
+  min-width: 0;
+  margin: 0;
+  padding: 7px 8px;
+  font-size: 10px;
+}
+
+.comparisonTable {
+  margin-top: 8px;
+  border: 1px solid #2b303a;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.comparisonHeader,
+.comparisonRow {
+  display: grid;
+  grid-template-columns: 1.15fr .9fr .9fr;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+}
+
+.comparisonHeader {
+  background: #171b22;
+  color: #8f98a8;
+  font-size: 9px;
+}
+
+.comparisonHeader strong {
+  font-size: 9px;
+}
+
+.comparisonRow {
+  border-top: 1px solid #252a33;
+  font-size: 9px;
+}
+
+.comparisonRow > span {
+  color: #8f98a8;
+}
+
+.comparisonRow code {
+  font-size: 9px;
+}
+
+.experimentDelete {
+  margin-top: 8px;
+  color: #ffaaa4;
+}
