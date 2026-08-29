@@ -2,6 +2,7 @@ import type {
   CreateRun,
   Envelope,
   NextTrial,
+  RunAnalysis,
   RunProgress,
   TrialResult,
 } from './protocol/types';
@@ -178,6 +179,13 @@ export class BackendClient {
 
   async stopRun(runId: string): Promise<void> {
     await this.#request('STOP_RUN', { run_id: runId });
+  }
+
+  async getRunAnalysis(runId: string): Promise<RunAnalysis> {
+    const response = await this.#request('GET_RUN_ANALYSIS', {
+      run_id: runId,
+    });
+    return response.payload as RunAnalysis;
   }
 
   async submitTrialResult(result: TrialResult): Promise<void> {
