@@ -219,12 +219,17 @@ const monteCarloArea = (
     };
   }
 
-  const rating: EvidenceRating =
+  const rawRating: EvidenceRating =
     lossProbability <= 0.05
       ? 'strong'
       : lossProbability <= 0.2
         ? 'moderate'
         : 'weak';
+  const rating: EvidenceRating =
+    result.source === 'optimisation' &&
+    rawRating === 'strong'
+      ? 'moderate'
+      : rawRating;
 
   return {
     id: 'monte-carlo',
@@ -234,7 +239,10 @@ const monteCarloArea = (
       (
         lossProbability * 100
       ).toFixed(1) +
-      '% of bootstrap simulations finished with negative cumulative PnL.',
+      '% of bootstrap simulations finished with negative cumulative PnL' +
+      (result.source === 'oos'
+        ? ' on the unseen OOS trade sample.'
+        : ' on the optimisation-period trade sample; in-sample Monte Carlo is capped at moderate evidence.'),
   };
 };
 
