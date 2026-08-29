@@ -1,0 +1,346 @@
+type UnknownRecord = Record<string, unknown>;
+
+interface StudyInputValue {
+  id: string;
+  value: unknown;
+}
+
+interface StudyLike {
+  id?: string;
+  name?: string;
+  title?: string;
+  getStudyMeta?: () => UnknownRecord;
+  getInputValues?: () => StudyInputValue[];
+  setInputValues?: (values: StudyInputValue[]) => void;
+}
+
+interface ChartLike {
+  symbol?: () => string;
+  resolution?: () => string;
+  getAllStudies?: () => StudyLike[];
+  getStudyById?: (id: string) => StudyLike | null;
+  _chartWidget?: {
+    model?: () => {
+      model?: () => {
+        dataSources?: () => unknown[];
+      };
+    };
+  };
+}
+
+interface TradingViewApiLike {
+  _activeChartWidgetWV?: {
+    value?: () => ChartLike;
+  };
+}
+
+interface BridgeRequest {
+  id: string;
+  action: string;
+  payload?: unknown;
+}
+
+const REQUEST_EVENT = 'tvopt:request';
+const RESPONSE_EVENT = 'tvopt:response';
+
+const asRecord = (value: unknown): UnknownRecord =>
+  value !== null && typeof value === 'object' ? (value as UnknownRecord) : {};
+
+const readMeta = (study: StudyLike): UnknownRecord => {
+  try {
+    return asRecord(study.getStudyMeta?.());
+  } catch {
+    return {};
+  }
+};
+
+const metaName = (meta: UnknownRecord): string | undefined => {
+  for (const key of ['description', 'shortDescription', 'shortId', 'name', 'title']) {
+    const value = meta[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+};
+
+const isStrategyMeta = (meta: UnknownRecord): boolean =>
+  meta.isTVScriptStrategy === true || meta.is_strategy === true;
+
+const getChart = (): ChartLike => {
+  const api = (window as typeof window & { TradingViewApi?: TradingViewApiLike }).TradingViewApi;
+  const chart = api?._activeChartWidgetWV?.value?.();
+  if (!chart) {
+    throw new Error('TradingView chart API is not ready yet');
+  }
+  return chart;
+};
+
+const getInternalStrategyNames = (chart: ChartLike): Set<string> => {
+  const names = new Set<string>();
+
+  try {
+    const sources = chart._chartWidget?.model?.()?.model?.()?.dataSources?.() ?? [];
+    for (const source of sources) {
+      const candidate = source as {
+        metaInfo?: () => UnknownRecord;
+        reportData?: () => unknown;
+      };
+
+      let meta: UnknownRecord = {};
+      try {
+        meta = asRecord(candidate.metaInfo?.());
+      } catch {
+        meta = {};
+      }
+
+      const isStrategy =
+        isStrategyMeta(meta) || typeof candidate.reportData === 'function';
+
+      if (!isStrategy) continue;
+      const name = metaName(meta);
+      if (name) names.add(name);
+    }
+  } catch {
+    // Internal model details are only a fallback for builds where public study
+    // metadata does not expose the strategy flag.
+  }
+
+  return names;
+};
+
+const detectStrategies = () => {
+  const chart = getChart();
+  const studies = chart.getAllStudies?.() ?? [];
+  const internalStrategyNames = getInternalStrategyNames(chart);
+
+  const strategies = studies.flatMap((study) => {
+    const meta = readMeta(study);
+    const name =
+      metaName(meta) ??
+      (typeof study.name === 'string' ? study.name : undefined) ??
+      (typeof study.title === 'string' ? study.title : undefined);
+
+    if (!study.id || !name) return [];
+
+    const matchesInternalStrategy = [...internalStrategyNames].some(
+      (internalName) =>
+        internalName === name ||
+        internalName.includes(name) ||
+        name.includes(internalName),
+    );
+
+    if (!isStrategyMeta(meta) && !matchesInternalStrategy) return [];
+
+    return [
+      {
+        id: study.id,
+        name,
+        shortTitle:
+          typeof meta.shortDescription === 'string'
+            ? meta.shortDescription
+            : undefined,
+      },
+    ];
+  });
+
+  return strategies;
+};
+
+const inferInputType = (
+  meta: UnknownRecord,
+  value: unknown,
+):
+  | 'integer'
+  | 'float'
+  | 'boolean'
+  | 'categorical'
+  | 'string'
+  | 'time'
+  | 'timeframe'
+  | 'source'
+  | 'unsupported' => {
+  const declared = String(meta.type ?? meta.inputType ?? '').toLowerCase();
+  const options = meta.options ?? meta.values;
+
+  if (Array.isArray(options) && options.length > 0) return 'categorical';
+  if (declared.includes('bool')) return 'boolean';
+  if (declared.includes('integer') || declared === 'int') return 'integer';
+  if (declared.includes('float')) return 'float';
+  if (declared.includes('resolution') || declared.includes('timeframe')) return 'timeframe';
+  if (declared.includes('source')) return 'source';
+  if (declared.includes('time')) return 'time';
+  if (declared.includes('string') || declared.includes('text')) return 'string';
+
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'number') return Number.isInteger(value) ? 'integer' : 'float';
+  if (typeof value === 'string') return 'string';
+  return 'unsupported';
+};
+
+const readStrategyInputs = (strategyId: string) => {
+  const chart = getChart();
+  const study = chart.getStudyById?.(strategyId);
+  if (!study) throw new Error('TradingView strategy is no longer on the chart');
+  if (typeof study.getInputValues !== 'function') {
+    throw new Error('TradingView does not expose inputs for this strategy');
+  }
+
+  const current = study.getInputValues();
+  const meta = readMeta(study);
+  const declaredInputs = Array.isArray(meta.inputs)
+    ? (meta.inputs as unknown[])
+    : [];
+  const metaById = new Map<string, UnknownRecord>();
+
+  for (const item of declaredInputs) {
+    const record = asRecord(item);
+    if (typeof record.id === 'string') metaById.set(record.id, record);
+  }
+
+  return current.map((input) => {
+    const inputMeta = metaById.get(input.id) ?? {};
+    const optionsCandidate = inputMeta.options ?? inputMeta.values;
+    const options = Array.isArray(optionsCandidate) ? optionsCandidate : undefined;
+    const labelCandidate =
+      inputMeta.name ??
+      inputMeta.description ??
+      inputMeta.title ??
+      input.id;
+
+    return {
+      id: input.id,
+      label:
+        typeof labelCandidate === 'string' && labelCandidate.trim()
+          ? labelCandidate.trim()
+          : input.id,
+      type: inferInputType(inputMeta, input.value),
+      currentValue: input.value,
+      ...(options ? { options } : {}),
+    };
+  });
+};
+
+const applyParameters = (
+  strategyId: string,
+  parameters: Record<string, unknown>,
+) => {
+  const chart = getChart();
+  const study = chart.getStudyById?.(strategyId);
+  if (!study) throw new Error('TradingView strategy is no longer on the chart');
+  if (
+    typeof study.getInputValues !== 'function' ||
+    typeof study.setInputValues !== 'function'
+  ) {
+    throw new Error('TradingView does not expose writable inputs for this strategy');
+  }
+
+  const current = study.getInputValues();
+  const known = new Set(current.map((input) => input.id));
+  const unknown = Object.keys(parameters).filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new Error('Unknown TradingView input(s): ' + unknown.join(', '));
+  }
+
+  const updated = current.map((input) =>
+    Object.prototype.hasOwnProperty.call(parameters, input.id)
+      ? { ...input, value: parameters[input.id] }
+      : input,
+  );
+
+  study.setInputValues(updated);
+
+  const after = study.getInputValues();
+  const confirmed: Record<string, unknown> = {};
+  for (const input of after) {
+    if (Object.prototype.hasOwnProperty.call(parameters, input.id)) {
+      confirmed[input.id] = input.value;
+    }
+  }
+
+  for (const [id, requested] of Object.entries(parameters)) {
+    const actual = confirmed[id];
+    if (JSON.stringify(actual) !== JSON.stringify(requested)) {
+      throw new Error(
+        'TradingView rejected input ' +
+          id +
+          ': requested ' +
+          JSON.stringify(requested) +
+          ', got ' +
+          JSON.stringify(actual),
+      );
+    }
+  }
+
+  return { confirmed };
+};
+
+const getChartContext = () => {
+  const chart = getChart();
+  return {
+    symbol: chart.symbol?.() ?? 'UNKNOWN',
+    timeframe: chart.resolution?.() ?? 'UNKNOWN',
+  };
+};
+
+export default defineUnlistedScript(() => {
+  const script = document.currentScript;
+  if (!(script instanceof HTMLScriptElement)) return;
+
+  script.addEventListener(REQUEST_EVENT, (event) => {
+    if (!(event instanceof CustomEvent)) return;
+
+    const request = event.detail as BridgeRequest;
+    if (!request || typeof request.id !== 'string' || typeof request.action !== 'string') {
+      return;
+    }
+
+    try {
+      let result: unknown;
+
+      switch (request.action) {
+        case 'detectStrategies':
+          result = detectStrategies();
+          break;
+        case 'readStrategyInputs': {
+          const payload = asRecord(request.payload);
+          if (typeof payload.strategyId !== 'string') {
+            throw new Error('strategyId is required');
+          }
+          result = readStrategyInputs(payload.strategyId);
+          break;
+        }
+        case 'applyParameters': {
+          const payload = asRecord(request.payload);
+          if (typeof payload.strategyId !== 'string') {
+            throw new Error('strategyId is required');
+          }
+          result = applyParameters(
+            payload.strategyId,
+            asRecord(payload.parameters),
+          );
+          break;
+        }
+        case 'getChartContext':
+          result = getChartContext();
+          break;
+        default:
+          throw new Error('Unknown TradingView bridge action: ' + request.action);
+      }
+
+      script.dispatchEvent(
+        new CustomEvent(RESPONSE_EVENT, {
+          detail: { id: request.id, ok: true, result },
+        }),
+      );
+    } catch (error) {
+      script.dispatchEvent(
+        new CustomEvent(RESPONSE_EVENT, {
+          detail: {
+            id: request.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        }),
+      );
+    }
+  });
+});
