@@ -1,5 +1,4 @@
 import type {
-  CreateRun,
   RunProgress,
 } from '../protocol/types';
 import type {
@@ -281,7 +280,6 @@ const overallFrom = (
 };
 
 export const buildResearchVerdict = (
-  _config: CreateRun,
   progress: RunProgress,
   research: ResearchEvaluation,
 ): ResearchVerdict => {
