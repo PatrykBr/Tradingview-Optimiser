@@ -9,7 +9,7 @@ export interface StudyTrialFailure {
   fatal: boolean;
 }
 
-export interface StudyTrialTransport {
+interface StudyTrialTransport {
   submitResult(
     result: TrialResult,
   ): Promise<void>;
@@ -20,7 +20,7 @@ export interface StudyTrialTransport {
   stopRun(runId: string): Promise<void>;
 }
 
-export interface StudyTrialRunnerOptions {
+interface StudyTrialRunnerOptions {
   runId: string;
   evaluate(
     trial: NextTrial,
