@@ -774,24 +774,30 @@ export function useOptimisationRun({
           return;
         }
 
-        setProgress(message.progress);
-        void updateActiveRunProgress(
-          message.progress,
-        );
+        const terminal =
+          message.progress.status === 'completed' ||
+          message.progress.status === 'stopped' ||
+          message.progress.status === 'failed';
 
-        if (
-          message.progress.status ===
-            'completed' ||
-          message.progress.status ===
-            'stopped' ||
-          message.progress.status ===
-            'failed'
-        ) {
-          const finishedRunId =
-            message.progress.run_id;
+        if (!terminal) {
+          setProgress(message.progress);
+          void updateActiveRunProgress(
+            message.progress,
+          );
+          return;
+        }
+
+        const finishedRunId =
+          message.progress.run_id;
+
+        void (async () => {
+          await finishActiveRun(
+            message.progress,
+          );
 
           activeRunIdRef.current = null;
           pendingTrialRef.current = null;
+          setProgress(message.progress);
           setFinishedAt(Date.now());
           setActiveRunId(null);
           setCurrentTrial(null);
@@ -803,16 +809,17 @@ export function useOptimisationRun({
             setStopChoiceVisible(true);
           }
 
-          void finishActiveRun(
-            message.progress,
-          );
-          void sendRequest({
-            type: 'CLEAR_RUN_OWNER',
-            payload: {
-              runId: finishedRunId,
-            },
-          });
-        }
+          try {
+            await sendRequest({
+              type: 'CLEAR_RUN_OWNER',
+              payload: {
+                runId: finishedRunId,
+              },
+            });
+          } catch {
+            // The run itself is already safely persisted locally.
+          }
+        })();
         return;
       }
 
