@@ -8,7 +8,7 @@ import type {
   TrialResult,
 } from './protocol/types';
 
-export type BackendEvent =
+type BackendEvent =
   | ({ type: 'connection' } & BackendState)
   | { type: 'progress'; progress: RunProgress }
   | { type: 'trial'; trial: NextTrial }
@@ -147,12 +147,12 @@ export class BackendClient {
     this.#pairingRequired = false;
     await browser.storage.local.set({ backendToken: body.token });
 
-    this.disconnect();
+    this.#disconnect();
     this.#manualClose = false;
     await this.connect();
   }
 
-  disconnect(): void {
+  #disconnect(): void {
     this.#manualClose = true;
     this.#authenticated = false;
     this.#stopHeartbeat();
