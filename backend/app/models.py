@@ -147,6 +147,7 @@ class StabilityConfig(BaseModel):
 class WalkForwardConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = False
+    full_range: BacktestRange | None = None
     folds: int = Field(default=3, ge=2, le=8)
     trials_per_fold: int = Field(default=100, ge=5, le=10_000)
     initial_training_fraction: float = Field(default=0.5, ge=0.3, le=0.8)
@@ -282,8 +283,11 @@ class CreateRun(BaseModel):
         if robustness.enabled and robustness.full_range is None:
             raise ValueError("robustness validation requires a full Deep Backtesting range")
 
-        if self.research.walk_forward.enabled and self.backtest_range is None:
-            raise ValueError("walk-forward validation requires a Deep Backtesting range")
+        if (
+            self.research.walk_forward.enabled
+            and self.research.walk_forward.full_range is None
+        ):
+            raise ValueError("walk-forward validation requires a full Deep Backtesting range")
 
         return self
 
