@@ -33,6 +33,12 @@ export interface TradingViewMetrics {
 export interface TradingViewReportSnapshot {
   metrics: TradingViewMetrics | null;
   token: string | null;
+  objectId: number | null;
+  backtestRange: {
+    from: number;
+    to: number;
+  } | null;
+  settingsSignature: string | null;
   error: string | null;
 }
 
