@@ -326,14 +326,24 @@ export const runAuxiliaryStudy =
 
       try {
         await request.transport.request({
-          type: 'CLEAR_RUN_OWNER',
+          type: 'DELETE_RUN',
           payload: {
             runId:
               request.config.run_id,
           },
         });
       } catch {
-        // Owner cleanup is best-effort; the backend study remains persisted.
+        try {
+          await request.transport.request({
+            type: 'CLEAR_RUN_OWNER',
+            payload: {
+              runId:
+                request.config.run_id,
+            },
+          });
+        } catch {
+          // Temporary-study cleanup is best-effort after cancellation/failure.
+        }
       }
     }
   };
