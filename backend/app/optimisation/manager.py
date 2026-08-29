@@ -74,7 +74,13 @@ class OptimisationManager:
             for stale_trial in stale_running:
                 study.tell(stale_trial.number, state=TrialState.FAIL)
 
-            persisted_status = study.user_attrs.get("run_status")
+            if not study.trials and config.baseline_parameters:
+                study.enqueue_trial(
+                    config.baseline_parameters,
+                    skip_if_exists=True,
+                )
+
+                        persisted_status = study.user_attrs.get("run_status")
             if self._complete_count_for_study(study) >= config.target_trials:
                 status = RunStatus.COMPLETED
             elif persisted_status == RunStatus.STOPPED.value:
