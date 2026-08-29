@@ -107,8 +107,28 @@ export function useResearchValidation({
   }, [run.runConfig?.run_id]);
 
   useEffect(() => {
+    setAnalysis(null);
+    setResearch(null);
     void refreshHistory();
-  }, [refreshHistory]);
+  }, [
+    refreshHistory,
+    run.runConfig?.run_id,
+  ]);
+
+  useEffect(() => {
+    if (!terminalStatus(run.progress?.status)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      void refreshHistory();
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [
+    refreshHistory,
+    run.progress?.status,
+  ]);
 
   useEffect(() => {
     const status = run.progress?.status;
