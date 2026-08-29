@@ -7,11 +7,7 @@ import {
   type SetStateAction,
 } from 'react';
 
-import type {
-  BackendState,
-  BackgroundMessage,
-  ExtensionRequest,
-} from '../../lib/messages';
+import type { BackgroundMessage } from '../../lib/messages';
 import {
   buildRunJson,
   buildTrialsCsv,
@@ -31,6 +27,7 @@ import type {
   RunProgress,
 } from '../../lib/protocol/types';
 import type { TradingViewAdapter } from '../../lib/tradingview/adapter';
+import { useBackendConnection } from './useBackendConnection';
 import type { PreparedOptimisationRun } from './useStrategyConfiguration';
 
 interface TrialExecution {
@@ -48,18 +45,6 @@ interface UseOptimisationRunOptions {
   selectedStrategyId: string;
   setError: Dispatch<SetStateAction<string | undefined>>;
 }
-
-const responseError = (response: unknown): string | null => {
-  if (!response || typeof response !== 'object') {
-    return null;
-  }
-
-  const record = response as Record<string, unknown>;
-  return record.ok === false &&
-    typeof record.error === 'string'
-    ? record.error
-    : null;
-};
 
 const isBackendTransportError = (
   message: string,
@@ -81,12 +66,12 @@ export function useOptimisationRun({
   selectedStrategyId,
   setError,
 }: UseOptimisationRunOptions) {
-  const [connected, setConnected] = useState(false);
-  const [pairingRequired, setPairingRequired] =
-    useState(false);
-  const [pairingCode, setPairingCode] = useState('');
-  const [optunaVersion, setOptunaVersion] =
-    useState<string>();
+  const backend = useBackendConnection(setError);
+  const {
+    connected,
+    pairingRequired,
+    sendRequest,
+  } = backend;
 
   const [progress, setProgress] =
     useState<RunProgress | null>(null);
@@ -120,31 +105,6 @@ export function useOptimisationRun({
     useRef<AbortController | null>(null);
   const recoveringBackendRef = useRef(false);
   const consecutiveExecutionFailuresRef = useRef(0);
-  const wasConnectedRef = useRef(false);
-
-  const sendRequest = useCallback(
-    async <T,>(
-      request: ExtensionRequest,
-    ): Promise<T> => {
-      const response =
-        await browser.runtime.sendMessage(request);
-      const message = responseError(response);
-      if (message) throw new Error(message);
-      return response as T;
-    },
-    [],
-  );
-
-  const applyBackendState = useCallback(
-    (state: BackendState) => {
-      setConnected(state.connected);
-      setPairingRequired(
-        state.pairingRequired ?? false,
-      );
-      setOptunaVersion(state.optunaVersion);
-    },
-    [],
-  );
 
   const recoverBackendRun =
     useCallback(async () => {
@@ -673,38 +633,6 @@ export function useOptimisationRun({
       }
     }, [applyParameters, setError]);
 
-  const pairBackend = useCallback(async () => {
-    if (!pairingCode.trim()) return;
-
-    setBusy(true);
-    setError(undefined);
-
-    try {
-      const state =
-        await sendRequest<BackendState>({
-          type: 'PAIR_BACKEND',
-          payload: {
-            code: pairingCode.trim(),
-          },
-        });
-      applyBackendState(state);
-      setPairingCode('');
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : String(cause),
-      );
-    } finally {
-      setBusy(false);
-    }
-  }, [
-    applyBackendState,
-    pairingCode,
-    sendRequest,
-    setError,
-  ]);
-
   const exportRun = useCallback(
     async (format: 'csv' | 'json') => {
       if (!runConfig || !progress) return;
@@ -754,33 +682,11 @@ export function useOptimisationRun({
   }, []);
 
   useEffect(() => {
-    const initialise = async () => {
-      const state =
-        await sendRequest<BackendState>({
-          type: 'GET_BACKEND_STATE',
-        });
-      applyBackendState(state);
-      wasConnectedRef.current = state.connected;
-
-      if (
-        !state.connected &&
-        !state.pairingRequired
-      ) {
-        const connectState =
-          await sendRequest<BackendState>({
-            type: 'BACKEND_CONNECT',
-          });
-        applyBackendState(connectState);
-        wasConnectedRef.current =
-          connectState.connected;
-      }
-
+    const initialisePersistedRun = async () => {
       const saved = await loadActiveRun();
       if (saved) {
         setResumeCandidate(saved);
-        setProgress(
-          saved.lastProgress ?? null,
-        );
+        setProgress(saved.lastProgress ?? null);
         setRunConfig(saved.config);
         setStartedAt(saved.startedAt);
         setFinishedAt(null);
@@ -802,47 +708,29 @@ export function useOptimisationRun({
       }
     };
 
-    void initialise().catch((cause) => {
+    void initialisePersistedRun().catch((cause) => {
       setError(
         cause instanceof Error
           ? cause.message
           : String(cause),
       );
     });
-  }, [
-    applyBackendState,
-    sendRequest,
-    setError,
-  ]);
+  }, [setError]);
+
+  useEffect(() => {
+    if (!connected || !activeRunIdRef.current) {
+      return;
+    }
+
+    queueMicrotask(() => {
+      void recoverBackendRun();
+    });
+  }, [connected, recoverBackendRun]);
 
   useEffect(() => {
     const listener = (
       message: BackgroundMessage,
     ) => {
-      if (message.type === 'BACKEND_STATE') {
-        const previouslyConnected =
-          wasConnectedRef.current;
-        wasConnectedRef.current =
-          message.connected;
-        applyBackendState(message);
-
-        if (
-          message.connected &&
-          !previouslyConnected &&
-          activeRunIdRef.current
-        ) {
-          queueMicrotask(() => {
-            void recoverBackendRun();
-          });
-        }
-        return;
-      }
-
-      if (message.type === 'BACKEND_ERROR') {
-        setError(message.message);
-        return;
-      }
-
       if (message.type === 'RUN_PROGRESS') {
         if (
           message.progress.run_id !==
@@ -905,13 +793,7 @@ export function useOptimisationRun({
       browser.runtime.onMessage.removeListener(
         listener,
       );
-  }, [
-    applyBackendState,
-    executeTrial,
-    recoverBackendRun,
-    sendRequest,
-    setError,
-  ]);
+  }, [executeTrial, sendRequest]);
 
   useEffect(() => {
     if (activeRunId === null) return;
@@ -934,18 +816,18 @@ export function useOptimisationRun({
   return {
     connected,
     pairingRequired,
-    pairingCode,
-    optunaVersion,
+    pairingCode: backend.pairingCode,
+    optunaVersion: backend.optunaVersion,
     progress,
     runConfig,
     activeRunId,
     currentTrial,
     resumeCandidate,
     stopChoiceVisible,
-    busy,
+    busy: busy || backend.busy,
     elapsedMs,
-    setPairingCode,
-    pairBackend,
+    setPairingCode: backend.setPairingCode,
+    pairBackend: backend.pairBackend,
     startOptimisation,
     resumeOptimisation,
     discardResumeCandidate,
