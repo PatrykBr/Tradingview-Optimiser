@@ -126,9 +126,10 @@ export class TradingViewAdapter {
   ): Promise<TradingViewMetrics> {
     const startedAt = Date.now();
     const beforeToken = before?.token ?? null;
-    let lastToken: string | null = null;
+    const beforeObjectId = before?.objectId ?? null;
+    let lastRevision: string | null = null;
     let stableReads = 0;
-    let sawReportChange = beforeToken === null;
+    let sawReportChange = beforeToken === null && beforeObjectId === null;
     let lastMetrics: TradingViewMetrics | null = null;
 
     // Allow TradingView to invalidate the previous report first.
@@ -150,21 +151,30 @@ export class TradingViewAdapter {
       if (!snapshot.metrics || !snapshot.token) {
         sawReportChange = true;
         stableReads = 0;
-        lastToken = null;
+        lastRevision = null;
         await sleep(250, signal);
         continue;
       }
 
       lastMetrics = snapshot.metrics;
 
-      if (snapshot.token !== beforeToken) {
+      if (
+        snapshot.token !== beforeToken ||
+        (snapshot.objectId !== null &&
+          snapshot.objectId !== beforeObjectId)
+      ) {
         sawReportChange = true;
       }
 
-      if (snapshot.token === lastToken) {
+      const revision =
+        String(snapshot.objectId ?? 'no-object') +
+        ':' +
+        snapshot.token;
+
+      if (revision === lastRevision) {
         stableReads += 1;
       } else {
-        lastToken = snapshot.token;
+        lastRevision = revision;
         stableReads = 1;
       }
 
@@ -205,6 +215,39 @@ export class TradingViewAdapter {
     throw new Error(
       'Timed out waiting for TradingView Strategy Tester to recalculate',
     );
+  }
+
+  async assertDeepBacktestRange(
+    strategyId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<void> {
+    const snapshot = await this.readReportSnapshot(strategyId);
+    const range = snapshot.backtestRange;
+
+    // TradingView does not expose settings.dateRange on every account/build.
+    // When it does, validate it so a stale or wrong Deep report cannot be
+    // accepted as the current trial.
+    if (!range) return;
+
+    const expectedFrom = Date.parse(startDate + 'T00:00:00Z');
+    const expectedTo = Date.parse(endDate + 'T00:00:00Z');
+    const toleranceMs = 36 * 60 * 60 * 1000;
+
+    if (
+      Math.abs(range.from - expectedFrom) > toleranceMs ||
+      Math.abs(range.to - expectedTo) > toleranceMs
+    ) {
+      throw new Error(
+        'SAFETY: TradingView Deep Backtesting report date range does not match the optimisation configuration.',
+      );
+    }
+  }
+
+  async getStrategySettingsSignature(
+    strategyId: string,
+  ): Promise<string | null> {
+    return (await this.readReportSnapshot(strategyId)).settingsSignature;
   }
 
   getChartContext(): Promise<{ symbol: string; timeframe: string }> {
