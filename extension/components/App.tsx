@@ -41,6 +41,7 @@ import {
   clearActiveRun,
   finishActiveRun,
   loadActiveRun,
+  loadLastRun,
   saveActiveRun,
   updateActiveRunProgress,
   type PersistedOptimisationRun,
@@ -299,6 +300,7 @@ export default function App({ bridge }: AppProps) {
     setError(undefined);
 
     try {
+      await adapter.ensureStrategyTester();
       const result = await adapter.diagnostics(
         selected || undefined,
       );
@@ -1045,6 +1047,9 @@ export default function App({ bridge }: AppProps) {
   const discardResumeCandidate = async () => {
     await clearActiveRun();
     setResumeCandidate(null);
+    setProgress(null);
+    setRunConfig(null);
+    setStartedAt(null);
   };
 
   const stopOptimisation = async () => {
@@ -1191,6 +1196,17 @@ export default function App({ bridge }: AppProps) {
         setProgress(saved.lastProgress ?? null);
         setRunConfig(saved.config);
         setStartedAt(saved.startedAt);
+        originalParametersRef.current =
+          saved.originalParameters;
+      } else {
+        const last = await loadLastRun();
+        if (last?.lastProgress) {
+          setProgress(last.lastProgress);
+          setRunConfig(last.config);
+          setStartedAt(last.startedAt);
+          originalParametersRef.current =
+            last.originalParameters;
+        }
       }
     };
 
