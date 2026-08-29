@@ -326,6 +326,150 @@ export default function OptimisationSettingsSection({
           </div>
           </>
         )}
+
+        <label
+          className="toggleRow"
+          title="Run a fresh Optuna study for each chronological walk-forward fold, then test that fold's winner on the next unseen period. This is stronger than validating one fixed parameter set, but it can require many extra TradingView backtests."
+        >
+          <input
+            type="checkbox"
+            checked={form.walkForwardEnabled}
+            disabled={locked}
+            onChange={(event) =>
+              model.updateForm({
+                walkForwardEnabled:
+                  event.target.checked,
+              })
+            }
+          />
+          <span>Full walk-forward re-optimisation</span>
+        </label>
+
+        {form.walkForwardEnabled && (
+          <>
+            <p className="helpText researchHint">
+              Fresh Optuna study per fold. Expensive, but checks whether the optimisation process itself generalises through time.
+            </p>
+            <div className="researchGrid">
+              <label title="Number of chronological train → test folds. More folds test more regimes but multiply the number of optimisation trials.">
+                <span>Folds</span>
+                <input
+                  type="number"
+                  min="2"
+                  max="8"
+                  value={form.walkForwardFolds}
+                  disabled={locked}
+                  onChange={(event) =>
+                    model.updateForm({
+                      walkForwardFolds:
+                        event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label title="Maximum Optuna trials in each fresh walk-forward study. Total optimisation work is roughly folds × trials/fold.">
+                <span>Trials/fold</span>
+                <input
+                  type="number"
+                  min="5"
+                  max="10000"
+                  value={
+                    form.walkForwardTrialsPerFold
+                  }
+                  disabled={locked}
+                  onChange={(event) =>
+                    model.updateForm({
+                      walkForwardTrialsPerFold:
+                        event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label title="Percentage of the full date range used for the first training window. Later folds expand the training history forward. 50% is a balanced default.">
+                <span>Initial train %</span>
+                <input
+                  type="number"
+                  min="30"
+                  max="80"
+                  value={
+                    form.walkForwardInitialTrainingPercent
+                  }
+                  disabled={locked}
+                  onChange={(event) =>
+                    model.updateForm({
+                      walkForwardInitialTrainingPercent:
+                        event.target.value,
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </>
+        )}
+
+        <label
+          className="toggleRow"
+          title="Bootstrap the closed-trade sequence thousands of times to estimate the distribution of profit factor, cumulative PnL and drawdown. It only runs when the current TradingView build exposes a trustworthy closed-trade list."
+        >
+          <input
+            type="checkbox"
+            checked={form.monteCarloEnabled}
+            disabled={locked}
+            onChange={(event) =>
+              model.updateForm({
+                monteCarloEnabled:
+                  event.target.checked,
+              })
+            }
+          />
+          <span>Trade-level Monte Carlo</span>
+        </label>
+
+        {form.monteCarloEnabled && (
+          <>
+            <p className="helpText researchHint">
+              Uses bootstrap resampling of individual closed trades. If TradingView does not expose trade-level data, validation reports that limitation rather than guessing.
+            </p>
+            <div className="researchGrid">
+              <label title="Number of bootstrap simulations. 5,000 is a good default; more simulations make percentile estimates smoother but add CPU time, not TradingView backtests.">
+                <span>Simulations</span>
+                <input
+                  type="number"
+                  min="500"
+                  max="50000"
+                  value={
+                    form.monteCarloSimulations
+                  }
+                  disabled={locked}
+                  onChange={(event) =>
+                    model.updateForm({
+                      monteCarloSimulations:
+                        event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label title="Central confidence interval shown for Monte Carlo outcomes. 90% is a useful default; 95% is more conservative.">
+                <span>Confidence %</span>
+                <input
+                  type="number"
+                  min="50"
+                  max="99"
+                  value={
+                    form.monteCarloConfidencePercent
+                  }
+                  disabled={locked}
+                  onChange={(event) =>
+                    model.updateForm({
+                      monteCarloConfidencePercent:
+                        event.target.value,
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="filterList">
