@@ -641,15 +641,21 @@ export function useOptimisationRun({
         progress?.run_id;
       if (!runId || !connected) return null;
 
+      const config = runConfig;
+      if (!config) return null;
+
       return sendRequest<RunAnalysis>({
         type: 'GET_RUN_ANALYSIS',
-        payload: { runId },
+        payload: {
+          runId,
+          config,
+        },
       });
     },
     [
       connected,
       progress?.run_id,
-      runConfig?.run_id,
+      runConfig,
       sendRequest,
     ],
   );
