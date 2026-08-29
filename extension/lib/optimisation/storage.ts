@@ -255,8 +255,11 @@ const updateExperiment = async (
 
   if (index < 0) return;
 
+  const current = experiments[index];
+  if (!current) return;
+
   experiments[index] = {
-    ...experiments[index]!,
+    ...current,
     ...patch,
   };
 
