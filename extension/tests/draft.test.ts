@@ -33,6 +33,12 @@ describe('optimisation draft', () => {
         '30',
       stabilityPerturbationPercent:
         '5',
+      walkForwardEnabled: false,
+      walkForwardFolds: '3',
+      walkForwardTrialsPerFold: '100',
+      monteCarloEnabled: false,
+      monteCarloSimulations: '5000',
+      monteCarloConfidencePercent: '90',
     });
   });
 
