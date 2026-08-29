@@ -68,3 +68,166 @@ export const cloneOptimisationDraft = (
     ...draft.minTradesFilter,
   },
 });
+
+
+const isRecord = (
+  value: unknown,
+): value is Record<string, unknown> =>
+  typeof value === 'object' &&
+  value !== null &&
+  !Array.isArray(value);
+
+const stringField = (
+  record: Record<string, unknown>,
+  key: keyof OptimisationDraft,
+  fallback: string,
+): string => {
+  const value = record[key];
+  return typeof value === 'string'
+    ? value
+    : fallback;
+};
+
+const booleanField = (
+  record: Record<string, unknown>,
+  key: keyof OptimisationDraft,
+  fallback: boolean,
+): boolean => {
+  const value = record[key];
+  return typeof value === 'boolean'
+    ? value
+    : fallback;
+};
+
+const filterField = (
+  record: Record<string, unknown>,
+  key:
+    | 'maxDrawdownFilter'
+    | 'minProfitFactorFilter'
+    | 'minTradesFilter',
+  fallback: FilterConfig,
+): FilterConfig => {
+  const value = record[key];
+  if (!isRecord(value)) {
+    return { ...fallback };
+  }
+
+  return {
+    enabled:
+      typeof value.enabled === 'boolean'
+        ? value.enabled
+        : fallback.enabled,
+    value:
+      typeof value.value === 'string'
+        ? value.value
+        : fallback.value,
+  };
+};
+
+export const normaliseOptimisationDraft = (
+  value: unknown,
+): OptimisationDraft => {
+  const defaults = cloneOptimisationDraft(
+    DEFAULT_OPTIMISATION_DRAFT,
+  );
+
+  if (!isRecord(value)) {
+    return defaults;
+  }
+
+  return {
+    objectiveMetric: stringField(
+      value,
+      'objectiveMetric',
+      defaults.objectiveMetric,
+    ),
+    targetTrials: stringField(
+      value,
+      'targetTrials',
+      defaults.targetTrials,
+    ),
+    maxDrawdownFilter: filterField(
+      value,
+      'maxDrawdownFilter',
+      defaults.maxDrawdownFilter,
+    ),
+    minProfitFactorFilter: filterField(
+      value,
+      'minProfitFactorFilter',
+      defaults.minProfitFactorFilter,
+    ),
+    minTradesFilter: filterField(
+      value,
+      'minTradesFilter',
+      defaults.minTradesFilter,
+    ),
+    dateRangeEnabled: booleanField(
+      value,
+      'dateRangeEnabled',
+      defaults.dateRangeEnabled,
+    ),
+    startDate: stringField(
+      value,
+      'startDate',
+      defaults.startDate,
+    ),
+    endDate: stringField(
+      value,
+      'endDate',
+      defaults.endDate,
+    ),
+    convergenceEnabled: booleanField(
+      value,
+      'convergenceEnabled',
+      defaults.convergenceEnabled,
+    ),
+    convergenceMinTrials: stringField(
+      value,
+      'convergenceMinTrials',
+      defaults.convergenceMinTrials,
+    ),
+    convergencePatience: stringField(
+      value,
+      'convergencePatience',
+      defaults.convergencePatience,
+    ),
+    convergenceMinImprovementPercent:
+      stringField(
+        value,
+        'convergenceMinImprovementPercent',
+        defaults.convergenceMinImprovementPercent,
+      ),
+    robustnessEnabled: booleanField(
+      value,
+      'robustnessEnabled',
+      defaults.robustnessEnabled,
+    ),
+    robustnessValidationPercent:
+      stringField(
+        value,
+        'robustnessValidationPercent',
+        defaults.robustnessValidationPercent,
+      ),
+    robustnessFolds: stringField(
+      value,
+      'robustnessFolds',
+      defaults.robustnessFolds,
+    ),
+    robustnessTopCandidates: stringField(
+      value,
+      'robustnessTopCandidates',
+      defaults.robustnessTopCandidates,
+    ),
+    stabilityEnabled: booleanField(
+      value,
+      'stabilityEnabled',
+      defaults.stabilityEnabled,
+    ),
+    stabilityPerturbationPercent:
+      stringField(
+        value,
+        'stabilityPerturbationPercent',
+        defaults.stabilityPerturbationPercent,
+      ),
+  };
+};
