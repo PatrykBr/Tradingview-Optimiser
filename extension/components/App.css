@@ -1093,3 +1093,110 @@ code {
 .advisorItem.warning .advisorDot {
   background: #e4bf67;
 }
+
+
+.watchdogBanner {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin: 8px 0;
+  padding: 8px 9px;
+  border: 1px solid #2c3742;
+  border-radius: 8px;
+  background: #121820;
+}
+
+.watchdogDot {
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #778292;
+}
+
+.watchdogBanner.healthy .watchdogDot {
+  background: #6fc98b;
+}
+
+.watchdogBanner.failed {
+  border-color: #583638;
+  background: #1d1416;
+}
+
+.watchdogBanner.failed .watchdogDot {
+  background: #ef7b75;
+}
+
+.watchdogBanner strong,
+.watchdogBanner small {
+  display: block;
+}
+
+.watchdogBanner strong {
+  color: #b8c1cf;
+  font-size: 10px;
+}
+
+.watchdogBanner small {
+  margin-top: 2px;
+  color: #7f8998;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.evidenceCard {
+  border-color: #33446b;
+}
+
+.evidenceList {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.evidenceRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  color: #9da7b7;
+  font-size: 10px;
+}
+
+.evidenceConcern {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid #252b34;
+  color: #d8b877;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.confidenceLine {
+  margin-top: 8px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: #11151d;
+  color: #8993a4;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.confidenceLine strong {
+  color: #bdc8df;
+}
+
+.experimentActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.experimentActions .experimentDelete {
+  grid-column: 1 / -1;
+  justify-self: start;
+  margin-top: 0;
+}
