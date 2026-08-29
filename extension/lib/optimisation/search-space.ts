@@ -67,19 +67,44 @@ const numberOrThrow = (value: string, label: string): number => {
 };
 
 const conditionFor = (
+  input: StrategyInput,
   config: ParameterConfig,
-  previouslyEnabled: Set<string>,
+  enabledIds: Set<string>,
+  inputById: Map<string, StrategyInput>,
 ): ParameterCondition | undefined => {
   if (!config.conditionParameter) return undefined;
 
-  if (!previouslyEnabled.has(config.conditionParameter)) {
+  if (config.conditionParameter === input.id) {
     throw new Error(
-      'Conditional parameters must depend on an earlier enabled parameter',
+      input.label + ' cannot depend on itself',
+    );
+  }
+
+  if (!enabledIds.has(config.conditionParameter)) {
+    throw new Error(
+      'Condition controller must also be enabled for optimisation',
+    );
+  }
+
+  const parent = inputById.get(
+    config.conditionParameter,
+  );
+  if (
+    !parent ||
+    (parent.type !== 'boolean' &&
+      parent.type !== 'categorical')
+  ) {
+    throw new Error(
+      input.label +
+        ' must depend on a boolean or dropdown parameter',
     );
   }
 
   if (config.conditionValues.length === 0) {
-    throw new Error('Select at least one value for the parameter condition');
+    throw new Error(
+      'Select at least one active value for ' +
+        input.label,
+    );
   }
 
   return {
@@ -88,18 +113,80 @@ const conditionFor = (
   };
 };
 
+const sortByDependencies = (
+  parameters: SearchParameter[],
+): SearchParameter[] => {
+  const byName = new Map(
+    parameters.map((parameter) => [
+      parameter.name,
+      parameter,
+    ]),
+  );
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const ordered: SearchParameter[] = [];
+
+  const visit = (name: string) => {
+    if (visited.has(name)) return;
+    if (visiting.has(name)) {
+      throw new Error(
+        'Conditional parameter dependencies contain a cycle',
+      );
+    }
+
+    const parameter = byName.get(name);
+    if (!parameter) {
+      throw new Error(
+        'Unknown condition controller: ' + name,
+      );
+    }
+
+    visiting.add(name);
+
+    if (parameter.condition) {
+      visit(parameter.condition.parameter);
+    }
+
+    visiting.delete(name);
+    visited.add(name);
+    ordered.push(parameter);
+  };
+
+  for (const parameter of parameters) {
+    visit(parameter.name);
+  }
+
+  return ordered;
+};
+
 export const buildSearchSpace = (
   inputs: StrategyInput[],
   configs: Record<string, ParameterConfig>,
 ): SearchParameter[] => {
   const parameters: SearchParameter[] = [];
-  const enabledSeen = new Set<string>();
+  const inputById = new Map(
+    inputs.map((input) => [input.id, input]),
+  );
+  const enabledIds = new Set(
+    inputs
+      .filter(
+        (input) =>
+          configs[input.id]?.enabled &&
+          isOptimisableInput(input),
+      )
+      .map((input) => input.id),
+  );
 
   for (const input of inputs) {
     const config = configs[input.id];
     if (!config?.enabled) continue;
 
-    const condition = conditionFor(config, enabledSeen);
+    const condition = conditionFor(
+      input,
+      config,
+      enabledIds,
+      inputById,
+    );
 
     if (input.type === 'boolean' || input.type === 'categorical') {
       const choices = config.choices.filter(isPrimitive);
@@ -115,7 +202,6 @@ export const buildSearchSpace = (
         choices,
         ...(condition ? { condition } : {}),
       });
-      enabledSeen.add(input.id);
       continue;
     }
 
@@ -210,7 +296,6 @@ export const buildSearchSpace = (
         });
       }
 
-      enabledSeen.add(input.id);
     }
   }
 
@@ -218,7 +303,7 @@ export const buildSearchSpace = (
     throw new Error('Select at least one parameter to optimise');
   }
 
-  return parameters;
+  return sortByDependencies(parameters);
 };
 
 export const conditionCandidatesFor = (
@@ -226,17 +311,43 @@ export const conditionCandidatesFor = (
   inputs: StrategyInput[],
   configs: Record<string, ParameterConfig>,
 ): StrategyInput[] => {
-  const index = inputs.findIndex((input) => input.id === inputId);
-  if (index <= 0) return [];
+  const wouldCreateCycle = (
+    candidateId: string,
+  ): boolean => {
+    const seen = new Set<string>();
+    let current =
+      configs[candidateId]?.conditionParameter ?? '';
 
-  return inputs
-    .slice(0, index)
-    .filter((input) => configs[input.id]?.enabled)
-    .filter(
-      (input) =>
-        input.type === 'boolean' ||
-        input.type === 'categorical',
-    );
+    while (current) {
+      if (current === inputId) return true;
+      if (seen.has(current)) return true;
+      seen.add(current);
+      current =
+        configs[current]?.conditionParameter ?? '';
+    }
+
+    return false;
+  };
+
+  return inputs.filter((input) => {
+    if (input.id === inputId) return false;
+    if (
+      input.type !== 'boolean' &&
+      input.type !== 'categorical'
+    ) {
+      return false;
+    }
+
+    if (
+      input.type === 'categorical' &&
+      (input.options?.filter(isPrimitive).length ??
+        0) < 2
+    ) {
+      return false;
+    }
+
+    return !wouldCreateCycle(input.id);
+  });
 };
 
 
