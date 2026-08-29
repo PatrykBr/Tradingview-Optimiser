@@ -44,14 +44,20 @@ describe('research utilities', () => {
     expect(result.trainingRange.start_date).toBe(
       '2020-01-01',
     );
-    expect(result.trainingRange.end_date).toBeLessThan(
-      '2024-12-31',
+    expect(
+      Date.parse(result.trainingRange.end_date),
+    ).toBeLessThan(
+      Date.parse('2024-12-31'),
     );
     expect(result.validationWindows).toHaveLength(3);
     expect(
-      result.validationWindows[0]!.startDate,
+      Date.parse(
+        result.validationWindows[0]!.startDate,
+      ),
     ).toBeGreaterThan(
-      result.trainingRange.end_date,
+      Date.parse(
+        result.trainingRange.end_date,
+      ),
     );
     expect(
       result.validationWindows.at(-1)!.endDate,
