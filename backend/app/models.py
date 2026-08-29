@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
@@ -107,13 +108,25 @@ class BacktestRange(BaseModel):
     start_date: str
     end_date: str
 
+    @model_validator(mode="after")
+    def validate_dates(self) -> BacktestRange:
+        try:
+            start = date.fromisoformat(self.start_date)
+            end = date.fromisoformat(self.end_date)
+        except ValueError as exc:
+            raise ValueError("backtest dates must use YYYY-MM-DD") from exc
+
+        if start >= end:
+            raise ValueError("backtest start date must be before end date")
+        return self
+
 
 class ChartContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
     symbol: str
     timeframe: str
     strategy_name: str
-    strategy_signature: str
+    strategy_signature: str = Field(min_length=1, max_length=256)
 
 
 class CreateRun(BaseModel):
@@ -135,14 +148,39 @@ class CreateRun(BaseModel):
             raise ValueError("parameter names must be unique")
 
         seen: set[str] = set()
+        by_name: dict[str, SearchParameter] = {}
+
         for parameter in self.parameters:
             if parameter.condition is not None:
-                if parameter.condition.parameter not in seen:
+                parent_name = parameter.condition.parameter
+                if parent_name not in seen:
                     raise ValueError(
                         f"conditional parameter {parameter.name!r} must depend on "
                         "an earlier search parameter"
                     )
+
+                parent = by_name[parent_name]
+                if isinstance(parent, CategoricalParameter):
+                    invalid = [
+                        value
+                        for value in parameter.condition.values
+                        if value not in parent.choices
+                    ]
+                    if invalid:
+                        raise ValueError(
+                            f"condition for {parameter.name!r} contains values "
+                            f"outside parent choices: {invalid!r}"
+                        )
+
             seen.add(parameter.name)
+            by_name[parameter.name] = parameter
+
+        unknown_baseline = set(self.baseline_parameters) - set(names)
+        if unknown_baseline:
+            raise ValueError(
+                "baseline contains parameters outside the search space: "
+                f"{sorted(unknown_baseline)!r}"
+            )
 
         return self
 
