@@ -129,8 +129,16 @@ export const reconcilePresetParameterConfigs = (
         {
           ...fallback,
           ...stored,
-          choices: [...stored.choices],
-          conditionValues: [...stored.conditionValues],
+          choices: [
+            ...(Array.isArray(stored.choices)
+              ? stored.choices
+              : fallback.choices),
+          ],
+          conditionValues: [
+            ...(Array.isArray(stored.conditionValues)
+              ? stored.conditionValues
+              : fallback.conditionValues),
+          ],
         },
       ];
     }),
