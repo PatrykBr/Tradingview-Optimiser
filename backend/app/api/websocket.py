@@ -61,7 +61,7 @@ async def _authenticate(
             timeout=5.0,
         )
         envelope = Envelope.model_validate(raw)
-    except (TimeoutError, ValidationError, ValueError):
+    except (TimeoutError, ValidationError, ValueError, WebSocketDisconnect):
         await websocket.close(
             code=status.WS_1008_POLICY_VIOLATION,
             reason="authentication required",
