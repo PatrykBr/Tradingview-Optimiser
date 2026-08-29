@@ -94,6 +94,13 @@ export function useResearchValidation({
   const validationAbortRef =
     useRef<AbortController | null>(null);
 
+  useEffect(
+    () => () => {
+      validationAbortRef.current?.abort();
+    },
+    [],
+  );
+
   const refreshHistory = useCallback(async () => {
     const history = await loadExperimentHistory();
     setExperiments(history);
@@ -260,6 +267,12 @@ export function useResearchValidation({
       progress.best.parameters;
 
     try {
+      await adapter.assertRunContext(
+        strategyId,
+        config,
+        run.getOriginalParameters(),
+      );
+
       if (settings.robustness.enabled) {
         const fullRange =
           settings.robustness.full_range;
