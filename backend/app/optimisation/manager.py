@@ -59,10 +59,21 @@ class OptimisationManager:
             persisted_config = study.user_attrs.get("config")
             if persisted_config is None:
                 study.set_user_attr("config", config_json)
-            elif persisted_config != config_json:
-                raise ValueError(
-                    "run_id already exists in persistent storage with a different configuration"
-                )
+            else:
+                try:
+                    persisted_model = CreateRun.model_validate(persisted_config)
+                except Exception as exc:
+                    raise ValueError(
+                        "persisted run configuration is incompatible with this version"
+                    ) from exc
+
+                if persisted_model != config:
+                    raise ValueError(
+                        "run_id already exists in persistent storage with a different configuration"
+                    )
+
+                if persisted_config != config_json:
+                    study.set_user_attr("config", config_json)
 
             # Browser-evaluated RUNNING trials cannot survive a backend/browser
             # process restart. Mark them failed so the sampler is never blocked by
