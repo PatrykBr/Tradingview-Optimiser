@@ -527,6 +527,34 @@ export default function App({ bridge }: AppProps) {
       const signature =
         await adapter.getStrategySignature(strategyId);
 
+      const originalParameters = originalParametersRef.current;
+      if (originalParameters) {
+        const optimisedIds = new Set(
+          config.parameters.map((parameter) => parameter.name),
+        );
+        const liveInputs = await adapter.readStrategyInputs(strategyId);
+
+        for (const input of liveInputs) {
+          if (
+            optimisedIds.has(input.id) ||
+            !(input.id in originalParameters)
+          ) {
+            continue;
+          }
+
+          if (
+            JSON.stringify(input.currentValue) !==
+            JSON.stringify(originalParameters[input.id])
+          ) {
+            throw new Error(
+              'SAFETY: Fixed strategy input "' +
+                input.label +
+                '" changed during the optimisation.',
+            );
+          }
+        }
+      }
+
       const backtestMode = await adapter.getBacktestMode();
       const expectedMode = config.backtest_range ? 'deep' : 'chart';
       if (backtestMode !== expectedMode) {
