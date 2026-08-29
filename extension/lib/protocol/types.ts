@@ -145,6 +145,7 @@ export interface TrialSummary {
   constraints: Record<string, number>;
   failure_reason: string | null;
   duration_ms: number | null;
+  reused_from_trial?: number | null;
 }
 
 export interface RunProgress {
@@ -153,6 +154,7 @@ export interface RunProgress {
   completed_trials: number;
   target_trials: number;
   failed_trials: number;
+  reused_trials?: number;
   best: BestTrial | null;
   termination_reason?: 'target_trials' | 'converged' | 'user' | null;
   trials: TrialSummary[];
