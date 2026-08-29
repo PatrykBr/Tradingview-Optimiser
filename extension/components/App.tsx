@@ -249,6 +249,7 @@ export default function App({ bridge }: AppProps) {
   const pendingTrialRef = useRef<NextTrial | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const recoveringBackendRef = useRef(false);
+  const consecutiveExecutionFailuresRef = useRef(0);
   const wasConnectedRef = useRef(false);
 
   const sendRequest = useCallback(
@@ -644,12 +645,58 @@ export default function App({ bridge }: AppProps) {
           }
         }
 
-        const metrics =
-          await adapter.waitForMetricsAfterChange(
+        let metrics;
+        try {
+          metrics = await adapter.waitForMetricsAfterChange(
             strategyId,
             previousSnapshot,
             controller.signal,
           );
+        } catch (firstFailure) {
+          const firstMessage =
+            firstFailure instanceof Error
+              ? firstFailure.message
+              : String(firstFailure);
+
+          if (
+            !/timed out|remained ambiguous/i.test(firstMessage)
+          ) {
+            throw firstFailure;
+          }
+
+          await adapter.ensureStrategyTester();
+          const retrySnapshot =
+            await adapter.readReportSnapshot(strategyId);
+          await adapter.applyParameters(
+            strategyId,
+            trial.parameters,
+          );
+
+          if (config.backtest_range) {
+            const retryDeep =
+              await adapter.configureDeepBacktestRange(
+                config.backtest_range.start_date,
+                config.backtest_range.end_date,
+              );
+            if (
+              !retryDeep.supported ||
+              !retryDeep.applied
+            ) {
+              throw new Error(
+                retryDeep.reason ??
+                  'TradingView Deep Backtesting retry failed',
+              );
+            }
+          }
+
+          metrics =
+            await adapter.waitForMetricsAfterChange(
+              strategyId,
+              retrySnapshot,
+              controller.signal,
+              35_000,
+            );
+        }
 
         await assertRunContext(strategyId, config);
 
@@ -668,6 +715,7 @@ export default function App({ bridge }: AppProps) {
             duration_ms: Date.now() - trialStartedAt,
           },
         });
+        consecutiveExecutionFailuresRef.current = 0;
       } catch (cause) {
         const aborted =
           cause instanceof DOMException &&
@@ -686,8 +734,21 @@ export default function App({ bridge }: AppProps) {
           // The backend restarted while this browser evaluation was in
           // flight. The recovered backend will issue the correct trial.
         } else {
+          const parameterSpecificRuntimeError =
+            /strategy runtime error/i.test(reason);
+          if (!parameterSpecificRuntimeError && !aborted) {
+            consecutiveExecutionFailuresRef.current += 1;
+          }
+
+          const fatalIntegrationFailure =
+            reason.startsWith('SAFETY:') ||
+            /deep backtesting.*(could not|not available|failed)|could not open tradingview strategy tester/i.test(
+              reason,
+            ) ||
+            consecutiveExecutionFailuresRef.current >= 3;
+
           try {
-            if (reason.startsWith('SAFETY:')) {
+            if (fatalIntegrationFailure) {
               await sendRequest({
                 type: 'STOP_RUN',
                 payload: { runId: trial.run_id },
@@ -913,6 +974,7 @@ export default function App({ bridge }: AppProps) {
       originalParametersRef.current =
         originalParameters;
       pendingTrialRef.current = null;
+      consecutiveExecutionFailuresRef.current = 0;
 
       setRunConfig(config);
       setStartedAt(now);
@@ -1017,6 +1079,7 @@ export default function App({ bridge }: AppProps) {
       originalParametersRef.current =
         candidate.originalParameters;
       pendingTrialRef.current = null;
+      consecutiveExecutionFailuresRef.current = 0;
 
       setRunConfig(candidate.config);
       setProgress(candidate.lastProgress ?? null);
