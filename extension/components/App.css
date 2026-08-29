@@ -8,8 +8,8 @@
 }
 
 .panel {
-  width: 390px;
-  max-height: min(82vh, 820px);
+  width: 410px;
+  max-height: min(86vh, 900px);
   overflow: auto;
   pointer-events: auto;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -23,11 +23,10 @@
 
 header,
 .rowLabel,
-.inputRow,
 .parameterHeading,
-.trialRow,
 .metricsList > div,
-.bestParameters > div {
+.bestParameters > div,
+.runTiming {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -50,6 +49,15 @@ h1 {
   font-size: 20px;
   line-height: 1.2;
   margin: 2px 0 0;
+}
+
+h3 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+}
+
+p {
+  margin: 0;
 }
 
 .eyebrow {
@@ -84,10 +92,16 @@ strong {
 }
 
 .muted,
-.choiceHint,
-.currentTrial {
+.helpText,
+.currentTrial,
+.runTiming {
   color: #8f98a8;
   font-size: 11px;
+}
+
+.helpText {
+  margin-top: 5px;
+  line-height: 1.45;
 }
 
 select,
@@ -97,7 +111,10 @@ input {
 }
 
 select,
-input[type="number"] {
+input[type="number"],
+input[type="date"],
+input[type="text"],
+.inlineForm input {
   width: 100%;
   padding: 9px 10px;
   border-radius: 8px;
@@ -108,7 +125,7 @@ input[type="number"] {
 }
 
 select:focus,
-input[type="number"]:focus {
+input:focus {
   border-color: #567dff;
 }
 
@@ -154,12 +171,41 @@ input:disabled {
   color: #ffb8bd;
 }
 
+.compactButton {
+  width: auto;
+  min-width: 72px;
+}
+
 .textButton {
   border: 0;
   padding: 0;
   background: transparent;
   color: #87a7ff;
   font-size: 12px;
+}
+
+.buttonRow {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.twoButtons {
+  grid-template-columns: 1fr 1fr;
+}
+
+.inlineForm {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.pairingCard,
+.resumeCard,
+.stopChoice {
+  border-top-color: #33446b;
 }
 
 .parameterList {
@@ -180,17 +226,16 @@ input:disabled {
   background: #151b27;
 }
 
-.parameterCardDisabled {
-  opacity: .5;
-}
-
 .parameterHeading {
   justify-content: flex-start;
   cursor: pointer;
 }
 
 .parameterHeading input[type="checkbox"],
-.filterRow input[type="checkbox"] {
+.filterRow input[type="checkbox"],
+.toggleRow input[type="checkbox"],
+.advancedToggle input[type="checkbox"],
+.choiceChip input[type="checkbox"] {
   accent-color: #2962ff;
   flex: 0 0 auto;
 }
@@ -220,22 +265,66 @@ input:disabled {
 }
 
 .rangeGrid label,
-.fieldGrid label {
+.fieldGrid label,
+.dateGrid label,
+.conditionBlock label {
   min-width: 0;
 }
 
 .rangeGrid label > span,
-.fieldGrid label > span {
+.fieldGrid label > span,
+.dateGrid label > span,
+.conditionBlock label > span {
   display: block;
   margin-bottom: 4px;
   color: #8f98a8;
   font-size: 10px;
 }
 
-.choiceHint {
-  margin-top: 8px;
-  padding-left: 25px;
+.advancedToggle,
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  color: #c6ccd7;
+  font-size: 11px;
+}
+
+.choiceList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.choiceChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 5px 7px;
+  border: 1px solid #303642;
+  border-radius: 7px;
+  background: #11151d;
+  font-size: 10px;
   overflow-wrap: anywhere;
+}
+
+.compactChoices {
+  margin-top: 6px;
+}
+
+.conditionBlock {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid #252a33;
+}
+
+.conditionBlock select {
+  margin: 0;
+  padding: 7px 8px;
+  font-size: 11px;
 }
 
 .fieldGrid {
@@ -247,6 +336,21 @@ input:disabled {
 
 .fieldGrid select {
   margin: 0;
+}
+
+.subsection {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #2b303a;
+  border-radius: 9px;
+  background: #15181e;
+}
+
+.dateGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 9px;
 }
 
 .filterList {
@@ -267,10 +371,58 @@ input:disabled {
   padding: 7px 8px;
 }
 
+.diagnosticList {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.diagnosticRow {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: #15181e;
+}
+
+.diagnosticRow strong,
+.diagnosticRow small {
+  display: block;
+}
+
+.diagnosticRow small {
+  margin-top: 2px;
+  color: #8f98a8;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.diagnosticDot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: #6f7785;
+}
+
+.diagnosticDot.ok {
+  background: #55b77a;
+}
+
+.diagnosticDot.bad {
+  background: #db6b70;
+}
+
+.diagnosticDot.neutral {
+  background: #c2a65c;
+}
+
 .progressTrack {
   height: 7px;
   overflow: hidden;
-  margin: 9px 0;
+  margin: 9px 0 6px;
   border-radius: 999px;
   background: #252a33;
 }
@@ -282,8 +434,39 @@ input:disabled {
   transition: width .2s ease;
 }
 
+.runTiming {
+  justify-content: flex-start;
+}
+
 .currentTrial {
   margin: 8px 0 10px;
+}
+
+.bestChart {
+  margin: 9px 0;
+  padding: 7px;
+  border: 1px solid #2b303a;
+  border-radius: 9px;
+  background: #11151d;
+}
+
+.bestChart svg {
+  display: block;
+  width: 100%;
+  height: 92px;
+}
+
+.bestChartLine {
+  stroke: #7e9cff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.bestChartLabels {
+  display: flex;
+  justify-content: space-between;
+  color: #737b89;
+  font-size: 9px;
 }
 
 .bestCard {
@@ -319,6 +502,8 @@ input:disabled {
   display: block;
   color: #8f98a8;
   font-size: 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .compactMetrics strong {
@@ -346,37 +531,54 @@ input:disabled {
 code {
   color: #b9c8f8;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.trialToolbar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.trialToolbar select {
+  margin: 0;
+  padding: 7px 8px;
   font-size: 11px;
 }
 
-.buttonRow {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.buttonRow .secondary {
-  width: auto;
-}
-
 .trialList {
-  max-height: 220px;
+  max-height: 235px;
   overflow: auto;
-  margin-top: 10px;
+  margin-top: 8px;
   border: 1px solid #2b303a;
   border-radius: 9px;
 }
 
 .trialRow {
+  display: grid;
+  grid-template-columns: 46px 1fr 58px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
   padding: 8px 9px;
+  border: 0;
   border-bottom: 1px solid #262a33;
+  background: transparent;
+  color: inherit;
   font-size: 11px;
+  text-align: left;
 }
 
 .trialRow:last-child {
   border-bottom: 0;
+}
+
+.trialButton:hover,
+.selectedTrial {
+  background: #191e29;
 }
 
 .trialState {
@@ -402,8 +604,40 @@ code {
   color: #ffaaa4;
 }
 
-.metricsList {
+.trialDetail {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #343945;
+  border-radius: 9px;
+  background: #15181e;
+}
+
+.detailError {
   margin-top: 8px;
+  padding: 7px;
+  border-radius: 7px;
+  color: #ffc2bd;
+  background: #2a1b1b;
+  font-size: 10px;
+}
+
+.fullMetrics {
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.exportRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.stackedButtons {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .error {
