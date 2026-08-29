@@ -648,3 +648,27 @@ code {
   background: #2a1b1b;
   font-size: 12px;
 }
+
+
+.presetSaveRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.presetLoadRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.presetLoadRow select {
+  margin: 0;
+}
+
+.presetDelete {
+  color: #ffaaa4;
+}
