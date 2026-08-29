@@ -61,6 +61,7 @@ import type {
   DetectedStrategy,
   StrategyInput,
   TradingViewDiagnostics,
+  TradingViewMetrics,
 } from '../lib/tradingview/types';
 
 interface AppProps {
@@ -645,7 +646,7 @@ export default function App({ bridge }: AppProps) {
           }
         }
 
-        let metrics;
+        let metrics: TradingViewMetrics;
         try {
           metrics = await adapter.waitForMetricsAfterChange(
             strategyId,
