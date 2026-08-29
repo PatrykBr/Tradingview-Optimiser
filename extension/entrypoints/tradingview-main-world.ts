@@ -465,10 +465,42 @@ const readStrategyMetrics = (strategyId: string) => {
     readVisibleStrategyReportMetrics();
 
   if (isDeepBacktestingActive() && visibleMetrics) {
-    return {
-      ...(internalMetrics ?? {}),
-      ...visibleMetrics,
-    };
+    if (internalMetrics) {
+      const comparableKeys = [
+        'profitFactor',
+        'totalTrades',
+        'netProfitPercent',
+        'maxDrawdownPercent',
+        'sharpeRatio',
+        'sortinoRatio',
+      ];
+
+      const disagrees = comparableKeys.some((key) => {
+        const internal = internalMetrics?.[key];
+        const visible = visibleMetrics[key];
+        if (
+          internal === undefined ||
+          visible === undefined
+        ) {
+          return false;
+        }
+
+        const tolerance =
+          Math.max(1, Math.abs(visible)) * 1.0e-6;
+        return Math.abs(internal - visible) > tolerance;
+      });
+
+      if (!disagrees) {
+        return {
+          ...internalMetrics,
+          ...visibleMetrics,
+        };
+      }
+    }
+
+    // A disagreement means reportData() is still describing the regular
+    // chart session. Never contaminate a Deep Backtesting trial with it.
+    return visibleMetrics;
   }
 
   return internalMetrics ?? visibleMetrics;
