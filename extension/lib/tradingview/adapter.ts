@@ -1,3 +1,4 @@
+import type { CreateRun } from '../protocol/types';
 import { TradingViewBridge } from './bridge';
 import type {
   DeepBacktestResult,
@@ -120,6 +121,112 @@ export class TradingViewAdapter {
     );
     if (!opened) {
       throw new Error('Could not open TradingView Strategy Tester');
+    }
+  }
+
+  async assertRunContext(
+    strategyId: string,
+    config: CreateRun,
+    originalParameters: Record<string, unknown> | null,
+  ): Promise<void> {
+    const chart = await this.getChartContext();
+
+    if (
+      config.chart.symbol !== chart.symbol ||
+      config.chart.timeframe !== chart.timeframe
+    ) {
+      throw new Error(
+        'SAFETY: TradingView chart changed. Expected ' +
+          config.chart.symbol +
+          ' ' +
+          config.chart.timeframe +
+          ', got ' +
+          chart.symbol +
+          ' ' +
+          chart.timeframe,
+      );
+    }
+
+    const signature =
+      await this.getStrategySignature(strategyId);
+
+    if (originalParameters) {
+      const optimisedIds = new Set(
+        config.parameters.map(
+          (parameter) => parameter.name,
+        ),
+      );
+      const liveInputs =
+        await this.readStrategyInputs(strategyId);
+
+      for (const input of liveInputs) {
+        if (
+          optimisedIds.has(input.id) ||
+          !(input.id in originalParameters)
+        ) {
+          continue;
+        }
+
+        if (
+          JSON.stringify(input.currentValue) !==
+          JSON.stringify(
+            originalParameters[input.id],
+          )
+        ) {
+          throw new Error(
+            'SAFETY: Fixed strategy input "' +
+              input.label +
+              '" changed during the optimisation.',
+          );
+        }
+      }
+    }
+
+    const backtestMode =
+      await this.getBacktestMode();
+    const expectedMode = config.backtest_range
+      ? 'deep'
+      : 'chart';
+
+    if (backtestMode !== expectedMode) {
+      throw new Error(
+        'SAFETY: TradingView backtest mode changed during the optimisation.',
+      );
+    }
+
+    if (
+      signature !==
+      config.chart.strategy_signature
+    ) {
+      throw new Error(
+        'SAFETY: The TradingView strategy or its input structure changed during the optimisation.',
+      );
+    }
+
+    const expectedSettingsSignature =
+      config.chart.strategy_settings_signature;
+    if (expectedSettingsSignature) {
+      const liveSettingsSignature =
+        await this.getStrategySettingsSignature(
+          strategyId,
+        );
+
+      if (
+        liveSettingsSignature !==
+        expectedSettingsSignature
+      ) {
+        throw new Error(
+          'SAFETY: TradingView strategy properties changed during the optimisation.',
+        );
+      }
+    }
+
+    if (config.backtest_range) {
+      await this.assertDeepBacktestRange(
+        strategyId,
+        config.backtest_range.start_date,
+        config.backtest_range.end_date,
+      );
     }
   }
 
