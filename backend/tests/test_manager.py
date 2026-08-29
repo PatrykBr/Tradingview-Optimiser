@@ -395,3 +395,53 @@ async def test_run_analysis_returns_normalised_parameter_importance(
         {"length", "risk", "filter"}
     )
     assert sum(analysis.parameter_importance.values()) == pytest.approx(1.0)
+
+
+
+@pytest.mark.asyncio
+async def test_completed_temporary_run_can_be_deleted(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+    manager = OptimisationManager(database_url)
+    config = make_config("delete-test", target_trials=1)
+    config.filters = []
+
+    await manager.create_run(config)
+    _, active = await manager.start("delete-test")
+    assert active is not None
+
+    progress, next_trial = await manager.submit_result(
+        TrialResult(
+            run_id="delete-test",
+            trial_number=active.trial_number,
+            metrics={
+                "profitFactor": 1.5,
+                "totalTrades": 100,
+            },
+        )
+    )
+
+    assert progress.status == "completed"
+    assert next_trial is None
+
+    await manager.delete_run("delete-test")
+
+    with pytest.raises(ValueError, match="unknown run_id"):
+        await manager.progress("delete-test")
+
+    reloaded = OptimisationManager(database_url)
+    recreated = await reloaded.create_run(config)
+    assert recreated.status == "created"
+    assert recreated.completed_trials == 0
+
+
+@pytest.mark.asyncio
+async def test_active_run_cannot_be_deleted(tmp_path: Path) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
+    config = make_config("active-delete-test", target_trials=3)
+
+    await manager.create_run(config)
+    _, active = await manager.start("active-delete-test")
+    assert active is not None
+
+    with pytest.raises(ValueError, match="cannot delete an active"):
+        await manager.delete_run("active-delete-test")
