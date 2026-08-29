@@ -29,3 +29,30 @@ export interface DetectedStrategy {
 export interface TradingViewMetrics {
   [metric: string]: number;
 }
+
+export interface TradingViewReportSnapshot {
+  metrics: TradingViewMetrics | null;
+  token: string | null;
+  error: string | null;
+}
+
+export interface DiagnosticCheck {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface TradingViewDiagnostics {
+  checks: DiagnosticCheck[];
+  deepBacktesting: {
+    available: boolean;
+    reason: string | null;
+  };
+}
+
+export interface DeepBacktestResult {
+  supported: boolean;
+  applied: boolean;
+  reason: string | null;
+}
