@@ -69,7 +69,11 @@ const objectiveValue = (
   metric: string,
 ): number | null => {
   const value = metrics[metric];
-  return Number.isFinite(value) ? value! : null;
+
+  return typeof value === 'number' &&
+    Number.isFinite(value)
+    ? value
+    : null;
 };
 
 export function useResearchValidation({
@@ -363,7 +367,11 @@ export function useResearchValidation({
           const validationObjective =
             median(values);
           const optimisationObjective =
-            candidate.objective_value!;
+            candidate.objective_value;
+
+          if (optimisationObjective === null) {
+            continue;
+          }
 
           candidateResults.push({
             trialNumber:
@@ -430,9 +438,22 @@ export function useResearchValidation({
             : config.backtest_range ??
               null;
 
-        setPhase(
-          'Testing winner stability',
-        );
+        const variants =
+          buildStabilityVariants(
+            config.parameters,
+            winnerParameters,
+            settings.stability
+              .perturbation_percent,
+          );
+
+        if (variants.length === 0) {
+          setPhase(
+            'No numeric parameters to test for stability',
+          );
+        } else {
+          setPhase(
+            'Testing winner stability',
+          );
 
         const baselineMetrics =
           await adapter.evaluateParameters(
@@ -463,14 +484,6 @@ export function useResearchValidation({
             'TradingView did not expose the objective metric for the stability baseline',
           );
         }
-
-        const variants =
-          buildStabilityVariants(
-            config.parameters,
-            winnerParameters,
-            settings.stability
-              .perturbation_percent,
-          );
 
         const grouped = new Map<
           string,
@@ -613,6 +626,7 @@ export function useResearchValidation({
             stabilityRating(worst),
           parameters,
         };
+        }
       }
 
       setResearch(evaluation);
