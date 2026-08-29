@@ -348,6 +348,138 @@ const applyParameters = (
   return { confirmed };
 };
 
+const getStrategySource = (
+  chart: ChartLike,
+  strategyId: string,
+): {
+  reportData?: () => unknown;
+} | null => {
+  try {
+    const sources = chart._chartWidget?.model?.()?.model?.()?.dataSources?.() ?? [];
+    for (const source of sources) {
+      const candidate = source as {
+        id?: string | (() => string);
+        reportData?: () => unknown;
+      };
+      const rawId =
+        typeof candidate.id === 'function' ? candidate.id() : candidate.id;
+      if (rawId === strategyId) return candidate;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
+const unwrapValue = (value: unknown): unknown => {
+  const record = asRecord(value);
+  if (typeof record.value === 'function') {
+    try {
+      return (record.value as () => unknown)();
+    } catch {
+      return null;
+    }
+  }
+  return value;
+};
+
+const asFiniteNumber = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return value;
+};
+
+const readStrategyMetrics = (strategyId: string) => {
+  const chart = getChart();
+  const source = getStrategySource(chart, strategyId);
+  if (!source || typeof source.reportData !== 'function') return null;
+
+  let rawReport: unknown;
+  try {
+    rawReport = unwrapValue(source.reportData());
+  } catch {
+    return null;
+  }
+
+  const report = asRecord(rawReport);
+  const performance = asRecord(report.performance);
+  const all = asRecord(performance.all);
+
+  if (Object.keys(performance).length === 0 || Object.keys(all).length === 0) {
+    return null;
+  }
+
+  const metrics: Record<string, number> = {};
+
+  const put = (key: string, value: unknown) => {
+    const numeric = asFiniteNumber(value);
+    if (numeric !== undefined) metrics[key] = numeric;
+  };
+
+  // Canonical names used by the optimiser UI and Optuna constraints.
+  put('netProfit', all.netProfit);
+  put('netProfitPercent', all.netProfitPercent);
+  put('grossProfit', all.grossProfit);
+  put('grossLoss', all.grossLoss);
+  put('profitFactor', all.profitFactor);
+  put('totalTrades', all.totalTrades);
+  put('winningTrades', all.winningTrades);
+  put('losingTrades', all.losingTrades);
+  put('percentProfitable', all.percentProfitable);
+  put('averageTrade', all.avgTrade ?? all.averageTrade);
+  put('averageWinningTrade', all.avgWinningTrade ?? all.averageWinningTrade);
+  put('averageLosingTrade', all.avgLosingTrade ?? all.averageLosingTrade);
+  put('largestWinningTrade', all.largestWinningTrade);
+  put('largestLosingTrade', all.largestLosingTrade);
+  put(
+    'maxDrawdown',
+    performance.maxStrategyDrawDown ??
+      performance.maxDrawDown ??
+      all.maxDrawDown,
+  );
+  put(
+    'maxDrawdownPercent',
+    performance.maxStrategyDrawDownPercent ??
+      performance.maxDrawDownPercent ??
+      all.maxDrawDownPercent,
+  );
+  put('sharpeRatio', performance.sharpeRatio ?? all.sharpeRatio);
+  put('sortinoRatio', performance.sortinoRatio ?? all.sortinoRatio);
+  put('buyAndHoldReturn', performance.buyAndHoldReturn ?? all.buyAndHoldReturn);
+
+  // Preserve every other numeric field TradingView exposes. Canonical fields
+  // above remain stable, while these names make the full report available for
+  // inspection/export without guessing every TradingView metric in advance.
+  for (const [key, value] of Object.entries(all)) {
+    put('tv.all.' + key, value);
+  }
+  for (const [key, value] of Object.entries(performance)) {
+    if (key === 'all') continue;
+    put('tv.performance.' + key, value);
+  }
+
+  return Object.keys(metrics).length > 0 ? metrics : null;
+};
+
+const ensureStrategyTester = () => {
+  const tradingView = (
+    window as typeof window & {
+      TradingView?: {
+        bottomWidgetBar?: {
+          showWidget?: (name: string) => void;
+        };
+      };
+    }
+  ).TradingView;
+
+  try {
+    tradingView?.bottomWidgetBar?.showWidget?.('backtesting');
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const getChartContext = () => {
   const chart = getChart();
   return {
@@ -394,6 +526,17 @@ export default defineUnlistedScript(() => {
           );
           break;
         }
+        case 'readMetrics': {
+          const payload = asRecord(request.payload);
+          if (typeof payload.strategyId !== 'string') {
+            throw new Error('strategyId is required');
+          }
+          result = readStrategyMetrics(payload.strategyId);
+          break;
+        }
+        case 'ensureStrategyTester':
+          result = ensureStrategyTester();
+          break;
         case 'getChartContext':
           result = getChartContext();
           break;
