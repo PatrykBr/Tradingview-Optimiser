@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Annotated
+import asyncio
 
 import optuna
-from fastapi import Depends, Query, WebSocket, WebSocketDisconnect, WebSocketException, status
+from fastapi import WebSocket, WebSocketDisconnect, status
 from pydantic import ValidationError
 
 from app.models import CreateRun, TrialFailure, TrialResult
@@ -12,32 +12,15 @@ from app.pairing import PairingManager
 from app.protocol import ConnectedPayload, Envelope, ErrorPayload, encode
 
 
-def get_pairing_manager(websocket: WebSocket) -> PairingManager:
-    return websocket.app.state.pairing_manager
+async def websocket_endpoint(websocket: WebSocket) -> None:
+    pairing: PairingManager = websocket.app.state.pairing_manager
+    manager: OptimisationManager = websocket.app.state.optimisation_manager
 
-
-def get_manager(websocket: WebSocket) -> OptimisationManager:
-    return websocket.app.state.optimisation_manager
-
-
-async def verify_token(
-    websocket: WebSocket,
-    token: Annotated[str | None, Query()] = None,
-    pairing: Annotated[PairingManager, Depends(get_pairing_manager)] = None,
-) -> None:
-    if not pairing.verify_token(token):
-        raise WebSocketException(
-            code=status.WS_1008_POLICY_VIOLATION,
-            reason="invalid token",
-        )
-
-
-async def websocket_endpoint(
-    websocket: WebSocket,
-    _: Annotated[None, Depends(verify_token)],
-    manager: Annotated[OptimisationManager, Depends(get_manager)],
-) -> None:
     await websocket.accept()
+
+    if not await _authenticate(websocket, pairing):
+        return
+
     await websocket.send_json(
         encode(
             "CONNECTED",
@@ -66,6 +49,38 @@ async def websocket_endpoint(
                 )
     except WebSocketDisconnect:
         return
+
+
+async def _authenticate(
+    websocket: WebSocket,
+    pairing: PairingManager,
+) -> bool:
+    try:
+        raw = await asyncio.wait_for(
+            websocket.receive_json(),
+            timeout=5.0,
+        )
+        envelope = Envelope.model_validate(raw)
+    except (TimeoutError, ValidationError, ValueError):
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="authentication required",
+        )
+        return False
+
+    token = envelope.payload.get("token")
+    if (
+        envelope.type != "AUTH"
+        or not isinstance(token, str)
+        or not pairing.verify_token(token)
+    ):
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="invalid token",
+        )
+        return False
+
+    return True
 
 
 async def _dispatch(
