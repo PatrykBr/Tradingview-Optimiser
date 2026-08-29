@@ -1200,3 +1200,24 @@ code {
   justify-self: start;
   margin-top: 0;
 }
+
+
+.experimentMeta {
+  margin-top: 8px;
+  padding: 7px 8px;
+  border: 1px solid #292f39;
+  border-radius: 7px;
+  background: #11151d;
+}
+
+.experimentMeta summary {
+  cursor: pointer;
+  color: #8f98a8;
+  font-size: 9px;
+  font-weight: 700;
+  user-select: none;
+}
+
+.experimentMeta .metricsList {
+  margin-top: 7px;
+}
