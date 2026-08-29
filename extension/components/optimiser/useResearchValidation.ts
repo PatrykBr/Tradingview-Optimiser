@@ -243,9 +243,13 @@ export function useResearchValidation({
       return;
     }
 
+    if (!settings) {
+      return;
+    }
+
     if (
-      !settings?.robustness.enabled &&
-      !settings?.stability.enabled
+      !settings.robustness.enabled &&
+      !settings.stability.enabled
     ) {
       return;
     }
