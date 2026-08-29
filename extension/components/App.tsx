@@ -22,6 +22,13 @@ import {
   OPTIMISATION_METRICS,
 } from '../lib/optimisation/metrics';
 import {
+  deleteStrategyPreset,
+  loadStrategyPresets,
+  reconcilePresetParameterConfigs,
+  saveStrategyPreset,
+  type SavedOptimisationPreset,
+} from '../lib/optimisation/presets';
+import {
   bestSoFar,
   estimateRemainingMs,
   filterTrials,
@@ -209,6 +216,14 @@ export default function App({ bridge }: AppProps) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  const [currentStrategySignature, setCurrentStrategySignature] =
+    useState<string>();
+  const [savedPresets, setSavedPresets] = useState<
+    SavedOptimisationPreset[]
+  >([]);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [presetName, setPresetName] = useState('');
+
   const [progress, setProgress] = useState<RunProgress | null>(null);
   const [runConfig, setRunConfig] = useState<CreateRun | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(
@@ -300,6 +315,24 @@ export default function App({ bridge }: AppProps) {
     }
   }, [adapter]);
 
+  const refreshStrategyPresets = useCallback(
+    async (strategyId: string): Promise<string> => {
+      const signature = await adapter.getStrategySignature(strategyId);
+      const presets = await loadStrategyPresets(signature);
+
+      setCurrentStrategySignature(signature);
+      setSavedPresets(presets);
+      setSelectedPresetId((current) =>
+        presets.some((preset) => preset.id === current)
+          ? current
+          : '',
+      );
+
+      return signature;
+    },
+    [adapter],
+  );
+
   const runDiagnostics = useCallback(async () => {
     setError(undefined);
 
@@ -349,7 +382,134 @@ export default function App({ bridge }: AppProps) {
 
     try {
       await loadInputs(selected);
+      await refreshStrategyPresets(selected);
       setDiagnostics(await adapter.diagnostics(selected));
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveCurrentPreset = async () => {
+    if (!selected || inputs.length === 0) return;
+
+    setBusy(true);
+    setError(undefined);
+
+    try {
+      const name = presetName.trim();
+      if (!name) {
+        throw new Error('Enter a name for the configuration');
+      }
+
+      const strategy = strategies.find((item) => item.id === selected);
+      if (!strategy) {
+        throw new Error('Selected strategy is no longer available');
+      }
+
+      const signature = await adapter.getStrategySignature(selected);
+      if (
+        currentStrategySignature &&
+        signature !== currentStrategySignature
+      ) {
+        throw new Error(
+          'The strategy changed since its inputs were read. Reload the inputs before saving this configuration.',
+        );
+      }
+
+      const saved = await saveStrategyPreset({
+        name,
+        strategyName: strategy.name,
+        strategySignature: signature,
+        parameterConfigs,
+        objectiveMetric,
+        targetTrials,
+        maxDrawdownFilter,
+        minProfitFactorFilter,
+        minTradesFilter,
+        dateRangeEnabled,
+        startDate,
+        endDate,
+      });
+
+      setCurrentStrategySignature(signature);
+      setSavedPresets(await loadStrategyPresets(signature));
+      setSelectedPresetId(saved.id);
+      setPresetName(saved.name);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadSelectedPreset = async () => {
+    if (!selected || !selectedPresetId) return;
+
+    setBusy(true);
+    setError(undefined);
+
+    try {
+      const preset = savedPresets.find(
+        (item) => item.id === selectedPresetId,
+      );
+      if (!preset) {
+        throw new Error('Saved configuration was not found');
+      }
+
+      const signature = await adapter.getStrategySignature(selected);
+      if (signature !== preset.strategySignature) {
+        throw new Error(
+          'This saved configuration belongs to a different version of the strategy. Reload the strategy inputs first.',
+        );
+      }
+
+      setParameterConfigs(
+        reconcilePresetParameterConfigs(
+          inputs,
+          preset.parameterConfigs,
+        ),
+      );
+      setObjectiveMetric(preset.objectiveMetric);
+      setTargetTrials(preset.targetTrials);
+      setMaxDrawdownFilter({ ...preset.maxDrawdownFilter });
+      setMinProfitFactorFilter({ ...preset.minProfitFactorFilter });
+      setMinTradesFilter({ ...preset.minTradesFilter });
+      setDateRangeEnabled(preset.dateRangeEnabled);
+      setStartDate(preset.startDate);
+      setEndDate(preset.endDate);
+      setPresetName(preset.name);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteSelectedPreset = async () => {
+    if (!selectedPresetId) return;
+
+    setBusy(true);
+    setError(undefined);
+
+    try {
+      await deleteStrategyPreset(selectedPresetId);
+
+      if (currentStrategySignature) {
+        setSavedPresets(
+          await loadStrategyPresets(currentStrategySignature),
+        );
+      }
+
+      setSelectedPresetId('');
+      setPresetName('');
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : String(cause),
@@ -566,6 +726,27 @@ export default function App({ bridge }: AppProps) {
       if (signature !== config.chart.strategy_signature) {
         throw new Error(
           'SAFETY: The TradingView strategy or its input structure changed during the optimisation.',
+        );
+      }
+
+      const expectedSettingsSignature =
+        config.chart.strategy_settings_signature;
+      if (expectedSettingsSignature) {
+        const liveSettingsSignature =
+          await adapter.getStrategySettingsSignature(strategyId);
+
+        if (liveSettingsSignature !== expectedSettingsSignature) {
+          throw new Error(
+            'SAFETY: TradingView strategy properties changed during the optimisation.',
+          );
+        }
+      }
+
+      if (config.backtest_range) {
+        await adapter.assertDeepBacktestRange(
+          strategyId,
+          config.backtest_range.start_date,
+          config.backtest_range.end_date,
         );
       }
     },
@@ -865,6 +1046,12 @@ export default function App({ bridge }: AppProps) {
       undefined,
       30_000,
     );
+
+    await adapter.assertDeepBacktestRange(
+      strategyId,
+      config.backtest_range.start_date,
+      config.backtest_range.end_date,
+    );
   };
 
   const startOptimisation = async () => {
@@ -956,6 +1143,7 @@ export default function App({ bridge }: AppProps) {
           timeframe: chart.timeframe,
           strategy_name: strategy.name,
           strategy_signature: strategySignature,
+          strategy_settings_signature: null,
         },
         backtest_range: backtestRange,
         baseline_parameters: baselineParameters,
@@ -989,6 +1177,17 @@ export default function App({ bridge }: AppProps) {
           }
         }
       }
+
+      if (backtestRange) {
+        await adapter.assertDeepBacktestRange(
+          selected,
+          backtestRange.start_date,
+          backtestRange.end_date,
+        );
+      }
+
+      config.chart.strategy_settings_signature =
+        await adapter.getStrategySettingsSignature(selected);
 
       const originalParameters = Object.fromEntries(
         inputs.map((input) => [
@@ -1105,6 +1304,9 @@ export default function App({ bridge }: AppProps) {
         matchingStrategy.id,
         candidate.config,
       );
+      await refreshStrategyPresets(matchingStrategy.id);
+      originalParametersRef.current =
+        candidate.originalParameters;
       await adapter.ensureStrategyTester();
       if (candidate.config.backtest_range) {
         await prepareDateRange(
@@ -1114,6 +1316,11 @@ export default function App({ bridge }: AppProps) {
       } else {
         await adapter.resetToChartSession();
       }
+
+      await assertRunContext(
+        matchingStrategy.id,
+        candidate.config,
+      );
 
       activeRunIdRef.current =
         candidate.config.run_id;
@@ -1585,6 +1792,10 @@ export default function App({ bridge }: AppProps) {
             setSelected(event.target.value);
             setInputs([]);
             setParameterConfigs({});
+            setCurrentStrategySignature(undefined);
+            setSavedPresets([]);
+            setSelectedPresetId('');
+            setPresetName('');
             setDiagnostics(null);
             setProgress(null);
             setRunConfig(null);
@@ -1957,6 +2168,94 @@ export default function App({ bridge }: AppProps) {
                   </div>
                 );
               })}
+            </div>
+          </section>
+
+          <section>
+            <div className="rowLabel">
+              <strong>Saved configurations</strong>
+              <span className="muted">
+                {savedPresets.length} saved
+              </span>
+            </div>
+
+            <p className="helpText">
+              Saved locally for this exact Pine strategy version.
+            </p>
+
+            <div className="presetSaveRow">
+              <input
+                type="text"
+                value={presetName}
+                disabled={activeRunId !== null}
+                placeholder="Configuration name"
+                onChange={(event) =>
+                  setPresetName(event.target.value)
+                }
+              />
+              <button
+                className="secondary compactButton"
+                disabled={
+                  busy ||
+                  activeRunId !== null ||
+                  !presetName.trim()
+                }
+                onClick={() => void saveCurrentPreset()}
+              >
+                Save
+              </button>
+            </div>
+
+            <div className="presetLoadRow">
+              <select
+                value={selectedPresetId}
+                disabled={
+                  activeRunId !== null ||
+                  savedPresets.length === 0
+                }
+                onChange={(event) => {
+                  const id = event.target.value;
+                  setSelectedPresetId(id);
+                  const preset = savedPresets.find(
+                    (item) => item.id === id,
+                  );
+                  if (preset) setPresetName(preset.name);
+                }}
+              >
+                <option value="">
+                  Select saved configuration…
+                </option>
+                {savedPresets.map((preset) => (
+                  <option
+                    key={preset.id}
+                    value={preset.id}
+                  >
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="secondary"
+                disabled={
+                  busy ||
+                  activeRunId !== null ||
+                  !selectedPresetId
+                }
+                onClick={() => void loadSelectedPreset()}
+              >
+                Load
+              </button>
+              <button
+                className="textButton presetDelete"
+                disabled={
+                  busy ||
+                  activeRunId !== null ||
+                  !selectedPresetId
+                }
+                onClick={() => void deleteSelectedPreset()}
+              >
+                Delete
+              </button>
             </div>
           </section>
 
