@@ -69,6 +69,9 @@ export default function ResearchSection({
 
   const currentResearch =
     run.runConfig?.research;
+  const objectiveMetric =
+    run.runConfig?.objective_metric ??
+    'profitFactor';
   const canValidate =
     terminal(run.progress?.status) &&
     Boolean(run.progress?.best) &&
@@ -155,6 +158,9 @@ export default function ResearchSection({
           <div className="researchBlockTitle">
             Parameter importance
           </div>
+          <div className="muted researchImportanceHint">
+            Conditional parameters appear when they were sampled consistently.
+          </div>
           <div className="importanceList">
             {importanceEntries.map(
               ([parameter, importance]) => (
@@ -205,19 +211,24 @@ export default function ResearchSection({
                 </div>
               )}
             </div>
-            {!research.research && (
-              <button
-                className="secondary researchAction"
-                disabled={research.busy}
-                onClick={() =>
-                  void research.runValidation()
-                }
-              >
-                {research.busy
-                  ? 'Running…'
+            <button
+              className={
+                research.busy
+                  ? 'danger researchAction'
+                  : 'secondary researchAction'
+              }
+              onClick={() =>
+                research.busy
+                  ? research.cancelValidation()
+                  : void research.runValidation()
+              }
+            >
+              {research.busy
+                ? 'Cancel'
+                : research.research
+                  ? 'Re-run'
                   : 'Run validation'}
-              </button>
-            )}
+            </button>
           </div>
 
           {robustness && robustWinner && (
@@ -236,8 +247,7 @@ export default function ResearchSection({
                   <span>Optimisation</span>
                   <strong>
                     {formatMetric(
-                      run.runConfig!
-                        .objective_metric,
+                      objectiveMetric,
                       robustWinner
                         .optimisationObjective,
                     )}
@@ -251,8 +261,7 @@ export default function ResearchSection({
                     null
                       ? '—'
                       : formatMetric(
-                          run.runConfig!
-                            .objective_metric,
+                          objectiveMetric,
                           robustWinner
                             .validationObjective,
                         )}
