@@ -57,6 +57,7 @@ export interface ChartContext {
   timeframe: string;
   strategy_name: string;
   strategy_signature: string;
+  strategy_settings_signature?: string | null;
 }
 
 export interface CreateRun {
