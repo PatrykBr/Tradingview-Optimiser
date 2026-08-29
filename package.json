@@ -8,6 +8,7 @@
     "extension:build": "pnpm --filter tradingview-optuna-optimiser-extension build",
     "extension:build:firefox": "pnpm --filter tradingview-optuna-optimiser-extension build:firefox",
     "extension:typecheck": "pnpm --filter tradingview-optuna-optimiser-extension typecheck",
-    "extension:test": "pnpm --filter tradingview-optuna-optimiser-extension test"
+    "extension:test": "pnpm --filter tradingview-optuna-optimiser-extension test",
+    "backend:build-companion": "powershell -ExecutionPolicy Bypass -File backend/build-companion.ps1"
   }
 }
