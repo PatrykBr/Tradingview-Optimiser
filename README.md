@@ -7,6 +7,7 @@ TradingView performs the backtests. The extension controls the chart and reads S
 ## Features
 
 - Detects Pine strategies and reads their inputs
+- Named optimisation configurations saved per exact strategy version
 - Numeric, boolean and categorical search spaces
 - Min/max/step, logarithmic and conditional parameters
 - Optuna v5 ask/tell optimisation with the current strategy settings used as the baseline trial
@@ -36,13 +37,17 @@ Install dependencies:
 pnpm install
 ```
 
+Commit the generated `pnpm-lock.yaml` for reproducible extension builds.
+
 Run the backend:
 
 ```bash
 cd backend
-uv sync --prerelease=allow
+uv sync
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8765
 ```
+
+The backend is configured to allow the Optuna v5 pre-release dependency consistently, so plain `uv sync` and `uv run` use the same resolver policy. Commit the generated `backend/uv.lock`.
 
 On first use, enter the pairing code printed by the backend into the extension.
 
