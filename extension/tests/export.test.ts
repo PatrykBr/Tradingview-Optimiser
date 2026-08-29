@@ -40,9 +40,10 @@ const config: CreateRun = {
 const progress: RunProgress = {
   run_id: config.run_id,
   status: 'completed',
-  completed_trials: 1,
-  target_trials: 1,
+  completed_trials: 2,
+  target_trials: 2,
   failed_trials: 0,
+  reused_trials: 1,
   best: {
     trial_number: 0,
     objective_value: 1.8,
@@ -60,6 +61,18 @@ const progress: RunProgress = {
       constraints: {},
       failure_reason: null,
       duration_ms: 1250,
+      reused_from_trial: null,
+    },
+    {
+      trial_number: 1,
+      state: 'complete',
+      objective_value: 1.8,
+      parameters: { in_0: 14 },
+      metrics: { profitFactor: 1.8, totalTrades: 100 },
+      constraints: {},
+      failure_reason: null,
+      duration_ms: null,
+      reused_from_trial: 0,
     },
   ],
 };
@@ -70,7 +83,9 @@ describe('run export', () => {
     expect(csv).toContain('"Strategy ""A"""');
     expect(csv).toContain('"param:in_0"');
     expect(csv).toContain('"metric:profitFactor"');
+    expect(csv).toContain('"reused_from_trial"');
     expect(csv).toContain('"14"');
+    expect(csv).toContain('"1","complete","1.8","","0"');
   });
 
   it('exports complete JSON', () => {
