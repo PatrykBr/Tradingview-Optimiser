@@ -51,7 +51,7 @@ export interface ResearchBacktestAdapter {
   ): Promise<Record<string, unknown>>;
 }
 
-export interface ResearchValidationRequest {
+interface ResearchValidationRequest {
   adapter: ResearchBacktestAdapter;
   strategyId: string;
   config: CreateRun;
