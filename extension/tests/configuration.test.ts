@@ -153,6 +153,23 @@ describe('optimisation configuration', () => {
     ).toThrow(/start date must be before/);
   });
 
+  it('keeps disabled research inert for small runs', () => {
+    expect(() =>
+      buildResearchPlan(
+        DEFAULT_OPTIMISATION_FORM,
+        5,
+      ),
+    ).not.toThrow();
+
+    const plan = buildResearchPlan(
+      DEFAULT_OPTIMISATION_FORM,
+      5,
+    );
+    expect(plan.research.convergence.enabled).toBe(false);
+    expect(plan.research.robustness.enabled).toBe(false);
+    expect(plan.research.stability.enabled).toBe(false);
+  });
+
   it('reserves OOS data when robustness is enabled', () => {
     const plan = buildResearchPlan(
       {
