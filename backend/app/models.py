@@ -341,7 +341,12 @@ class RunProgress(BaseModel):
     failed_trials: int
     reused_trials: int = 0
     best: BestTrial | None
-    termination_reason: Literal["target_trials", "converged", "user"] | None = None
+    termination_reason: Literal[
+        "target_trials",
+        "converged",
+        "search_space_exhausted",
+        "user",
+    ] | None = None
     trials: list[TrialSummary] = Field(default_factory=list)
 
 
