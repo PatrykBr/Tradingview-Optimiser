@@ -72,10 +72,25 @@ export interface StabilityConfig {
   perturbation_percent: number;
 }
 
+export interface WalkForwardConfig {
+  enabled: boolean;
+  folds: number;
+  trials_per_fold: number;
+  initial_training_fraction: number;
+}
+
+export interface MonteCarloConfig {
+  enabled: boolean;
+  simulations: number;
+  confidence: number;
+}
+
 export interface ResearchConfig {
   convergence: ConvergenceConfig;
   robustness: RobustnessConfig;
   stability: StabilityConfig;
+  walk_forward: WalkForwardConfig;
+  monte_carlo: MonteCarloConfig;
 }
 
 export interface ChartContext {
