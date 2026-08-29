@@ -79,15 +79,17 @@ export default function RunProgressSection({
   );
 
   const completion =
-    run.progress &&
-    run.progress.target_trials > 0
-      ? Math.min(
-          100,
-          (run.progress.completed_trials /
-            run.progress.target_trials) *
+    run.progress?.status === 'completed'
+      ? 100
+      : run.progress &&
+          run.progress.target_trials > 0
+        ? Math.min(
             100,
-        )
-      : 0;
+            (run.progress.completed_trials /
+              run.progress.target_trials) *
+              100,
+          )
+        : 0;
 
   const selectedTrial: TrialSummary | null =
     selectedTrialNumber === null
@@ -136,7 +138,8 @@ export default function RunProgressSection({
 
   const eta = useMemo(
     () =>
-      run.progress
+      run.progress &&
+      run.progress.status === 'running'
         ? estimateRemainingMs(
             run.progress.trials,
             run.progress.completed_trials,
