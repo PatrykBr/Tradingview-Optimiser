@@ -446,6 +446,7 @@ async def test_active_run_cannot_be_deleted(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="cannot delete an active"):
         await manager.delete_run("active-delete-test")
 
+
 @pytest.mark.asyncio
 async def test_exact_duplicate_trials_reuse_completed_results(tmp_path: Path) -> None:
     manager = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
@@ -457,9 +458,10 @@ async def test_exact_duplicate_trials_reuse_completed_results(tmp_path: Path) ->
             "target_trials": 4,
             "parameters": [
                 {
-                    "type": "categorical",
-                    "name": "enabled",
-                    "choices": [True, False],
+                    "type": "float",
+                    "name": "risk",
+                    "low": 0.5,
+                    "high": 2.0,
                 }
             ],
             "filters": [
@@ -475,43 +477,41 @@ async def test_exact_duplicate_trials_reuse_completed_results(tmp_path: Path) ->
                 "strategy_name": "Test Strategy",
                 "strategy_signature": "signature-123",
             },
-            "baseline_parameters": {"enabled": True},
+            "baseline_parameters": {"risk": 1.0},
         }
     )
 
     await manager.create_run(config)
+    run = manager._runs[config.run_id]
+    for _ in range(3):
+        run.study.enqueue_trial({"risk": 1.0})
+
     _, active = await manager.start(config.run_id)
     assert active is not None
+    assert active.parameters == {"risk": 1.0}
 
-    browser_evaluations = 0
-    progress = None
-
-    while active is not None:
-        browser_evaluations += 1
-        profit_factor = 1.8 if active.parameters["enabled"] else 1.4
-        progress, active = await manager.submit_result(
-            TrialResult(
-                run_id=config.run_id,
-                trial_number=active.trial_number,
-                metrics={
-                    "profitFactor": profit_factor,
-                    "totalTrades": 150,
-                },
-            )
+    progress, next_trial = await manager.submit_result(
+        TrialResult(
+            run_id=config.run_id,
+            trial_number=active.trial_number,
+            metrics={
+                "profitFactor": 1.8,
+                "totalTrades": 150,
+            },
         )
+    )
 
-    assert progress is not None
+    assert next_trial is None
     assert progress.status == "completed"
     assert progress.completed_trials == config.target_trials
-    assert browser_evaluations <= 2
-    assert progress.reused_trials >= 2
+    assert progress.reused_trials == 3
 
     reused = [
         trial
         for trial in progress.trials
         if trial.reused_from_trial is not None
     ]
-    assert len(reused) == progress.reused_trials
+    assert len(reused) == 3
 
     for trial in reused:
         source = next(
@@ -519,10 +519,12 @@ async def test_exact_duplicate_trials_reuse_completed_results(tmp_path: Path) ->
             for item in progress.trials
             if item.trial_number == trial.reused_from_trial
         )
+        assert source.trial_number == 0
         assert trial.objective_value == source.objective_value
         assert trial.metrics == source.metrics
         assert trial.constraints == source.constraints
         assert trial.duration_ms is None
+
 
 @pytest.mark.asyncio
 async def test_duplicate_reuse_survives_backend_restart(tmp_path: Path) -> None:
@@ -532,12 +534,13 @@ async def test_duplicate_reuse_survives_backend_restart(tmp_path: Path) -> None:
             "run_id": "duplicate-restart-test",
             "objective_metric": "profitFactor",
             "direction": "maximize",
-            "target_trials": 4,
+            "target_trials": 3,
             "parameters": [
                 {
-                    "type": "categorical",
-                    "name": "enabled",
-                    "choices": [True, False],
+                    "type": "float",
+                    "name": "risk",
+                    "low": 0.5,
+                    "high": 2.0,
                 }
             ],
             "filters": [],
@@ -547,7 +550,7 @@ async def test_duplicate_reuse_survives_backend_restart(tmp_path: Path) -> None:
                 "strategy_name": "Test Strategy",
                 "strategy_signature": "signature-123",
             },
-            "baseline_parameters": {"enabled": True},
+            "baseline_parameters": {"risk": 1.0},
         }
     )
 
@@ -555,9 +558,9 @@ async def test_duplicate_reuse_survives_backend_restart(tmp_path: Path) -> None:
     await first_manager.create_run(config)
     _, first = await first_manager.start(config.run_id)
     assert first is not None
-    assert first.parameters == {"enabled": True}
+    assert first.parameters == {"risk": 1.0}
 
-    progress, _ = await first_manager.submit_result(
+    progress, orphaned = await first_manager.submit_result(
         TrialResult(
             run_id=config.run_id,
             trial_number=first.trial_number,
@@ -567,33 +570,37 @@ async def test_duplicate_reuse_survives_backend_restart(tmp_path: Path) -> None:
             },
         )
     )
-    assert progress.completed_trials >= 1
+    assert progress.completed_trials == 1
+    assert orphaned is not None
 
     restarted = OptimisationManager(database_url)
     progress = await restarted.create_run(config)
-    assert progress.completed_trials >= 1
+    assert progress.completed_trials == 1
+    assert progress.failed_trials == 1
 
+    restarted._runs[config.run_id].study.enqueue_trial({"risk": 1.0})
     progress, active = await restarted.start(config.run_id)
-    post_restart_evaluations = 0
 
-    while active is not None:
-        post_restart_evaluations += 1
-        profit_factor = 1.8 if active.parameters["enabled"] else 1.4
-        progress, active = await restarted.submit_result(
-            TrialResult(
-                run_id=config.run_id,
-                trial_number=active.trial_number,
-                metrics={
-                    "profitFactor": profit_factor,
-                    "totalTrades": 150,
-                },
-            )
+    assert progress.reused_trials == 1
+    assert active is not None
+    assert active.parameters["risk"] != 1.0
+
+    progress, next_trial = await restarted.submit_result(
+        TrialResult(
+            run_id=config.run_id,
+            trial_number=active.trial_number,
+            metrics={
+                "profitFactor": 1.4,
+                "totalTrades": 150,
+            },
         )
+    )
 
+    assert next_trial is None
     assert progress.status == "completed"
     assert progress.completed_trials == config.target_trials
-    assert progress.reused_trials >= 2
-    assert post_restart_evaluations <= 1
+    assert progress.reused_trials == 1
+
 
 def test_finite_search_space_cardinality_accounts_for_conditions() -> None:
     config = CreateRun.model_validate(
