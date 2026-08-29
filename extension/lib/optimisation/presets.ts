@@ -26,6 +26,16 @@ export interface SavedOptimisationPreset {
   dateRangeEnabled: boolean;
   startDate: string;
   endDate: string;
+  convergenceEnabled?: boolean;
+  convergenceMinTrials?: string;
+  convergencePatience?: string;
+  convergenceMinImprovementPercent?: string;
+  robustnessEnabled?: boolean;
+  robustnessValidationPercent?: string;
+  robustnessFolds?: string;
+  robustnessTopCandidates?: string;
+  stabilityEnabled?: boolean;
+  stabilityPerturbationPercent?: string;
   createdAt: number;
   updatedAt: number;
 }
