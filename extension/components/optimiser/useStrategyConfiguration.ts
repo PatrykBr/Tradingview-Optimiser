@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type Dispatch,
@@ -147,8 +146,8 @@ export function useStrategyConfiguration(
     DEFAULT_OPTIMISATION_FORM,
   );
 
-  const [currentStrategySignature, setCurrentStrategySignature] =
-    useState<string>();
+  const currentStrategySignatureRef =
+    useRef<string>();
   const [savedPresets, setSavedPresets] = useState<
     SavedOptimisationPreset[]
   >([]);
@@ -163,7 +162,7 @@ export function useStrategyConfiguration(
   const clearLoadedStrategy = useCallback(() => {
     setInputs([]);
     setParameterConfigs({});
-    setCurrentStrategySignature(undefined);
+    currentStrategySignatureRef.current = undefined;
     setSavedPresets([]);
     setSelectedPresetId('');
     setPresetName('');
@@ -226,7 +225,7 @@ export function useStrategyConfiguration(
         await adapter.getStrategySignature(strategyId);
       const presets = await loadStrategyPresets(signature);
 
-      setCurrentStrategySignature(signature);
+      currentStrategySignatureRef.current = signature;
       setSavedPresets(presets);
       setSelectedPresetId((current) =>
         presets.some((preset) => preset.id === current)
@@ -346,8 +345,8 @@ export function useStrategyConfiguration(
         await adapter.getStrategySignature(selectedStrategyId);
 
       if (
-        currentStrategySignature &&
-        signature !== currentStrategySignature
+        currentStrategySignatureRef.current &&
+        signature !== currentStrategySignatureRef.current
       ) {
         throw new Error(
           'The strategy changed since its inputs were read. Reload the inputs before saving this configuration.',
@@ -362,7 +361,7 @@ export function useStrategyConfiguration(
         draft: form,
       });
 
-      setCurrentStrategySignature(signature);
+      currentStrategySignatureRef.current = signature;
       setSavedPresets(
         await loadStrategyPresets(signature),
       );
@@ -445,10 +444,13 @@ export function useStrategyConfiguration(
     try {
       await deleteStrategyPreset(selectedPresetId);
 
-      if (currentStrategySignature) {
+      const strategySignature =
+        currentStrategySignatureRef.current;
+
+      if (strategySignature) {
         setSavedPresets(
           await loadStrategyPresets(
-            currentStrategySignature,
+            strategySignature,
           ),
         );
       }
@@ -463,7 +465,6 @@ export function useStrategyConfiguration(
       setBusy(false);
     }
   }, [
-    currentStrategySignature,
     selectedPresetId,
     setError,
   ]);
@@ -795,19 +796,14 @@ export function useStrategyConfiguration(
     void probe();
   }, [probe]);
 
-  const optimisableInputs = useMemo(
-    () => inputs.filter(isOptimisableInput),
-    [inputs],
-  );
+  const optimisableInputs =
+    inputs.filter(isOptimisableInput);
 
-  const selectedInputCount = useMemo(
-    () =>
-      optimisableInputs.filter(
-        (input) =>
-          parameterConfigs[input.id]?.enabled,
-      ).length,
-    [optimisableInputs, parameterConfigs],
-  );
+  const selectedInputCount =
+    optimisableInputs.filter(
+      (input) =>
+        parameterConfigs[input.id]?.enabled,
+    ).length;
 
   const inputLabel = useCallback(
     (id: string): string =>
