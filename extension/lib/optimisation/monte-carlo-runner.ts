@@ -117,6 +117,8 @@ export const runMonteCarloValidation =
       request.existingResearch,
     );
 
+    let primaryFailure: unknown;
+
     try {
       request.onPhase?.(
         'Preparing Monte Carlo trade sample',
@@ -163,26 +165,35 @@ export const runMonteCarloValidation =
         settings.confidence,
         context,
       );
+    } catch (cause) {
+      primaryFailure = cause;
+      throw cause;
     } finally {
-      await request.adapter.prepareBacktest(
-        request.strategyId,
-        request.config.backtest_range
-          ? {
-              startDate:
-                request.config
-                  .backtest_range
-                  .start_date,
-              endDate:
-                request.config
-                  .backtest_range
-                  .end_date,
-            }
-          : null,
-      );
+      try {
+        await request.adapter.prepareBacktest(
+          request.strategyId,
+          request.config.backtest_range
+            ? {
+                startDate:
+                  request.config
+                    .backtest_range
+                    .start_date,
+                endDate:
+                  request.config
+                    .backtest_range
+                    .end_date,
+              }
+            : null,
+        );
 
-      await request.adapter.applyParameters(
-        request.strategyId,
-        bestParameters,
-      );
+        await request.adapter.applyParameters(
+          request.strategyId,
+          bestParameters,
+        );
+      } catch (restoreFailure) {
+        if (primaryFailure === undefined) {
+          throw restoreFailure;
+        }
+      }
     }
   };
