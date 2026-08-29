@@ -37,6 +37,7 @@ export interface ExperimentRecord {
   terminationReason:
     | 'target_trials'
     | 'converged'
+    | 'search_space_exhausted'
     | 'user'
     | null;
   best: BestTrial | null;
