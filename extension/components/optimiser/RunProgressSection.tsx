@@ -24,6 +24,35 @@ interface RunProgressSectionProps {
   busy: boolean;
 }
 
+const parseTrialFilter = (
+  value: string,
+): TrialFilter => {
+  switch (value) {
+    case 'all':
+    case 'valid':
+    case 'filtered':
+    case 'failed':
+      return value;
+    default:
+      return 'all';
+  }
+};
+
+const parseTrialSort = (
+  value: string,
+): TrialSort => {
+  switch (value) {
+    case 'trial-desc':
+    case 'trial-asc':
+    case 'objective-best':
+    case 'objective-worst':
+    case 'duration':
+      return value;
+    default:
+      return 'trial-desc';
+  }
+};
+
 const formatDuration = (
   milliseconds: number | null,
 ): string => {
@@ -235,15 +264,19 @@ export default function RunProgressSection({
                   'totalTrades',
                   'sharpeRatio',
                   'sortinoRatio',
-                ]
-                  .filter((key) =>
-                    Number.isFinite(
-                      run.progress!.best!.metrics[
-                        key
-                      ],
-                    ),
-                  )
-                  .map((key) => (
+                ].flatMap((key) => {
+                  const value =
+                    run.progress.best
+                      ?.metrics[key];
+
+                  if (
+                    typeof value !== 'number' ||
+                    !Number.isFinite(value)
+                  ) {
+                    return [];
+                  }
+
+                  return [
                     <div key={key}>
                       <span>
                         {
@@ -254,12 +287,12 @@ export default function RunProgressSection({
                       <strong>
                         {formatMetric(
                           key,
-                          run.progress!.best!
-                            .metrics[key]!,
+                          value,
                         )}
                       </strong>
-                    </div>
-                  ))}
+                    </div>,
+                  ];
+                })}
               </div>
 
               <div className="bestParameters">
@@ -287,8 +320,9 @@ export default function RunProgressSection({
                     value={trialFilter}
                     onChange={(event) =>
                       setTrialFilter(
-                        event.target
-                          .value as TrialFilter,
+                        parseTrialFilter(
+                          event.target.value,
+                        ),
                       )
                     }
                   >
@@ -310,8 +344,9 @@ export default function RunProgressSection({
                     value={trialSort}
                     onChange={(event) =>
                       setTrialSort(
-                        event.target
-                          .value as TrialSort,
+                        parseTrialSort(
+                          event.target.value,
+                        ),
                       )
                     }
                   >
