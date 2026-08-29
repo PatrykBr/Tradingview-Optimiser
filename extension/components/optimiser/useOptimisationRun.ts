@@ -820,9 +820,11 @@ export function useOptimisationRun({
           strategyId,
           config,
           originalParameters,
-          signal,
-          onPhase,
-          onProgress,
+          ...(signal ? { signal } : {}),
+          ...(onPhase ? { onPhase } : {}),
+          ...(onProgress
+            ? { onProgress }
+            : {}),
           transport: {
             request: sendRequest,
             subscribe: (listener) => {
