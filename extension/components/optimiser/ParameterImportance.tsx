@@ -1,5 +1,3 @@
-import { useMemo } from 'react';
-
 import type {
   RunAnalysis,
 } from '../../lib/protocol/types';
@@ -15,17 +13,13 @@ export default function ParameterImportance({
   analysis,
   inputLabel,
 }: ParameterImportanceProps) {
-  const entries = useMemo(
-    () =>
-      Object.entries(
-        analysis?.parameter_importance ?? {},
-      )
-        .sort(([, left], [, right]) =>
-          right - left,
-        )
-        .slice(0, 8),
-    [analysis],
-  );
+  const entries = Object.entries(
+    analysis?.parameter_importance ?? {},
+  )
+    .sort(([, left], [, right]) =>
+      right - left,
+    )
+    .slice(0, 8);
 
   if (entries.length === 0) {
     return null;
