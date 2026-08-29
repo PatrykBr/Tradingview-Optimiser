@@ -4,9 +4,23 @@ import type {
   TrialResult,
 } from '../protocol/types';
 import type {
-  TradingViewAdapter,
   TradingViewBacktestRange,
 } from '../tradingview/adapter';
+
+export interface OptimisationTrialAdapter {
+  assertRunContext(
+    strategyId: string,
+    config: CreateRun,
+    originalParameters:
+      Record<string, unknown> | null,
+  ): Promise<void>;
+  evaluateParameters(
+    strategyId: string,
+    parameters: Record<string, unknown>,
+    range: TradingViewBacktestRange | null,
+    signal?: AbortSignal,
+  ): Promise<Record<string, number>>;
+}
 
 export type TrialExecutionPhase =
   | 'checking'
@@ -20,7 +34,7 @@ export interface TrialExecutionUpdate {
 }
 
 export interface EvaluateTrialRequest {
-  adapter: TradingViewAdapter;
+  adapter: OptimisationTrialAdapter;
   strategyId: string;
   config: CreateRun;
   trial: NextTrial;
