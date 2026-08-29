@@ -1,15 +1,16 @@
 import ReactDOM from 'react-dom/client';
 
 import App from '../../components/App';
+import '../../components/App.css';
 
 export default defineContentScript({
   matches: ['https://*.tradingview.com/*'],
   runAt: 'document_idle',
   cssInjectionMode: 'ui',
 
-  main(ctx) {
+  async main(ctx) {
     let mounted = true;
-    const ui = createShadowRootUi(ctx, {
+    const ui = await createShadowRootUi(ctx, {
       name: 'tradingview-optuna-optimiser',
       position: 'overlay',
       anchor: 'body',
@@ -21,7 +22,11 @@ export default defineContentScript({
           right: '12px',
           zIndex: '2147483647',
         });
-        const root = ReactDOM.createRoot(container);
+
+        const app = document.createElement('div');
+        container.append(app);
+
+        const root = ReactDOM.createRoot(app);
         root.render(<App />);
         return root;
       },
@@ -30,14 +35,15 @@ export default defineContentScript({
       },
     });
 
-    void ui.mount();
+    ui.mount();
 
     browser.runtime.onMessage.addListener((message: { type?: string }) => {
       if (message.type !== 'TOGGLE_UI') return;
+
       if (mounted) {
         ui.remove();
       } else {
-        void ui.mount();
+        ui.mount();
       }
       mounted = !mounted;
     });
