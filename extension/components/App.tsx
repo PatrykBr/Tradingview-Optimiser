@@ -2,10 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { BackgroundMessage } from '../lib/messages';
 import { TradingViewAdapter } from '../lib/tradingview/adapter';
+import type { TradingViewBridge } from '../lib/tradingview/bridge';
 import type { DetectedStrategy, StrategyInput } from '../lib/tradingview/types';
 
-export default function App() {
-  const adapter = useMemo(() => new TradingViewAdapter(), []);
+interface AppProps {
+  bridge: TradingViewBridge;
+}
+
+export default function App({ bridge }: AppProps) {
+  const adapter = useMemo(() => new TradingViewAdapter(bridge), [bridge]);
   const [strategies, setStrategies] = useState<DetectedStrategy[]>([]);
   const [selected, setSelected] = useState('');
   const [inputs, setInputs] = useState<StrategyInput[]>([]);
@@ -15,13 +20,32 @@ export default function App() {
 
   const probe = async () => {
     setError(undefined);
-    const detected = adapter.detectStrategies();
-    setStrategies(detected);
-    if (detected.length === 1) setSelected(detected[0]!.name);
+    setInputs([]);
+
+    try {
+      const detected = await adapter.detectStrategies();
+      setStrategies(detected);
+
+      if (detected.length === 1) {
+        setSelected(detected[0]!.id);
+      } else if (!detected.some((strategy) => strategy.id === selected)) {
+        setSelected('');
+      }
+
+      if (detected.length === 0) {
+        setError('No Pine strategies found on the current TradingView chart.');
+      }
+    } catch (cause) {
+      setStrategies([]);
+      setSelected('');
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
   };
 
   const readInputs = async () => {
     if (!selected) return;
+    setError(undefined);
+
     try {
       setInputs(await adapter.readStrategyInputs(selected));
     } catch (cause) {
@@ -32,6 +56,7 @@ export default function App() {
   useEffect(() => {
     void probe();
     void browser.runtime.sendMessage({ type: 'BACKEND_CONNECT' });
+
     const listener = (message: BackgroundMessage) => {
       if (message.type === 'BACKEND_STATE') {
         setConnected(message.connected);
@@ -39,9 +64,10 @@ export default function App() {
       }
       if (message.type === 'BACKEND_ERROR') setError(message.message);
     };
+
     browser.runtime.onMessage.addListener(listener);
     return () => browser.runtime.onMessage.removeListener(listener);
-  }, []);
+  }, [adapter]);
 
   return (
     <main className="panel">
@@ -58,26 +84,49 @@ export default function App() {
       <section>
         <div className="rowLabel">
           <label htmlFor="strategy">Strategy</label>
-          <button className="textButton" onClick={() => void probe()}>Refresh</button>
+          <button className="textButton" onClick={() => void probe()}>
+            Refresh
+          </button>
         </div>
-        <select id="strategy" value={selected} onChange={(event) => setSelected(event.target.value)}>
+
+        <select
+          id="strategy"
+          value={selected}
+          onChange={(event) => {
+            setSelected(event.target.value);
+            setInputs([]);
+          }}
+        >
           <option value="">Select strategy…</option>
           {strategies.map((strategy) => (
-            <option key={strategy.name} value={strategy.name}>{strategy.name}</option>
+            <option key={strategy.id} value={strategy.id}>
+              {strategy.name}
+            </option>
           ))}
         </select>
-        <button className="primary" disabled={!selected} onClick={() => void readInputs()}>
+
+        <button
+          className="primary"
+          disabled={!selected}
+          onClick={() => void readInputs()}
+        >
           Read strategy inputs
         </button>
       </section>
 
       {inputs.length > 0 && (
         <section>
-          <div className="rowLabel"><strong>Detected inputs</strong><span>{inputs.length}</span></div>
+          <div className="rowLabel">
+            <strong>Detected inputs</strong>
+            <span>{inputs.length}</span>
+          </div>
           <div className="inputList">
             {inputs.map((input) => (
               <div className="inputRow" key={input.id}>
-                <div><strong>{input.label}</strong><small>{input.type}</small></div>
+                <div>
+                  <strong>{input.label}</strong>
+                  <small>{input.type}</small>
+                </div>
                 <code>{String(input.currentValue)}</code>
               </div>
             ))}
@@ -86,7 +135,7 @@ export default function App() {
       )}
 
       {error && <div className="error">{error}</div>}
-      <footer>First vertical slice: live strategy and input probe.</footer>
+      <footer>Live TradingView strategy and input probe.</footer>
     </main>
   );
 }
