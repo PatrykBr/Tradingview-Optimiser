@@ -105,6 +105,13 @@ describe('optimisation configuration', () => {
       robustnessTopCandidates: '5',
       stabilityEnabled: false,
       stabilityPerturbationPercent: '5',
+      walkForwardEnabled: false,
+      walkForwardFolds: '3',
+      walkForwardTrialsPerFold: '100',
+      walkForwardInitialTrainingPercent: '50',
+      monteCarloEnabled: false,
+      monteCarloSimulations: '5000',
+      monteCarloConfidencePercent: '90',
     });
   });
 
@@ -180,6 +187,44 @@ describe('optimisation configuration', () => {
     expect(plan.research.convergence.enabled).toBe(false);
     expect(plan.research.robustness.enabled).toBe(false);
     expect(plan.research.stability.enabled).toBe(false);
+    expect(plan.research.walk_forward?.enabled).toBe(false);
+    expect(plan.research.monte_carlo?.enabled).toBe(false);
+  });
+
+  it('persists full date range for advanced research modes', () => {
+    const plan = buildResearchPlan(
+      {
+        ...DEFAULT_OPTIMISATION_FORM,
+        dateRangeEnabled: true,
+        startDate: '2020-01-01',
+        endDate: '2025-12-31',
+        walkForwardEnabled: true,
+        walkForwardFolds: '4',
+        walkForwardTrialsPerFold: '150',
+        walkForwardInitialTrainingPercent: '55',
+        monteCarloEnabled: true,
+        monteCarloSimulations: '7000',
+        monteCarloConfidencePercent: '95',
+      },
+      500,
+    );
+
+    expect(plan.research.walk_forward).toEqual({
+      enabled: true,
+      full_range: {
+        mode: 'deep',
+        start_date: '2020-01-01',
+        end_date: '2025-12-31',
+      },
+      folds: 4,
+      trials_per_fold: 150,
+      initial_training_fraction: 0.55,
+    });
+    expect(plan.research.monte_carlo).toEqual({
+      enabled: true,
+      simulations: 7000,
+      confidence: 0.95,
+    });
   });
 
   it('reserves OOS data when robustness is enabled', () => {
