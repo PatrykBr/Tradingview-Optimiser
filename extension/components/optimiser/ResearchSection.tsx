@@ -85,7 +85,9 @@ export default function ResearchSection({
         run.runConfig &&
         run.progress && (
           <ResearchValidationResults
-            config={run.runConfig}
+            objectiveMetric={
+              run.runConfig.objective_metric
+            }
             progress={run.progress}
             evaluation={
               research.research
