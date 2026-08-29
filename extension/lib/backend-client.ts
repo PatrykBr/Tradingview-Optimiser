@@ -181,10 +181,17 @@ export class BackendClient {
     await this.#request('STOP_RUN', { run_id: runId });
   }
 
-  async getRunAnalysis(runId: string): Promise<RunAnalysis> {
-    const response = await this.#request('GET_RUN_ANALYSIS', {
-      run_id: runId,
-    });
+  async getRunAnalysis(
+    runId: string,
+    config: CreateRun,
+  ): Promise<RunAnalysis> {
+    const response = await this.#request(
+      'GET_RUN_ANALYSIS',
+      {
+        run_id: runId,
+        config,
+      },
+    );
     return response.payload as RunAnalysis;
   }
 
