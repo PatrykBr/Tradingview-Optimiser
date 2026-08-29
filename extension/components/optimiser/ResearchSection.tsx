@@ -933,6 +933,16 @@ export default function ResearchSection({
               </div>
 
               <div className="comparisonRow">
+                <span>Reused trials</span>
+                <code>
+                  {left.reusedTrials ?? 0}
+                </code>
+                <code>
+                  {right.reusedTrials ?? 0}
+                </code>
+              </div>
+
+              <div className="comparisonRow">
                 <span>Stopped by</span>
                 <code>
                   {left.terminationReason ??
