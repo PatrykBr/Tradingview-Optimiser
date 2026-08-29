@@ -46,6 +46,8 @@ export function useBackendConnection(
   ] = useState(false);
   const [pairingCode, setPairingCode] =
     useState('');
+  const [backendVersion, setBackendVersion] =
+    useState<string>();
   const [optunaVersion, setOptunaVersion] =
     useState<string>();
   const [busy, setBusy] = useState(false);
@@ -74,6 +76,9 @@ export function useBackendConnection(
       setConnected(state.connected);
       setPairingRequired(
         state.pairingRequired ?? false,
+      );
+      setBackendVersion(
+        state.backendVersion,
       );
       setOptunaVersion(
         state.optunaVersion,
@@ -182,6 +187,7 @@ export function useBackendConnection(
     connected,
     pairingRequired,
     pairingCode,
+    backendVersion,
     optunaVersion,
     busy,
     setPairingCode,
