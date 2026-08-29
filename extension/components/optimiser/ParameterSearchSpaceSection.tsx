@@ -76,10 +76,12 @@ export default function ParameterSearchSpaceSection({
                   disabled={locked}
                   checked={enabled}
                   onChange={(event) =>
-                    model.setParameterEnabled(
-                      input.id,
-                      event.target.checked,
-                    )
+                    model.editParameterConfig({
+                      type: 'enabled',
+                      id: input.id,
+                      enabled:
+                        event.target.checked,
+                    })
                   }
                 />
                 <span className="parameterName">
@@ -106,11 +108,13 @@ export default function ParameterSearchSpaceSection({
                         }
                         disabled={locked}
                         onChange={(event) =>
-                          model.setParameterField(
-                            input.id,
-                            'low',
-                            event.target.value,
-                          )
+                          model.editParameterConfig({
+                            type: 'field',
+                            id: input.id,
+                            field: 'low',
+                            value:
+                              event.target.value,
+                          })
                         }
                       />
                     </label>
@@ -126,11 +130,13 @@ export default function ParameterSearchSpaceSection({
                         }
                         disabled={locked}
                         onChange={(event) =>
-                          model.setParameterField(
-                            input.id,
-                            'high',
-                            event.target.value,
-                          )
+                          model.editParameterConfig({
+                            type: 'field',
+                            id: input.id,
+                            field: 'high',
+                            value:
+                              event.target.value,
+                          })
                         }
                       />
                     </label>
@@ -170,11 +176,13 @@ export default function ParameterSearchSpaceSection({
                               : 'Auto (continuous)'
                         }
                         onChange={(event) =>
-                          model.setParameterField(
-                            input.id,
-                            'step',
-                            event.target.value,
-                          )
+                          model.editParameterConfig({
+                            type: 'field',
+                            id: input.id,
+                            field: 'step',
+                            value:
+                              event.target.value,
+                          })
                         }
                       />
                     </label>
@@ -189,10 +197,12 @@ export default function ParameterSearchSpaceSection({
                       checked={config.log}
                       disabled={locked}
                       onChange={(event) =>
-                        model.setParameterLog(
-                          input.id,
-                          event.target.checked,
-                        )
+                        model.editParameterConfig({
+                          type: 'log',
+                          id: input.id,
+                          log:
+                            event.target.checked,
+                        })
                       }
                     />
                     Logarithmic search
@@ -216,10 +226,11 @@ export default function ParameterSearchSpaceSection({
                               value === choice,
                           )}
                           onChange={() =>
-                            model.toggleChoice(
-                              input.id,
+                            model.editParameterConfig({
+                              type: 'choice',
+                              id: input.id,
                               choice,
-                            )
+                            })
                           }
                         />
                         {String(choice)}
@@ -242,10 +253,12 @@ export default function ParameterSearchSpaceSection({
                         }
                         disabled={locked}
                         onChange={(event) =>
-                          model.setConditionParameter(
-                            input.id,
-                            event.target.value,
-                          )
+                          model.editParameterConfig({
+                            type: 'condition',
+                            id: input.id,
+                            parameterId:
+                              event.target.value,
+                          })
                         }
                       >
                         <option value="">
@@ -296,10 +309,13 @@ export default function ParameterSearchSpaceSection({
                                         choice,
                                     )}
                                     onChange={() =>
-                                      model.toggleConditionValue(
-                                        input.id,
-                                        choice,
-                                      )
+                                      model.editParameterConfig({
+                                        type:
+                                          'condition-value',
+                                        id: input.id,
+                                        value:
+                                          choice,
+                                      })
                                     }
                                   />
                                   {String(choice)}
