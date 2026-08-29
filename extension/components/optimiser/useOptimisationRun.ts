@@ -24,6 +24,7 @@ import {
 import type {
   CreateRun,
   NextTrial,
+  RunAnalysis,
   RunProgress,
 } from '../../lib/protocol/types';
 import type { TradingViewAdapter } from '../../lib/tradingview/adapter';
@@ -633,6 +634,34 @@ export function useOptimisationRun({
       }
     }, [applyParameters, setError]);
 
+  const getRunAnalysis = useCallback(
+    async (): Promise<RunAnalysis | null> => {
+      const runId =
+        runConfig?.run_id ??
+        progress?.run_id;
+      if (!runId || !connected) return null;
+
+      return sendRequest<RunAnalysis>({
+        type: 'GET_RUN_ANALYSIS',
+        payload: { runId },
+      });
+    },
+    [
+      connected,
+      progress?.run_id,
+      runConfig?.run_id,
+      sendRequest,
+    ],
+  );
+
+  const getOriginalParameters = useCallback(
+    (): Record<string, unknown> | null =>
+      originalParametersRef.current
+        ? { ...originalParametersRef.current }
+        : null,
+    [],
+  );
+
   const exportRun = useCallback(
     async (format: 'csv' | 'json') => {
       if (!runConfig || !progress) return;
@@ -837,6 +866,8 @@ export function useOptimisationRun({
     dismissStopChoice: () =>
       setStopChoiceVisible(false),
     exportRun,
+    getRunAnalysis,
+    getOriginalParameters,
     clearDisplayedRun,
   };
 }
