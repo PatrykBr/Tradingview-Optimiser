@@ -1,5 +1,6 @@
 import type { CreateRun } from '../protocol/types';
 import type { TradingViewBridge } from './bridge';
+import type { ClosedTradeSnapshot } from './trades';
 import type {
   DeepBacktestResult,
   DetectedStrategy,
@@ -74,6 +75,15 @@ export class TradingViewAdapter {
   ): Promise<TradingViewReportSnapshot> {
     return this.bridge.request<TradingViewReportSnapshot>(
       'readReportSnapshot',
+      { strategyId },
+    );
+  }
+
+  readClosedTrades(
+    strategyId: string,
+  ): Promise<ClosedTradeSnapshot> {
+    return this.bridge.request<ClosedTradeSnapshot>(
+      'readClosedTrades',
       { strategyId },
     );
   }
