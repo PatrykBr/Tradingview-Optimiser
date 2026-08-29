@@ -1,6 +1,7 @@
 import type {
   CreateRun,
   NextTrial,
+  RunAnalysis,
   RunProgress,
   TrialResult,
 } from './protocol/types';
@@ -25,6 +26,7 @@ export type ExtensionRequest =
   | { type: 'CREATE_RUN'; payload: CreateRun }
   | { type: 'START_RUN'; payload: { runId: string } }
   | { type: 'STOP_RUN'; payload: { runId: string } }
+  | { type: 'GET_RUN_ANALYSIS'; payload: { runId: string } }
   | { type: 'REGISTER_RUN_OWNER'; payload: { runId: string } }
   | { type: 'CLEAR_RUN_OWNER'; payload: { runId: string } }
   | { type: 'TRIAL_RESULT'; payload: TrialResult }
