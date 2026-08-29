@@ -6,12 +6,11 @@ import type {
   ResearchEvaluation,
 } from '../../lib/optimisation/research';
 import type {
-  CreateRun,
   RunProgress,
 } from '../../lib/protocol/types';
 
 interface ResearchValidationResultsProps {
-  config: CreateRun;
+  objectiveMetric: string;
   progress: RunProgress;
   evaluation: ResearchEvaluation | null;
   phase?: string;
@@ -33,7 +32,7 @@ const formatMonteCarloValue = (
     : value.toFixed(2);
 
 export default function ResearchValidationResults({
-  config,
+  objectiveMetric,
   progress,
   evaluation,
   phase,
@@ -43,8 +42,6 @@ export default function ResearchValidationResults({
   onCancel,
   onApplyRobustWinner,
 }: ResearchValidationResultsProps) {
-  const objectiveMetric =
-    config.objective_metric;
   const verdict = evaluation
     ? buildResearchVerdict(
         config,
