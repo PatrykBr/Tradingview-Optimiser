@@ -108,16 +108,18 @@ export function useStrategyConfiguration(
 
       const currentSelection =
         selectedStrategyIdRef.current;
-      const nextSelected =
+      const soleStrategy =
         detected.length === 1
-          ? detected[0]!.id
-          : detected.some(
-                (strategy) =>
-                  strategy.id ===
-                  currentSelection,
-              )
-            ? currentSelection
-            : '';
+          ? detected[0]
+          : undefined;
+      const nextSelected =
+        soleStrategy?.id ??
+        (detected.some(
+          (strategy) =>
+            strategy.id === currentSelection,
+        )
+          ? currentSelection
+          : '');
 
       if (nextSelected !== currentSelection) {
         clearLoadedStrategy();
