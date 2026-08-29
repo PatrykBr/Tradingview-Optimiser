@@ -19,6 +19,7 @@ TradingView performs the backtests. The extension controls the chart and reads S
 - Strategy/symbol/timeframe safety checks
 - Persistent studies and resumable browser runs
 - Exact duplicate parameter sets reuse a completed result within the same study instead of repeating the TradingView backtest
+- Finite discrete search spaces stop cleanly once every reachable combination has been evaluated
 - Live progress, ETA, best-so-far chart and full trial history
 - Smart convergence stopping with configurable minimum trials, patience and improvement threshold
 - PED-ANOVA parameter importance from the completed Optuna study
@@ -376,4 +377,6 @@ Optuna can legitimately propose the same complete parameter set more than once, 
 
 Within a single persisted study, the backend therefore reuses the objective, metrics and constraint outcomes from the earliest matching completed trial. The new Optuna trial is still completed normally, so the sampler and target-trial accounting remain consistent, but no duplicate TradingView backtest is submitted. Reused trials are labelled in progress, experiment comparison and CSV/JSON exports.
 
-Reuse is intentionally limited to the same study. Results are not shared across experiments, symbols, timeframes, strategy signatures or date ranges.
+For a fully finite search space, the backend also calculates the exact number of reachable parameter sets, including conditional branches, when that number is no larger than the requested trial budget. Once every reachable set has been evaluated, the study finishes with **Search space exhausted** even if Max trials is higher. This prevents a two-choice or small stepped search space from generating thousands of meaningless duplicate Optuna trials.
+
+Reuse is intentionally limited to the same study. Results are not shared across experiments, symbols, timeframes, strategy signatures or date ranges. Continuous float spaces retain normal Optuna sampling because they do not have a finite enumerated cardinality.
