@@ -126,6 +126,7 @@ class CreateRun(BaseModel):
     filters: list[MetricFilter] = Field(default_factory=list, max_length=50)
     chart: ChartContext
     backtest_range: BacktestRange | None = None
+    baseline_parameters: dict[str, Primitive] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_search_space(self) -> CreateRun:
