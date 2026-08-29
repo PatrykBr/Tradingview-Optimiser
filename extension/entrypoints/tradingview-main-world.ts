@@ -29,6 +29,7 @@ interface ChartLike {
     model?: () => {
       model?: () => {
         dataSources?: () => unknown[];
+        activeStrategySource?: () => unknown;
       };
     };
   };
@@ -48,6 +49,22 @@ interface BridgeRequest {
 
 const REQUEST_EVENT = 'tvopt:request';
 const RESPONSE_EVENT = 'tvopt:response';
+
+const reportObjectIds = new WeakMap<object, number>();
+let nextReportObjectId = 1;
+
+const reportObjectId = (value: unknown): number | null => {
+  if (value === null || typeof value !== 'object') return null;
+
+  const object = value as object;
+  const existing = reportObjectIds.get(object);
+  if (existing !== undefined) return existing;
+
+  const id = nextReportObjectId;
+  nextReportObjectId += 1;
+  reportObjectIds.set(object, id);
+  return id;
+};
 
 const readMeta = (study: StudyLike): UnknownRecord => {
   try {
@@ -255,13 +272,44 @@ const getStrategySource = (
   chart: ChartLike,
   strategyId: string,
 ): {
+  id?: string | (() => string);
+  metaInfo?: () => UnknownRecord;
   reportData?: () => unknown;
 } | null => {
   try {
-    const sources = chart._chartWidget?.model?.()?.model?.()?.dataSources?.() ?? [];
+    const model = chart._chartWidget?.model?.()?.model?.();
+    if (!model) return null;
+
+    // Current TradingView builds expose the selected strategy through a watched
+    // activeStrategySource value. Prefer it because dataSources() can retain a
+    // stale strategy/report object after removal or replacement.
+    if (typeof model.activeStrategySource === 'function') {
+      const watched = model.activeStrategySource();
+      const active = unwrapValue(watched) as
+        | {
+            id?: string | (() => string);
+            metaInfo?: () => UnknownRecord;
+            reportData?: () => unknown;
+          }
+        | null;
+
+      if (active) {
+        const activeId =
+          typeof active.id === 'function' ? active.id() : active.id;
+
+        if (activeId === strategyId) return active;
+
+        // When TradingView explicitly reports a different active strategy, do
+        // not fall back to a cached data source belonging to the old one.
+        if (typeof activeId === 'string' && activeId) return null;
+      }
+    }
+
+    const sources = model.dataSources?.() ?? [];
     for (const source of sources) {
       const candidate = source as {
         id?: string | (() => string);
+        metaInfo?: () => UnknownRecord;
         reportData?: () => unknown;
       };
       const rawId =
@@ -513,6 +561,9 @@ const readStrategyReportSnapshot = (strategyId: string) => {
     return {
       metrics: null,
       token: null,
+      objectId: null,
+      backtestRange: null,
+      settingsSignature: null,
       error: 'TradingView strategy report source is unavailable',
     };
   }
@@ -524,10 +575,14 @@ const readStrategyReportSnapshot = (strategyId: string) => {
     return {
       metrics: null,
       token: null,
+      objectId: null,
+      backtestRange: null,
+      settingsSignature: null,
       error: error instanceof Error ? error.message : String(error),
     };
   }
 
+  const objectId = reportObjectId(rawReport);
   const report = asRecord(rawReport);
   const runtimeError =
     report.error ??
@@ -537,6 +592,35 @@ const readStrategyReportSnapshot = (strategyId: string) => {
 
   const metrics = readStrategyMetrics(strategyId);
   const performance = asRecord(report.performance);
+  const settings = asRecord(report.settings);
+  const dateRange = asRecord(settings.dateRange);
+  const backtest = asRecord(dateRange.backtest);
+
+  const from =
+    typeof backtest.from === 'number' && Number.isFinite(backtest.from)
+      ? backtest.from
+      : null;
+  const to =
+    typeof backtest.to === 'number' && Number.isFinite(backtest.to)
+      ? backtest.to
+      : null;
+
+  const stableSettings = Object.fromEntries(
+    Object.entries(settings).filter(
+      ([key]) =>
+        ![
+          'dateRange',
+          'inputs',
+          'inputValues',
+          'input_values',
+          'parameters',
+        ].includes(key),
+    ),
+  );
+  const settingsSignature =
+    Object.keys(stableSettings).length > 0
+      ? hashString(stableStringify(stableSettings))
+      : null;
 
   const revisionFields: UnknownRecord = {};
   for (const key of [
@@ -561,6 +645,9 @@ const readStrategyReportSnapshot = (strategyId: string) => {
       revisionFields,
       performance,
       metrics,
+      objectId,
+      backtestRange: { from, to },
+      settingsSignature,
       deepBacktesting: isDeepBacktestingActive(),
     }),
   );
@@ -568,6 +655,12 @@ const readStrategyReportSnapshot = (strategyId: string) => {
   return {
     metrics,
     token,
+    objectId,
+    backtestRange:
+      from !== null && to !== null
+        ? { from, to }
+        : null,
+    settingsSignature,
     error:
       typeof runtimeError === 'string' && runtimeError.trim()
         ? runtimeError.trim()
