@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBacktestRange,
   buildMetricFilters,
+  buildResearchPlan,
   DEFAULT_OPTIMISATION_FORM,
   formFromRun,
   parameterConfigsFromRun,
@@ -94,6 +95,16 @@ describe('optimisation configuration', () => {
       dateRangeEnabled: true,
       startDate: '2024-01-01',
       endDate: '2025-01-01',
+      convergenceEnabled: false,
+      convergenceMinTrials: '50',
+      convergencePatience: '30',
+      convergenceMinImprovementPercent: '1',
+      robustnessEnabled: false,
+      robustnessValidationPercent: '30',
+      robustnessFolds: '3',
+      robustnessTopCandidates: '5',
+      stabilityEnabled: false,
+      stabilityPerturbationPercent: '5',
     });
   });
 
@@ -140,5 +151,28 @@ describe('optimisation configuration', () => {
         endDate: '2024-01-01',
       }),
     ).toThrow(/start date must be before/);
+  });
+
+  it('reserves OOS data when robustness is enabled', () => {
+    const plan = buildResearchPlan(
+      {
+        ...DEFAULT_OPTIMISATION_FORM,
+        dateRangeEnabled: true,
+        startDate: '2020-01-01',
+        endDate: '2024-12-31',
+        robustnessEnabled: true,
+      },
+      100,
+    );
+
+    expect(plan.research.robustness.enabled).toBe(true);
+    expect(plan.research.robustness.full_range).toEqual({
+      mode: 'deep',
+      start_date: '2020-01-01',
+      end_date: '2024-12-31',
+    });
+    expect(plan.backtestRange?.end_date).not.toBe(
+      '2024-12-31',
+    );
   });
 });
