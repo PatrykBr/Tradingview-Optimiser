@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hmac
 from typing import Annotated
 
 import optuna
@@ -9,12 +8,12 @@ from pydantic import ValidationError
 
 from app.models import CreateRun, TrialFailure, TrialResult
 from app.optimisation.manager import OptimisationManager
+from app.pairing import PairingManager
 from app.protocol import ConnectedPayload, Envelope, ErrorPayload, encode
-from app.settings import Settings
 
 
-def get_settings(websocket: WebSocket) -> Settings:
-    return websocket.app.state.settings
+def get_pairing_manager(websocket: WebSocket) -> PairingManager:
+    return websocket.app.state.pairing_manager
 
 
 def get_manager(websocket: WebSocket) -> OptimisationManager:
@@ -24,10 +23,13 @@ def get_manager(websocket: WebSocket) -> OptimisationManager:
 async def verify_token(
     websocket: WebSocket,
     token: Annotated[str | None, Query()] = None,
-    settings: Annotated[Settings, Depends(get_settings)] = None,
+    pairing: Annotated[PairingManager, Depends(get_pairing_manager)] = None,
 ) -> None:
-    if token is None or not hmac.compare_digest(token, settings.extension_token):
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="invalid token")
+    if not pairing.verify_token(token):
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="invalid token",
+        )
 
 
 async def websocket_endpoint(
@@ -54,7 +56,11 @@ async def websocket_endpoint(
                 await websocket.send_json(
                     encode(
                         "ERROR",
-                        ErrorPayload(code="INVALID_REQUEST", message=str(exc), retryable=False),
+                        ErrorPayload(
+                            code="INVALID_REQUEST",
+                            message=str(exc),
+                            retryable=False,
+                        ),
                         request_id,
                     )
                 )
@@ -73,27 +79,37 @@ async def _dispatch(
         case "CREATE_RUN":
             config = CreateRun.model_validate(envelope.payload)
             progress = await manager.create_run(config)
-            await websocket.send_json(encode("RUN_PROGRESS", progress, envelope.request_id))
+            await websocket.send_json(
+                encode("RUN_PROGRESS", progress, envelope.request_id)
+            )
         case "START_RUN":
             run_id = str(envelope.payload["run_id"])
             progress, next_trial = await manager.start(run_id)
-            await websocket.send_json(encode("RUN_PROGRESS", progress, envelope.request_id))
+            await websocket.send_json(
+                encode("RUN_PROGRESS", progress, envelope.request_id)
+            )
             if next_trial is not None:
                 await websocket.send_json(encode("NEXT_TRIAL", next_trial))
         case "TRIAL_RESULT":
             result = TrialResult.model_validate(envelope.payload)
             progress, next_trial = await manager.submit_result(result)
-            await websocket.send_json(encode("RUN_PROGRESS", progress, envelope.request_id))
+            await websocket.send_json(
+                encode("RUN_PROGRESS", progress, envelope.request_id)
+            )
             if next_trial is not None:
                 await websocket.send_json(encode("NEXT_TRIAL", next_trial))
         case "TRIAL_FAILED":
             failure = TrialFailure.model_validate(envelope.payload)
             progress, next_trial = await manager.submit_failure(failure)
-            await websocket.send_json(encode("RUN_PROGRESS", progress, envelope.request_id))
+            await websocket.send_json(
+                encode("RUN_PROGRESS", progress, envelope.request_id)
+            )
             if next_trial is not None:
                 await websocket.send_json(encode("NEXT_TRIAL", next_trial))
         case "STOP_RUN":
             progress = await manager.stop(str(envelope.payload["run_id"]))
-            await websocket.send_json(encode("RUN_PROGRESS", progress, envelope.request_id))
+            await websocket.send_json(
+                encode("RUN_PROGRESS", progress, envelope.request_id)
+            )
         case _:
             raise ValueError(f"unsupported message type: {envelope.type}")
