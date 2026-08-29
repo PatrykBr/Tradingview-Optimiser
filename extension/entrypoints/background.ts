@@ -133,7 +133,7 @@ export default defineBackground(() => {
               runOwners.set(msg.payload.run_id, sender.tab.id);
               await persistRunOwners();
             }
-            backend.createRun(msg.payload);
+            await backend.createRun(msg.payload);
             return { ok: true };
 
           case 'REGISTER_RUN_OWNER':
@@ -149,19 +149,19 @@ export default defineBackground(() => {
             return { ok: true };
 
           case 'START_RUN':
-            backend.startRun(msg.payload.runId);
+            await backend.startRun(msg.payload.runId);
             return { ok: true };
 
           case 'STOP_RUN':
-            backend.stopRun(msg.payload.runId);
+            await backend.stopRun(msg.payload.runId);
             return { ok: true };
 
           case 'TRIAL_RESULT':
-            backend.submitTrialResult(msg.payload);
+            await backend.submitTrialResult(msg.payload);
             return { ok: true };
 
           case 'TRIAL_FAILED':
-            backend.submitTrialFailure(
+            await backend.submitTrialFailure(
               msg.payload.runId,
               msg.payload.trialNumber,
               msg.payload.reason,
