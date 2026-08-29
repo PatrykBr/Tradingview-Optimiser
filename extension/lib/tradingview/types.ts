@@ -18,6 +18,7 @@ export interface StrategyInput {
 }
 
 export interface DetectedStrategy {
+  id: string;
   name: string;
   shortTitle?: string;
 }
