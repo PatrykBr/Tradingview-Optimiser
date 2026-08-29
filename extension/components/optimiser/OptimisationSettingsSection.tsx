@@ -33,26 +33,23 @@ export default function OptimisationSettingsSection({
             disabled={locked}
             onChange={(event) =>
               model.updateForm({
-                objectiveMetric:
-                  event.target.value,
+                objectiveMetric: event.target.value,
               })
             }
           >
-            {OPTIMISATION_METRICS.map(
-              (metric) => (
-                <option
-                  key={metric.key}
-                  value={metric.key}
-                >
-                  {metric.label}
-                </option>
-              ),
-            )}
+            {OPTIMISATION_METRICS.map((metric) => (
+              <option
+                key={metric.key}
+                value={metric.key}
+              >
+                {metric.label}
+              </option>
+            ))}
           </select>
         </label>
 
         <label>
-          <span>Trials</span>
+          <span>Max trials</span>
           <input
             type="number"
             min="1"
@@ -61,8 +58,7 @@ export default function OptimisationSettingsSection({
             disabled={locked}
             onChange={(event) =>
               model.updateForm({
-                targetTrials:
-                  event.target.value,
+                targetTrials: event.target.value,
               })
             }
           />
@@ -82,9 +78,7 @@ export default function OptimisationSettingsSection({
               })
             }
           />
-          <span>
-            Custom Deep Backtesting range
-          </span>
+          <span>Custom Deep Backtesting range</span>
         </label>
 
         {form.dateRangeEnabled && (
@@ -97,8 +91,7 @@ export default function OptimisationSettingsSection({
                 disabled={locked}
                 onChange={(event) =>
                   model.updateForm({
-                    startDate:
-                      event.target.value,
+                    startDate: event.target.value,
                   })
                 }
               />
@@ -111,7 +104,198 @@ export default function OptimisationSettingsSection({
                 disabled={locked}
                 onChange={(event) =>
                   model.updateForm({
-                    endDate:
+                    endDate: event.target.value,
+                  })
+                }
+              />
+            </label>
+          </div>
+        )}
+      </div>
+
+      <div className="subsection researchSettings">
+        <div className="rowLabel">
+          <strong>Research</strong>
+          <span className="muted">optional</span>
+        </div>
+
+        <label className="toggleRow">
+          <input
+            type="checkbox"
+            checked={form.convergenceEnabled}
+            disabled={locked}
+            onChange={(event) =>
+              model.updateForm({
+                convergenceEnabled:
+                  event.target.checked,
+              })
+            }
+          />
+          <span>Stop when converged</span>
+        </label>
+
+        {form.convergenceEnabled && (
+          <div className="researchGrid">
+            <label>
+              <span>Min trials</span>
+              <input
+                type="number"
+                min="5"
+                value={form.convergenceMinTrials}
+                disabled={locked}
+                onChange={(event) =>
+                  model.updateForm({
+                    convergenceMinTrials:
+                      event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Patience</span>
+              <input
+                type="number"
+                min="5"
+                value={form.convergencePatience}
+                disabled={locked}
+                onChange={(event) =>
+                  model.updateForm({
+                    convergencePatience:
+                      event.target.value,
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Min improve %</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={
+                  form.convergenceMinImprovementPercent
+                }
+                disabled={locked}
+                onChange={(event) =>
+                  model.updateForm({
+                    convergenceMinImprovementPercent:
+                      event.target.value,
+                  })
+                }
+              />
+            </label>
+          </div>
+        )}
+
+        <label className="toggleRow">
+          <input
+            type="checkbox"
+            checked={form.robustnessEnabled}
+            disabled={locked}
+            onChange={(event) =>
+              model.updateForm({
+                robustnessEnabled:
+                  event.target.checked,
+              })
+            }
+          />
+          <span>Out-of-sample robustness</span>
+        </label>
+
+        {form.robustnessEnabled && (
+          <>
+            <p className="helpText researchHint">
+              Reserves the final part of your Deep
+              Backtesting range for unseen validation.
+            </p>
+            <div className="researchGrid">
+              <label>
+                <span>OOS %</span>
+                <input
+                  type="number"
+                  min="10"
+                  max="50"
+                  value={
+                    form.robustnessValidationPercent
+                  }
+                  disabled={locked}
+                  onChange={(event) =>
+                    model.updateForm({
+                      robustnessValidationPercent:
+                        event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                <span>Folds</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={form.robustnessFolds}
+                  disabled={locked}
+                  onChange={(event) =>
+                    model.updateForm({
+                      robustnessFolds:
+                        event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                <span>Candidates</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={
+                    form.robustnessTopCandidates
+                  }
+                  disabled={locked}
+                  onChange={(event) =>
+                    model.updateForm({
+                      robustnessTopCandidates:
+                        event.target.value,
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </>
+        )}
+
+        <label className="toggleRow">
+          <input
+            type="checkbox"
+            checked={form.stabilityEnabled}
+            disabled={locked}
+            onChange={(event) =>
+              model.updateForm({
+                stabilityEnabled:
+                  event.target.checked,
+              })
+            }
+          />
+          <span>Best-parameter stability test</span>
+        </label>
+
+        {form.stabilityEnabled && (
+          <div className="researchGrid singleResearchField">
+            <label>
+              <span>Perturbation %</span>
+              <input
+                type="number"
+                min="0.1"
+                max="25"
+                step="0.1"
+                value={
+                  form.stabilityPerturbationPercent
+                }
+                disabled={locked}
+                onChange={(event) =>
+                  model.updateForm({
+                    stabilityPerturbationPercent:
                       event.target.value,
                   })
                 }
@@ -125,16 +309,13 @@ export default function OptimisationSettingsSection({
         <label className="filterRow">
           <input
             type="checkbox"
-            checked={
-              form.maxDrawdownFilter.enabled
-            }
+            checked={form.maxDrawdownFilter.enabled}
             disabled={locked}
             onChange={(event) =>
               model.updateFilter(
                 'maxDrawdownFilter',
                 {
-                  enabled:
-                    event.target.checked,
+                  enabled: event.target.checked,
                 },
               )
             }
@@ -142,9 +323,7 @@ export default function OptimisationSettingsSection({
           <span>Max drawdown %</span>
           <input
             type="number"
-            value={
-              form.maxDrawdownFilter.value
-            }
+            value={form.maxDrawdownFilter.value}
             disabled={
               locked ||
               !form.maxDrawdownFilter.enabled
@@ -152,9 +331,7 @@ export default function OptimisationSettingsSection({
             onChange={(event) =>
               model.updateFilter(
                 'maxDrawdownFilter',
-                {
-                  value: event.target.value,
-                },
+                { value: event.target.value },
               )
             }
           />
@@ -171,8 +348,7 @@ export default function OptimisationSettingsSection({
               model.updateFilter(
                 'minProfitFactorFilter',
                 {
-                  enabled:
-                    event.target.checked,
+                  enabled: event.target.checked,
                 },
               )
             }
@@ -191,9 +367,7 @@ export default function OptimisationSettingsSection({
             onChange={(event) =>
               model.updateFilter(
                 'minProfitFactorFilter',
-                {
-                  value: event.target.value,
-                },
+                { value: event.target.value },
               )
             }
           />
@@ -202,16 +376,13 @@ export default function OptimisationSettingsSection({
         <label className="filterRow">
           <input
             type="checkbox"
-            checked={
-              form.minTradesFilter.enabled
-            }
+            checked={form.minTradesFilter.enabled}
             disabled={locked}
             onChange={(event) =>
               model.updateFilter(
                 'minTradesFilter',
                 {
-                  enabled:
-                    event.target.checked,
+                  enabled: event.target.checked,
                 },
               )
             }
@@ -227,9 +398,7 @@ export default function OptimisationSettingsSection({
             onChange={(event) =>
               model.updateFilter(
                 'minTradesFilter',
-                {
-                  value: event.target.value,
-                },
+                { value: event.target.value },
               )
             }
           />
