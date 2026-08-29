@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from 'react';
 import type { BackgroundMessage } from '../lib/messages';
 import { TradingViewAdapter } from '../lib/tradingview/adapter';
 import type { DetectedStrategy, StrategyInput } from '../lib/tradingview/types';
-import './App.css';
 
 export default function App() {
   const adapter = useMemo(() => new TradingViewAdapter(), []);
