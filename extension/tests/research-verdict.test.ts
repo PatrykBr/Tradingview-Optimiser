@@ -2,24 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { buildResearchVerdict } from '../lib/optimisation/research-verdict';
 import type {
-  CreateRun,
   RunProgress,
 } from '../lib/protocol/types';
-
-const config: CreateRun = {
-  run_id: 'run-1',
-  objective_metric: 'profitFactor',
-  direction: 'maximize',
-  target_trials: 100,
-  parameters: [],
-  filters: [],
-  chart: {
-    symbol: 'OANDA:XAUUSD',
-    timeframe: '5',
-    strategy_name: 'Strategy',
-    strategy_signature: 'sig',
-  },
-};
 
 const progress: RunProgress = {
   run_id: 'run-1',
@@ -42,7 +26,6 @@ const progress: RunProgress = {
 describe('research verdict', () => {
   it('builds transparent strong evidence without a numeric black-box score', () => {
     const verdict = buildResearchVerdict(
-      config,
       progress,
       {
         robustness: {
@@ -89,7 +72,6 @@ describe('research verdict', () => {
 
   it('surfaces weak and unavailable evidence as explicit concerns', () => {
     const verdict = buildResearchVerdict(
-      config,
       {
         ...progress,
         best: progress.best
