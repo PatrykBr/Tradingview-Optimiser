@@ -1,4 +1,7 @@
 import SearchSpaceAdvisor from './SearchSpaceAdvisor';
+import {
+  isPrimitive,
+} from '../../lib/optimisation/parameter-config';
 import type { Primitive } from '../../lib/protocol/types';
 import type { StrategyConfigurationModel } from './useStrategyConfiguration';
 
@@ -13,10 +16,7 @@ const primitiveOptions = (
   if (input.type === 'boolean') return [false, true];
 
   return (input.options ?? []).filter(
-    (value): value is Primitive =>
-      typeof value === 'string' ||
-      typeof value === 'number' ||
-      typeof value === 'boolean',
+    isPrimitive,
   );
 };
 
