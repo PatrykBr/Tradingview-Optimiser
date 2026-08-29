@@ -20,6 +20,7 @@ class ErrorPayload(BaseModel):
 
 class ConnectedPayload(BaseModel):
     protocol_version: Literal[1] = 1
+    backend_version: str
     optuna_version: str
 
 
