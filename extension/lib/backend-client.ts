@@ -181,6 +181,10 @@ export class BackendClient {
     await this.#request('STOP_RUN', { run_id: runId });
   }
 
+  async deleteRun(runId: string): Promise<void> {
+    await this.#request('DELETE_RUN', { run_id: runId });
+  }
+
   async getRunAnalysis(
     runId: string,
     config: CreateRun,
