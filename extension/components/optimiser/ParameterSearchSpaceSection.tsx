@@ -1,3 +1,4 @@
+import SearchSpaceAdvisor from './SearchSpaceAdvisor';
 import type { Primitive } from '../../lib/protocol/types';
 import type { StrategyConfigurationModel } from './useStrategyConfiguration';
 
@@ -314,6 +315,8 @@ export default function ParameterSearchSpaceSection({
           );
         })}
       </div>
+
+      <SearchSpaceAdvisor model={model} />
     </section>
   );
 }
