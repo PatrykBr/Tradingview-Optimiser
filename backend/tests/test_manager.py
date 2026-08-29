@@ -221,3 +221,21 @@ async def test_stopped_run_remains_stopped_after_backend_restart(tmp_path: Path)
     restarted_manager = OptimisationManager(database_url)
     progress = await restarted_manager.create_run(config)
     assert progress.status == "stopped"
+
+
+
+@pytest.mark.asyncio
+async def test_current_parameters_are_enqueued_as_first_trial(tmp_path: Path) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
+    config = make_config("baseline-test", target_trials=1)
+    config.baseline_parameters = {
+        "length": 14,
+        "risk": 1.0,
+        "filter": True,
+    }
+
+    await manager.create_run(config)
+    _, first = await manager.start("baseline-test")
+
+    assert first is not None
+    assert first.parameters == config.baseline_parameters
