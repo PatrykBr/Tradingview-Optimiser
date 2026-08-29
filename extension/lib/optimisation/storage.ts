@@ -33,6 +33,7 @@ export interface ExperimentRecord {
   status: RunStatus;
   completedTrials: number;
   failedTrials: number;
+  reusedTrials?: number;
   terminationReason:
     | 'target_trials'
     | 'converged'
@@ -117,6 +118,7 @@ const experimentFromRun = (
   status: progress.status,
   completedTrials: progress.completed_trials,
   failedTrials: progress.failed_trials,
+  reusedTrials: progress.reused_trials ?? 0,
   terminationReason:
     progress.termination_reason ?? null,
   best: progress.best,
