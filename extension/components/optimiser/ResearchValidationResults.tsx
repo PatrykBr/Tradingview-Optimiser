@@ -44,7 +44,6 @@ export default function ResearchValidationResults({
 }: ResearchValidationResultsProps) {
   const verdict = evaluation
     ? buildResearchVerdict(
-        config,
         progress,
         evaluation,
       )
@@ -154,7 +153,7 @@ export default function ResearchValidationResults({
         </div>
       )}
 
-      {robustness && robustWinner && (
+      {robustWinner && (
         <div className="researchCard">
           <div className="rowLabel">
             <strong>Robust winner</strong>
