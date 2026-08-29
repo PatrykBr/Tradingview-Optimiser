@@ -90,8 +90,8 @@ export interface ResearchConfig {
   convergence: ConvergenceConfig;
   robustness: RobustnessConfig;
   stability: StabilityConfig;
-  walk_forward: WalkForwardConfig;
-  monte_carlo: MonteCarloConfig;
+  walk_forward?: WalkForwardConfig;
+  monte_carlo?: MonteCarloConfig;
 }
 
 export interface ChartContext {
