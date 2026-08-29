@@ -67,6 +67,17 @@ export default defineBackground(() => {
       case 'connection': {
         backendState = {
           connected: event.connected,
+          ...(event.backendVersion
+            ? {
+                backendVersion:
+                  event.backendVersion,
+              }
+            : backendState.backendVersion
+              ? {
+                  backendVersion:
+                    backendState.backendVersion,
+                }
+              : {}),
           ...(event.optunaVersion
             ? { optunaVersion: event.optunaVersion }
             : backendState.optunaVersion
