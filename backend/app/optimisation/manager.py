@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 import optuna
@@ -33,6 +34,7 @@ class ActiveRun:
     status: RunStatus = RunStatus.CREATED
     outstanding_trial: Trial | None = None
     termination_reason: str | None = None
+    search_space_cardinality: int | None = None
 
 
 class OptimisationManager:
@@ -97,16 +99,27 @@ class OptimisationManager:
             persisted_status = study.user_attrs.get("run_status")
             persisted_reason = study.user_attrs.get("termination_reason")
             completed_trials = self._complete_count_for_study(study)
+            search_space_cardinality = self._finite_search_space_cardinality(
+                config.parameters,
+                config.target_trials,
+            )
 
             if completed_trials >= config.target_trials:
                 status = RunStatus.COMPLETED
                 termination_reason = "target_trials"
             elif (
                 persisted_status == RunStatus.COMPLETED.value
-                and persisted_reason == "converged"
+                and persisted_reason in {"converged", "search_space_exhausted"}
             ):
                 status = RunStatus.COMPLETED
-                termination_reason = "converged"
+                termination_reason = str(persisted_reason)
+            elif (
+                search_space_cardinality is not None
+                and self._unique_evaluated_count_for_study(study)
+                >= search_space_cardinality
+            ):
+                status = RunStatus.COMPLETED
+                termination_reason = "search_space_exhausted"
             elif persisted_status == RunStatus.STOPPED.value:
                 status = RunStatus.STOPPED
                 termination_reason = "user"
@@ -121,6 +134,7 @@ class OptimisationManager:
                 study=study,
                 status=status,
                 termination_reason=termination_reason,
+                search_space_cardinality=search_space_cardinality,
             )
             self._runs[config.run_id] = run
             self._persist_status(run)
@@ -343,6 +357,14 @@ class OptimisationManager:
             )
             return None
 
+        if self._search_space_exhausted(run):
+            self._set_status(
+                run,
+                RunStatus.COMPLETED,
+                termination_reason="search_space_exhausted",
+            )
+            return None
+
         while run.status == RunStatus.RUNNING:
             trial = run.study.ask()
             parameters: dict[str, Any] = {}
@@ -391,6 +413,14 @@ class OptimisationManager:
                 )
                 return None
 
+            if self._search_space_exhausted(run):
+                self._set_status(
+                    run,
+                    RunStatus.COMPLETED,
+                    termination_reason="search_space_exhausted",
+                )
+                return None
+
             if self._should_converge(run):
                 self._set_status(
                     run,
@@ -400,6 +430,88 @@ class OptimisationManager:
                 return None
 
         return None
+
+    @classmethod
+    def _finite_search_space_cardinality(
+        cls,
+        parameters: list[SearchParameter],
+        limit: int,
+    ) -> int | None:
+        def count_from(
+            index: int,
+            sampled_parameters: dict[str, Any],
+        ) -> int | None:
+            if index >= len(parameters):
+                return 1
+
+            parameter = parameters[index]
+            if not cls._condition_matches(parameter, sampled_parameters):
+                return count_from(index + 1, sampled_parameters)
+
+            if isinstance(parameter, CategoricalParameter):
+                total = 0
+                for choice in parameter.choices:
+                    sampled_parameters[parameter.name] = choice
+                    branch = count_from(index + 1, sampled_parameters)
+                    sampled_parameters.pop(parameter.name, None)
+
+                    if branch is None:
+                        return None
+
+                    total += branch
+                    if total > limit:
+                        return None
+
+                return total
+
+            if isinstance(parameter, IntParameter):
+                choices = ((parameter.high - parameter.low) // parameter.step) + 1
+            elif isinstance(parameter, FloatParameter):
+                if parameter.step is None or parameter.log:
+                    return None
+
+                low = Decimal(str(parameter.low))
+                high = Decimal(str(parameter.high))
+                step = Decimal(str(parameter.step))
+                choices = int((high - low) // step) + 1
+            else:  # pragma: no cover
+                return None
+
+            branch = count_from(index + 1, sampled_parameters)
+            if branch is None:
+                return None
+
+            total = choices * branch
+            return total if total <= limit else None
+
+        return count_from(0, {})
+
+    @staticmethod
+    def _unique_evaluated_count_for_study(study: optuna.Study) -> int:
+        unique: set[tuple[tuple[str, str], ...]] = set()
+
+        for trial in study.get_trials(
+            deepcopy=False,
+            states=(TrialState.COMPLETE,),
+        ):
+            if not isinstance(trial.user_attrs.get("metrics"), dict):
+                continue
+
+            signature = tuple(
+                (name, repr(value))
+                for name, value in sorted(trial.params.items())
+            )
+            unique.add(signature)
+
+        return len(unique)
+
+    @classmethod
+    def _search_space_exhausted(cls, run: ActiveRun) -> bool:
+        cardinality = run.search_space_cardinality
+        return (
+            cardinality is not None
+            and cls._unique_evaluated_count_for_study(run.study) >= cardinality
+        )
 
     @staticmethod
     def _reuse_completed_trial(run: ActiveRun, trial: Trial) -> bool:
