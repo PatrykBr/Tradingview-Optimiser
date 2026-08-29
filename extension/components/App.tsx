@@ -71,7 +71,7 @@ export default function App({ bridge }: AppProps) {
 
   return (
     <main className="panel">
-      <header>
+      <header data-drag-handle title="Drag optimiser">
         <div>
           <div className="eyebrow">TRADINGVIEW</div>
           <h1>Optuna Optimiser</h1>
