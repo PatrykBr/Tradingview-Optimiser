@@ -904,6 +904,10 @@ export default function App({ bridge }: AppProps) {
 
       await adapter.ensureStrategyTester();
 
+      if (!backtestRange) {
+        await adapter.resetToChartSession();
+      }
+
       const config: CreateRun = {
         run_id: crypto.randomUUID(),
         objective_metric: objectiveMetric,
@@ -1066,10 +1070,14 @@ export default function App({ bridge }: AppProps) {
         candidate.config,
       );
       await adapter.ensureStrategyTester();
-      await prepareDateRange(
-        matchingStrategy.id,
-        candidate.config,
-      );
+      if (candidate.config.backtest_range) {
+        await prepareDateRange(
+          matchingStrategy.id,
+          candidate.config,
+        );
+      } else {
+        await adapter.resetToChartSession();
+      }
 
       activeRunIdRef.current =
         candidate.config.run_id;
