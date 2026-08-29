@@ -68,6 +68,7 @@ export interface CreateRun {
   filters: MetricFilter[];
   chart: ChartContext;
   backtest_range?: BacktestRange | null;
+  baseline_parameters?: Record<string, Primitive>;
 }
 
 export interface NextTrial {
