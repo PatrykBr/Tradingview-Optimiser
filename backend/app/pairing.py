@@ -37,14 +37,6 @@ class PairingManager:
         self._pairing_code_expires_at = datetime.now(UTC)
         self._rotate_pairing_code()
 
-    @property
-    def token(self) -> str:
-        return self._token
-
-    @property
-    def pairing_code_expires_at(self) -> datetime:
-        return self._pairing_code_expires_at
-
     def pair(self, code: str) -> str:
         now = datetime.now(UTC)
 
