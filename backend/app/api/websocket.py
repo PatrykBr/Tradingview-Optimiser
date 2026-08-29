@@ -126,5 +126,10 @@ async def _dispatch(
             await websocket.send_json(
                 encode("RUN_PROGRESS", progress, envelope.request_id)
             )
+        case "GET_RUN_ANALYSIS":
+            analysis = await manager.analysis(str(envelope.payload["run_id"]))
+            await websocket.send_json(
+                encode("RUN_ANALYSIS", analysis, envelope.request_id)
+            )
         case _:
             raise ValueError(f"unsupported message type: {envelope.type}")
