@@ -107,6 +107,8 @@ export default function RunProgressSection({
       'profitFactor',
   );
   const best = run.progress?.best ?? null;
+  const reusedTrials =
+    run.progress?.reused_trials ?? 0;
 
   const completion =
     run.progress?.status === 'completed'
@@ -199,10 +201,9 @@ export default function RunProgressSection({
               /
               {run.progress?.target_trials ??
                 fallbackTargetTrials}
-              {(run.progress?.reused_trials ?? 0) >
-                0 &&
+              {reusedTrials > 0 &&
                 ' · ' +
-                  run.progress!.reused_trials +
+                  reusedTrials +
                   ' reused'}
             </span>
           </div>
