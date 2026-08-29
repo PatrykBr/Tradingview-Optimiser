@@ -226,8 +226,8 @@ export function useResearchValidation({
         !settings ||
         (!settings.robustness.enabled &&
           !settings.stability.enabled &&
-          !settings.walk_forward.enabled &&
-          !settings.monte_carlo.enabled)
+          !settings.walk_forward?.enabled &&
+          !settings.monte_carlo?.enabled)
       ) {
         return;
       }
@@ -262,7 +262,7 @@ export function useResearchValidation({
           });
 
         if (
-          settings.walk_forward.enabled
+          settings.walk_forward?.enabled
         ) {
           evaluation.walkForward =
             await runWalkForwardValidation({
@@ -279,7 +279,7 @@ export function useResearchValidation({
         }
 
         if (
-          settings.monte_carlo.enabled
+          settings.monte_carlo?.enabled
         ) {
           evaluation.monteCarlo =
             await runMonteCarloValidation({
