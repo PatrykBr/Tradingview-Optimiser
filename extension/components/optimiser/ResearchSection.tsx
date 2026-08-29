@@ -980,6 +980,97 @@ export default function ResearchSection({
           )}
 
           {left && (
+            <details className="experimentMeta">
+              <summary>
+                Reproducibility details
+              </summary>
+              <div className="metricsList">
+                <div>
+                  <span>Symbol</span>
+                  <code>
+                    {left.config.chart.symbol}
+                  </code>
+                </div>
+                <div>
+                  <span>Timeframe</span>
+                  <code>
+                    {left.config.chart.timeframe}
+                  </code>
+                </div>
+                <div>
+                  <span>Strategy signature</span>
+                  <code
+                    title={
+                      left.config.chart
+                        .strategy_signature
+                    }
+                  >
+                    {left.config.chart
+                      .strategy_signature.slice(
+                        0,
+                        18,
+                      )}
+                    …
+                  </code>
+                </div>
+                <div>
+                  <span>Date range</span>
+                  <code>
+                    {left.config.backtest_range
+                      ? left.config
+                          .backtest_range
+                          .start_date +
+                        ' → ' +
+                        left.config
+                          .backtest_range
+                          .end_date
+                      : 'Chart session'}
+                  </code>
+                </div>
+                <div>
+                  <span>Search parameters</span>
+                  <code>
+                    {
+                      left.config.parameters
+                        .length
+                    }
+                  </code>
+                </div>
+                <div>
+                  <span>Constraints</span>
+                  <code>
+                    {left.config.filters.length}
+                  </code>
+                </div>
+                <div>
+                  <span>Extension</span>
+                  <code>
+                    {left.environment
+                      ?.extensionVersion ??
+                      'legacy'}
+                  </code>
+                </div>
+                <div>
+                  <span>Backend</span>
+                  <code>
+                    {left.environment
+                      ?.backendVersion ??
+                      'legacy'}
+                  </code>
+                </div>
+                <div>
+                  <span>Optuna</span>
+                  <code>
+                    {left.environment
+                      ?.optunaVersion ??
+                      'legacy'}
+                  </code>
+                </div>
+              </div>
+            </details>
+          )}
+
+          {left && (
             <div className="experimentActions">
               <button
                 className="secondary"
