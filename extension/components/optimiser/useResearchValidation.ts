@@ -446,70 +446,15 @@ export function useResearchValidation({
               .perturbation_percent,
           );
 
-        if (variants.length === 0) {
-          setPhase(
-            'No numeric parameters to test for stability',
-          );
-        } else {
+        if (variants.length > 0) {
           setPhase(
             'Testing winner stability',
           );
 
-        const baselineMetrics =
-          await adapter.evaluateParameters(
-            strategyId,
-            winnerParameters,
-            range
-              ? {
-                  startDate:
-                    range.start_date,
-                  endDate:
-                    range.end_date,
-                }
-              : null,
-            controller.signal,
-          );
-        await validateContext(
-          config,
-          range,
-        );
-
-        const baselineObjective =
-          objectiveValue(
-            baselineMetrics,
-            config.objective_metric,
-          );
-        if (baselineObjective === null) {
-          throw new Error(
-            'TradingView did not expose the objective metric for the stability baseline',
-          );
-        }
-
-        const grouped = new Map<
-          string,
-          {
-            baselineValue: number;
-            neighbours: StabilityNeighbourResult[];
-          }
-        >();
-
-        for (
-          let index = 0;
-          index < variants.length;
-          index += 1
-        ) {
-          const variant = variants[index]!;
-          setPhase(
-            'Stability test ' +
-              (index + 1) +
-              '/' +
-              variants.length,
-          );
-
-          const metrics =
+          const baselineMetrics =
             await adapter.evaluateParameters(
               strategyId,
-              variant.parameters,
+              winnerParameters,
               range
                 ? {
                     startDate:
@@ -525,107 +470,152 @@ export function useResearchValidation({
             range,
           );
 
-          const objective =
+          const baselineObjective =
             objectiveValue(
-              metrics,
+              baselineMetrics,
               config.objective_metric,
             );
-          const passed =
-            objective !== null &&
-            passesMetricFilters(
-              metrics,
-              config.filters,
+          if (baselineObjective === null) {
+            throw new Error(
+              'TradingView did not expose the objective metric for the stability baseline',
             );
-          const degradation =
-            objective === null
-              ? null
-              : degradationPercent(
-                  baselineObjective,
-                  objective,
-                  config.direction,
-                );
+          }
 
-          const current =
-            grouped.get(
-              variant.parameter,
-            ) ?? {
-              baselineValue:
-                variant.baselineValue,
-              neighbours: [],
-            };
+          const grouped = new Map<
+            string,
+            {
+              baselineValue: number;
+              neighbours: StabilityNeighbourResult[];
+            }
+          >();
 
-          current.neighbours.push({
-            value: variant.value,
-            objectiveValue: objective,
-            degradationPercent:
-              degradation,
-            passedFilters: passed,
-          });
-          grouped.set(
-            variant.parameter,
-            current,
-          );
-        }
+          for (
+            let index = 0;
+            index < variants.length;
+            index += 1
+          ) {
+            const variant = variants[index]!;
+            setPhase(
+              'Stability test ' +
+                (index + 1) +
+                '/' +
+                variants.length,
+            );
 
-        const parameters: StabilityParameterResult[] =
-          [...grouped.entries()].map(
-            ([parameter, result]) => {
-              const degradations =
-                result.neighbours.map(
-                  (neighbour) =>
-                    neighbour.passedFilters &&
-                    neighbour
-                      .degradationPercent !==
-                      null
-                      ? Math.max(
-                          0,
-                          neighbour
-                            .degradationPercent,
-                        )
-                      : 100,
-                );
-              const average =
-                degradations.length > 0
-                  ? degradations.reduce(
-                      (sum, value) =>
-                        sum + value,
-                      0,
-                    ) /
-                    degradations.length
-                  : 0;
+            const metrics =
+              await adapter.evaluateParameters(
+                strategyId,
+                variant.parameters,
+                range
+                  ? {
+                      startDate:
+                        range.start_date,
+                      endDate:
+                        range.end_date,
+                    }
+                  : null,
+                controller.signal,
+              );
+            await validateContext(
+              config,
+              range,
+            );
 
-              return {
-                parameter,
+            const objective =
+              objectiveValue(
+                metrics,
+                config.objective_metric,
+              );
+            const passed =
+              objective !== null &&
+              passesMetricFilters(
+                metrics,
+                config.filters,
+              );
+            const degradation =
+              objective === null
+                ? null
+                : degradationPercent(
+                    baselineObjective,
+                    objective,
+                    config.direction,
+                  );
+
+            const current =
+              grouped.get(
+                variant.parameter,
+              ) ?? {
                 baselineValue:
-                  result.baselineValue,
-                rating:
-                  stabilityRating(average),
-                averageDegradationPercent:
-                  average,
-                neighbours:
-                  result.neighbours,
+                  variant.baselineValue,
+                neighbours: [],
               };
-            },
+
+            current.neighbours.push({
+              value: variant.value,
+              objectiveValue: objective,
+              degradationPercent:
+                degradation,
+              passedFilters: passed,
+            });
+            grouped.set(
+              variant.parameter,
+              current,
+            );
+          }
+
+          const parameters: StabilityParameterResult[] =
+            [...grouped.entries()].map(
+              ([parameter, result]) => {
+                const degradations =
+                  result.neighbours.map(
+                    (neighbour) =>
+                      neighbour.passedFilters &&
+                      neighbour
+                        .degradationPercent !==
+                        null
+                        ? Math.max(
+                            0,
+                            neighbour
+                              .degradationPercent,
+                          )
+                        : 100,
+                  );
+                const average =
+                  degradations.reduce(
+                    (sum, value) =>
+                      sum + value,
+                    0,
+                  ) / degradations.length;
+
+                return {
+                  parameter,
+                  baselineValue:
+                    result.baselineValue,
+                  rating:
+                    stabilityRating(average),
+                  averageDegradationPercent:
+                    average,
+                  neighbours:
+                    result.neighbours,
+                };
+              },
+            );
+
+          const worst = Math.max(
+            ...parameters.map(
+              (parameter) =>
+                parameter
+                  .averageDegradationPercent,
+            ),
           );
 
-        const worst =
-          parameters.length > 0
-            ? Math.max(
-                ...parameters.map(
-                  (parameter) =>
-                    parameter
-                      .averageDegradationPercent,
-                ),
-              )
-            : 0;
-
-        evaluation.stability = {
-          baselineObjective,
-          range,
-          overallRating:
-            stabilityRating(worst),
-          parameters,
-        };
+          evaluation.stability = {
+            baselineObjective,
+            range,
+            overallRating:
+              stabilityRating(worst),
+            parameters,
+          };
         }
       }
 
