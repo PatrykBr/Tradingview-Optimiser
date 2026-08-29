@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import optuna
-from optuna.importance import get_param_importances
+from optuna.importance import get_param_importances, PedAnovaImportanceEvaluator
 from optuna.trial import FrozenTrial, Trial, TrialState
 
 from app.models import (
@@ -281,6 +281,9 @@ class OptimisationManager:
                 try:
                     importance = get_param_importances(
                         run.study,
+                        evaluator=PedAnovaImportanceEvaluator(
+                            target_quantile=0.2,
+                        ),
                         params=sorted(common_parameters),
                         target=self._importance_target(run),
                     )
