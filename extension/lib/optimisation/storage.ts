@@ -7,12 +7,19 @@ import type {
 } from '../protocol/types';
 import type { ResearchEvaluation } from './research';
 
+export interface RunEnvironment {
+  extensionVersion: string;
+  backendVersion?: string;
+  optunaVersion?: string;
+}
+
 export interface PersistedOptimisationRun {
   version: 1;
   config: CreateRun;
   strategyId: string;
   originalParameters: Record<string, unknown>;
   startedAt: number;
+  environment?: RunEnvironment;
   finishedAt?: number;
   lastProgress?: RunProgress;
 }
@@ -32,6 +39,7 @@ export interface ExperimentRecord {
     | 'user'
     | null;
   best: BestTrial | null;
+  environment?: RunEnvironment;
   analysis?: RunAnalysis;
   research?: ResearchEvaluation;
 }
@@ -112,6 +120,12 @@ const experimentFromRun = (
   terminationReason:
     progress.termination_reason ?? null,
   best: progress.best,
+  ...(run.environment
+    ? {
+        environment:
+          run.environment,
+      }
+    : {}),
 });
 
 const saveExperiment = async (
