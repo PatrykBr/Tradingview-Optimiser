@@ -8,9 +8,27 @@ export type RunStatus =
   | 'failed';
 
 export type SearchParameter =
-  | { type: 'float'; name: string; low: number; high: number; step?: number; log?: boolean }
-  | { type: 'int'; name: string; low: number; high: number; step?: number; log?: boolean }
-  | { type: 'categorical'; name: string; choices: Array<string | number | boolean> };
+  | {
+      type: 'float';
+      name: string;
+      low: number;
+      high: number;
+      step?: number;
+      log?: boolean;
+    }
+  | {
+      type: 'int';
+      name: string;
+      low: number;
+      high: number;
+      step?: number;
+      log?: boolean;
+    }
+  | {
+      type: 'categorical';
+      name: string;
+      choices: Array<string | number | boolean>;
+    };
 
 export interface MetricFilter {
   metric: string;
@@ -55,6 +73,16 @@ export interface BestTrial {
   constraints: Record<string, number>;
 }
 
+export interface TrialSummary {
+  trial_number: number;
+  state: 'complete' | 'failed';
+  objective_value: number | null;
+  parameters: Record<string, unknown>;
+  metrics: Record<string, number>;
+  constraints: Record<string, number>;
+  failure_reason: string | null;
+}
+
 export interface RunProgress {
   run_id: string;
   status: RunStatus;
@@ -62,6 +90,7 @@ export interface RunProgress {
   target_trials: number;
   failed_trials: number;
   best: BestTrial | null;
+  trials: TrialSummary[];
 }
 
 export interface Envelope<T = unknown> {
