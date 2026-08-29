@@ -43,7 +43,7 @@ export interface MonteCarloBacktestAdapter {
   ): Promise<Record<string, unknown>>;
 }
 
-export interface MonteCarloExecutionRequest {
+interface MonteCarloExecutionRequest {
   adapter: MonteCarloBacktestAdapter;
   strategyId: string;
   config: CreateRun;
