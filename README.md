@@ -54,10 +54,23 @@ Filters are constraints, not extra objectives. A trial can have a strong objecti
 | Option | What it does | When to use it |
 | --- | --- | --- |
 | **Min / Max** | Defines the search interval for a numeric Pine input. | Keep the interval wide enough to explore meaningfully, but avoid values that make no practical sense for the strategy. |
-| **Step** | Restricts a numeric parameter to discrete increments. | Use the natural increment of the Pine input, for example 1 for an integer period or 0.1 for a decimal multiplier. |
+| **Step (optional)** | Restricts a numeric parameter to discrete increments. Leaving it blank means **Auto**. Auto uses Pine's declared step when TradingView exposes one, otherwise it uses 1 for integers and continuous Optuna search for floats. | Usually leave this on Auto. Set a custom step only when you deliberately want a coarser/finer grid than the Pine input's normal granularity. |
 | **Logarithmic search** | Samples a positive numeric range on a logarithmic scale. | Use when useful values may span orders of magnitude. Do not use it for narrow linear ranges or values that can be zero/negative. |
 | **Categorical choices** | Chooses which boolean or categorical values Optuna may test. | Disable choices you never want the study to consider. |
 | **Only optimise when** | Makes one parameter conditional on the value of another categorical parameter. | Use when an input only has meaning while a feature/mode is enabled. This prevents wasting trials on irrelevant combinations. |
+
+#### How Step affects optimisation
+
+Step is not required for Optuna float parameters, but it changes the values Optuna is allowed to try. For example, a range of `0.5–2.0` with step `0.1` is a discrete grid (`0.5, 0.6, 0.7, ...`), while the same float range with no step is continuous and Optuna may try values such as `0.8734`.
+
+The extension therefore defaults Step to **Auto**:
+
+- If TradingView exposes a Pine step, Auto uses that value.
+- If no step is exposed for an integer, Auto uses `1`.
+- If no step is exposed for a float, Auto leaves the Optuna search continuous.
+- Logarithmic float searches are continuous because Optuna does not allow a fixed step together with `log=true`.
+
+In most cases, leave Step blank. Override it only when the strategy has a meaningful custom granularity, such as testing an ATR multiplier strictly in increments of `0.25`.
 
 ### Research settings
 
