@@ -149,11 +149,6 @@ class OptimisationManager:
             next_trial = self._next_trial_locked(run)
             return self._progress(run), next_trial
 
-    async def next_trial(self, run_id: str) -> NextTrial | None:
-        async with self._lock:
-            run = self._require(run_id)
-            return self._next_trial_locked(run)
-
     async def submit_result(self, result: TrialResult) -> tuple[RunProgress, NextTrial | None]:
         async with self._lock:
             run = self._require(result.run_id)
