@@ -1,9 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import {
-  formatMetric,
-  metricDefinition,
-} from '../../lib/optimisation/metrics';
+import { formatMetric } from '../../lib/optimisation/metrics';
 import type { ExperimentRecord } from '../../lib/optimisation/storage';
 import type { ResearchValidationModel } from './useResearchValidation';
 import type { OptimisationRunModel } from './useOptimisationRun';
@@ -53,8 +50,10 @@ const comparisonValue = (
 
   const value =
     experiment.best.metrics[key];
-  return Number.isFinite(value)
-    ? formatMetric(key, value!)
+
+  return typeof value === 'number' &&
+    Number.isFinite(value)
+    ? formatMetric(key, value)
     : '—';
 };
 
