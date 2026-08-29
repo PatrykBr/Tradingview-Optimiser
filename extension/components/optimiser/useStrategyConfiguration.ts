@@ -92,6 +92,17 @@ export function useStrategyConfiguration(
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const clearLoadedStrategy = useCallback(() => {
+    setInputs([]);
+    setParameterConfigs({});
+    setCurrentStrategySignature(undefined);
+    setSavedPresets([]);
+    setSelectedPresetId('');
+    setPresetName('');
+    setDiagnostics(null);
+    setDiagnosticsOpen(false);
+  }, []);
+
   const probe = useCallback(async () => {
     setError(undefined);
 
@@ -99,15 +110,21 @@ export function useStrategyConfiguration(
       const detected = await adapter.detectStrategies();
       setStrategies(detected);
 
-      if (detected.length === 1) {
-        setSelectedStrategyId(detected[0]!.id);
-      } else {
-        setSelectedStrategyId((current) =>
-          detected.some((strategy) => strategy.id === current)
-            ? current
-            : '',
-        );
+      const nextSelected =
+        detected.length === 1
+          ? detected[0]!.id
+          : detected.some(
+                (strategy) =>
+                  strategy.id ===
+                  selectedStrategyId,
+              )
+            ? selectedStrategyId
+            : '';
+
+      if (nextSelected !== selectedStrategyId) {
+        clearLoadedStrategy();
       }
+      setSelectedStrategyId(nextSelected);
 
       if (detected.length === 0) {
         setError(
@@ -121,7 +138,12 @@ export function useStrategyConfiguration(
         cause instanceof Error ? cause.message : String(cause),
       );
     }
-  }, [adapter, setError]);
+  }, [
+    adapter,
+    clearLoadedStrategy,
+    selectedStrategyId,
+    setError,
+  ]);
 
   const refreshStrategyPresets = useCallback(
     async (strategyId: string): Promise<string> => {
@@ -169,17 +191,13 @@ export function useStrategyConfiguration(
     [adapter],
   );
 
-  const selectStrategy = useCallback((strategyId: string) => {
-    setSelectedStrategyId(strategyId);
-    setInputs([]);
-    setParameterConfigs({});
-    setCurrentStrategySignature(undefined);
-    setSavedPresets([]);
-    setSelectedPresetId('');
-    setPresetName('');
-    setDiagnostics(null);
-    setDiagnosticsOpen(false);
-  }, []);
+  const selectStrategy = useCallback(
+    (strategyId: string) => {
+      setSelectedStrategyId(strategyId);
+      clearLoadedStrategy();
+    },
+    [clearLoadedStrategy],
+  );
 
   const readInputs = useCallback(async () => {
     if (!selectedStrategyId) return;
@@ -289,7 +307,6 @@ export function useStrategyConfiguration(
     }
   }, [
     adapter,
-    currentStrategySignature,
     form,
     inputs.length,
     parameterConfigs,
@@ -388,26 +405,37 @@ export function useStrategyConfiguration(
     [savedPresets],
   );
 
-  const setParameterEnabled = useCallback(
-    (id: string, enabled: boolean) => {
-      setParameterConfigs((current) => ({
-        ...current,
-        [id]: {
-          ...(current[id] ?? {
-            enabled: false,
-            low: '',
-            high: '',
-            step: '',
-            log: false,
-            choices: [],
-            conditionParameter: '',
-            conditionValues: [],
-          }),
-          enabled,
-        },
-      }));
+  const updateParameterConfig = useCallback(
+    (
+      id: string,
+      update: (
+        config: ParameterConfig,
+      ) => ParameterConfig,
+    ) => {
+      setParameterConfigs((current) => {
+        const config = current[id];
+        if (!config) return current;
+
+        return {
+          ...current,
+          [id]: update(config),
+        };
+      });
     },
     [],
+  );
+
+  const setParameterEnabled = useCallback(
+    (id: string, enabled: boolean) => {
+      updateParameterConfig(
+        id,
+        (config) => ({
+          ...config,
+          enabled,
+        }),
+      );
+    },
+    [updateParameterConfig],
   );
 
   const setParameterField = useCallback(
@@ -416,67 +444,70 @@ export function useStrategyConfiguration(
       field: 'low' | 'high' | 'step',
       value: string,
     ) => {
-      setParameterConfigs((current) => ({
-        ...current,
-        [id]: {
-          ...current[id]!,
+      updateParameterConfig(
+        id,
+        (config) => ({
+          ...config,
           [field]: value,
-        },
-      }));
+        }),
+      );
     },
-    [],
+    [updateParameterConfig],
   );
 
   const setParameterLog = useCallback(
     (id: string, log: boolean) => {
-      setParameterConfigs((current) => ({
-        ...current,
-        [id]: {
-          ...current[id]!,
+      updateParameterConfig(
+        id,
+        (config) => ({
+          ...config,
           log,
-          ...(log ? { step: '' } : {}),
-        },
-      }));
+          step: log ? '' : config.step,
+        }),
+      );
     },
-    [],
+    [updateParameterConfig],
   );
 
   const toggleChoice = useCallback(
     (id: string, choice: Primitive) => {
-      setParameterConfigs((current) => {
-        const config = current[id]!;
-        const exists = config.choices.some(
-          (value) => value === choice,
-        );
+      updateParameterConfig(
+        id,
+        (config) => {
+          const exists = config.choices.some(
+            (value) => value === choice,
+          );
 
-        return {
-          ...current,
-          [id]: {
+          return {
             ...config,
             choices: exists
               ? config.choices.filter(
                   (value) => value !== choice,
                 )
               : [...config.choices, choice],
-          },
-        };
-      });
+          };
+        },
+      );
     },
-    [],
+    [updateParameterConfig],
   );
 
   const setConditionParameter = useCallback(
     (id: string, parameterId: string) => {
       setParameterConfigs((current) => {
+        const config = current[id];
+        if (!config) return current;
+
         const parent = current[parameterId];
 
         return {
           ...current,
           [id]: {
-            ...current[id]!,
+            ...config,
             conditionParameter: parameterId,
             conditionValues:
-              parameterId && parent?.choices.length
+              parameterId &&
+              parent?.choices.length
                 ? [parent.choices[0]!]
                 : [],
           },
@@ -488,26 +519,29 @@ export function useStrategyConfiguration(
 
   const toggleConditionValue = useCallback(
     (id: string, value: Primitive) => {
-      setParameterConfigs((current) => {
-        const config = current[id]!;
-        const exists = config.conditionValues.some(
-          (item) => item === value,
-        );
+      updateParameterConfig(
+        id,
+        (config) => {
+          const exists =
+            config.conditionValues.some(
+              (item) => item === value,
+            );
 
-        return {
-          ...current,
-          [id]: {
+          return {
             ...config,
             conditionValues: exists
               ? config.conditionValues.filter(
                   (item) => item !== value,
                 )
-              : [...config.conditionValues, value],
-          },
-        };
-      });
+              : [
+                  ...config.conditionValues,
+                  value,
+                ],
+          };
+        },
+      );
     },
-    [],
+    [updateParameterConfig],
   );
 
   const updateForm = useCallback(
