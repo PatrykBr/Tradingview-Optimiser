@@ -55,9 +55,9 @@ Filters are constraints, not extra objectives. A trial can have a strong objecti
 | --- | --- | --- |
 | **Min / Max** | Defines the search interval for a numeric Pine input. | Keep the interval wide enough to explore meaningfully, but avoid values that make no practical sense for the strategy. |
 | **Step (optional)** | Restricts a numeric parameter to discrete increments. Leaving it blank means **Auto**. Auto uses Pine's declared step when TradingView exposes one, otherwise it uses 1 for integers and continuous Optuna search for floats. | Usually leave this on Auto. Set a custom step only when you deliberately want a coarser/finer grid than the Pine input's normal granularity. |
-| **Logarithmic search** | Samples a positive numeric range on a logarithmic scale. | Use when useful values may span orders of magnitude. Do not use it for narrow linear ranges or values that can be zero/negative. |
+| **Logarithmic search** | Samples a positive numeric range by ratio rather than equal linear distance. This gives similar attention to each order of magnitude. | Use it when sensible values span a large multiplicative range, for example `0.001–1`, `0.1–100` or `1–1000`. Leave it off for narrow ranges, values that can be zero/negative, or parameters where ordinary numeric distance is meaningful. |
 | **Categorical choices** | Chooses which boolean or categorical values Optuna may test. | Disable choices you never want the study to consider. |
-| **Only optimise when** | Makes one parameter conditional on the value of another categorical parameter. | Use when an input only has meaning while a feature/mode is enabled. This prevents wasting trials on irrelevant combinations. |
+| **Active when** | Makes one parameter conditional on the value of another boolean/dropdown parameter. | Use when an input only has meaning while a feature or mode is active. This prevents wasting trials on irrelevant combinations. |
 
 #### How Step affects optimisation
 
@@ -71,6 +71,37 @@ The extension therefore defaults Step to **Auto**:
 - Logarithmic float searches are continuous because Optuna does not allow a fixed step together with `log=true`.
 
 In most cases, leave Step blank. Override it only when the strategy has a meaningful custom granularity, such as testing an ATR multiplier strictly in increments of `0.25`.
+
+#### How logarithmic search affects optimisation
+
+A normal numeric search treats equal **differences** as equally spaced. For a range of `1–1000`, values around `900` occupy far more of the linear range than values around `1–10`.
+
+A logarithmic search instead treats equal **ratios** as equally important. Conceptually, a range such as:
+
+```text
+1 → 10 → 100 → 1000
+```
+
+gets much more balanced exploration across those scales.
+
+Good uses include parameters where a sensible value could plausibly be several times or tens/hundreds of times larger than another sensible value, for example:
+
+- very wide multipliers or thresholds
+- regularisation/penalty strengths
+- very wide positive sensitivity constants
+- positive scale parameters spanning multiple orders of magnitude
+
+Usually leave logarithmic search **off** for:
+
+- ordinary lookback periods such as `10–50`
+- ATR periods such as `5–30`
+- a multiplier range such as `1.0–4.0`
+- values that may be `0` or negative
+- any range where a difference of `+1` or `+0.1` has a consistent practical meaning
+
+As a rule of thumb, if the important question is **"2×, 5× or 10× larger?"**, logarithmic search may be appropriate. If the important question is **"+1, +5 or +0.1?"**, use the normal linear search.
+
+Logarithmic search requires a positive minimum. While it is enabled, the extension disables the custom Step field because Optuna float logarithmic search cannot be combined with a fixed step. Logarithmic integer search uses integer values with step `1`.
 
 #### Conditional parameters
 
