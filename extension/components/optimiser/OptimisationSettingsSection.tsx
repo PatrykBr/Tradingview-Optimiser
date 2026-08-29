@@ -27,7 +27,7 @@ export default function OptimisationSettingsSection({
       <strong>Optimisation</strong>
 
       <div className="fieldGrid">
-        <label>
+        <label title="The TradingView performance metric Optuna will optimise. Choose the metric that best represents your actual goal; filters can constrain the other metrics.">
           <span>Metric</span>
           <select
             value={form.objectiveMetric}
@@ -49,7 +49,7 @@ export default function OptimisationSettingsSection({
           </select>
         </label>
 
-        <label>
+        <label title="Maximum number of Optuna trials. More trials explore the search space more thoroughly but take longer. Convergence stopping can end the study earlier.">
           <span>Max trials</span>
           <input
             type="number"
@@ -67,7 +67,10 @@ export default function OptimisationSettingsSection({
       </div>
 
       <div className="subsection">
-        <label className="toggleRow">
+        <label
+          className="toggleRow"
+          title="Use TradingView Deep Backtesting over a fixed date range. Required for out-of-sample robustness. Use this when you want reproducible historical periods rather than the current chart session."
+        >
           <input
             type="checkbox"
             checked={form.dateRangeEnabled}
@@ -120,7 +123,10 @@ export default function OptimisationSettingsSection({
           <span className="muted">optional</span>
         </div>
 
-        <label className="toggleRow">
+        <label
+          className="toggleRow"
+          title="Stop the Optuna study early when the best feasible objective has not improved enough for the configured patience window. Useful for large trial budgets where the study may converge well before the maximum."
+        >
           <input
             type="checkbox"
             checked={form.convergenceEnabled}
@@ -136,8 +142,12 @@ export default function OptimisationSettingsSection({
         </label>
 
         {form.convergenceEnabled && (
-          <div className="researchGrid">
-            <label>
+          <>
+            <p className="helpText researchHint">
+              Saves time on large studies by stopping after sustained lack of meaningful improvement.
+            </p>
+            <div className="researchGrid">
+            <label title="The study cannot stop for convergence before this many completed trials. Keep this high enough for Optuna to explore the search space first.">
               <span>Min trials</span>
               <input
                 type="number"
@@ -152,7 +162,7 @@ export default function OptimisationSettingsSection({
                 }
               />
             </label>
-            <label>
+            <label title="Number of recent completed trials allowed without enough improvement before the study is considered converged. Larger values are more conservative.">
               <span>Patience</span>
               <input
                 type="number"
@@ -167,7 +177,7 @@ export default function OptimisationSettingsSection({
                 }
               />
             </label>
-            <label>
+            <label title="Minimum percentage improvement in the best feasible objective needed to reset the convergence window. Lower values demand smaller improvements and therefore tend to run longer.">
               <span>Min improve %</span>
               <input
                 type="number"
@@ -186,9 +196,13 @@ export default function OptimisationSettingsSection({
               />
             </label>
           </div>
+          </>
         )}
 
-        <label className="toggleRow">
+        <label
+          className="toggleRow"
+          title="Reserve the final part of the Deep Backtesting range as unseen data. After optimisation, re-test the top feasible candidates across sequential out-of-sample windows and rank them by robustness."
+        >
           <input
             type="checkbox"
             checked={form.robustnessEnabled}
@@ -210,7 +224,7 @@ export default function OptimisationSettingsSection({
               Backtesting range for unseen validation.
             </p>
             <div className="researchGrid">
-              <label>
+              <label title="Percentage of the full Deep Backtesting range kept completely unseen during optimisation. 20–30% is a good default; higher values strengthen validation but leave less data for training.">
                 <span>OOS %</span>
                 <input
                   type="number"
@@ -228,7 +242,7 @@ export default function OptimisationSettingsSection({
                   }
                 />
               </label>
-              <label>
+              <label title="Number of sequential validation windows in the unseen period. Three folds is a good default for checking performance across different market regimes.">
                 <span>Folds</span>
                 <input
                   type="number"
@@ -244,7 +258,7 @@ export default function OptimisationSettingsSection({
                   }
                 />
               </label>
-              <label>
+              <label title="How many of the best feasible Optuna trials to re-test out of sample. More candidates reduce the chance of choosing one lucky in-sample winner but add candidates × folds extra TradingView backtests.">
                 <span>Candidates</span>
                 <input
                   type="number"
@@ -266,7 +280,10 @@ export default function OptimisationSettingsSection({
           </>
         )}
 
-        <label className="toggleRow">
+        <label
+          className="toggleRow"
+          title="After optimisation, perturb each numeric parameter around the selected winner and re-test it. Use this to detect sharp peaks where tiny parameter changes destroy performance."
+        >
           <input
             type="checkbox"
             checked={form.stabilityEnabled}
@@ -282,8 +299,12 @@ export default function OptimisationSettingsSection({
         </label>
 
         {form.stabilityEnabled && (
-          <div className="researchGrid singleResearchField">
-            <label>
+          <>
+            <p className="helpText researchHint">
+              Checks whether the winner sits on a broad stable plateau instead of a fragile parameter spike.
+            </p>
+            <div className="researchGrid singleResearchField">
+            <label title="How far to move each numeric parameter, expressed as a percentage of that parameter's full search range. Around 5% is a sensible default.">
               <span>Perturbation %</span>
               <input
                 type="number"
@@ -303,11 +324,15 @@ export default function OptimisationSettingsSection({
               />
             </label>
           </div>
+          </>
         )}
       </div>
 
       <div className="filterList">
-        <label className="filterRow">
+        <label
+          className="filterRow"
+          title="Constraint only: trials above this TradingView maximum drawdown percentage are considered infeasible. This does not become the optimisation objective."
+        >
           <input
             type="checkbox"
             checked={form.maxDrawdownFilter.enabled}
@@ -338,7 +363,10 @@ export default function OptimisationSettingsSection({
           />
         </label>
 
-        <label className="filterRow">
+        <label
+          className="filterRow"
+          title="Constraint only: trials below this Profit Factor are considered infeasible. Useful when optimising another metric while enforcing a minimum strategy quality."
+        >
           <input
             type="checkbox"
             checked={
@@ -374,7 +402,10 @@ export default function OptimisationSettingsSection({
           />
         </label>
 
-        <label className="filterRow">
+        <label
+          className="filterRow"
+          title="Constraint only: trials with fewer trades are considered infeasible. Use it to avoid selecting impressive metrics produced by an unrealistically small sample."
+        >
           <input
             type="checkbox"
             checked={form.minTradesFilter.enabled}
