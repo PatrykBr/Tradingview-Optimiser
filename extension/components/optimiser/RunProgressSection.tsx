@@ -204,6 +204,7 @@ export default function RunProgressSection({
           {graphPoints.length >= 2 && (
             <BestSoFarChart
               points={graphPoints}
+              metricKey={objective.key}
             />
           )}
 
