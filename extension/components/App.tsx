@@ -31,6 +31,7 @@ import {
   type TrialSort,
 } from '../lib/optimisation/results';
 import {
+  buildBaselineParameters,
   buildSearchSpace,
   conditionCandidatesFor,
   defaultParameterConfig,
@@ -796,6 +797,8 @@ export default function App({ bridge }: AppProps) {
         inputs,
         parameterConfigs,
       );
+      const baselineParameters =
+        buildBaselineParameters(inputs, parameters);
       const filters = buildFilters();
       const trials = numberOrThrow(
         targetTrials,
@@ -852,6 +855,7 @@ export default function App({ bridge }: AppProps) {
           strategy_signature: strategySignature,
         },
         backtest_range: backtestRange,
+        baseline_parameters: baselineParameters,
       };
 
       await prepareDateRange(selected, config);
