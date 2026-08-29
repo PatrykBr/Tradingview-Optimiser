@@ -6,14 +6,12 @@ import type {
   CreateRun,
   RunProgress,
 } from '../protocol/types';
-import type {
-  TradingViewAdapter,
-} from '../tradingview/adapter';
 import {
   createStudyTrialRunner,
 } from './study-trial-runner';
 import {
   evaluateOptimisationTrial,
+  type OptimisationTrialAdapter,
   type TrialExecutionUpdate,
 } from './trial-executor';
 
@@ -30,7 +28,7 @@ export interface AuxiliaryStudyTransport {
 
 export interface AuxiliaryStudyRequest {
   transport: AuxiliaryStudyTransport;
-  adapter: TradingViewAdapter;
+  adapter: OptimisationTrialAdapter;
   strategyId: string;
   config: CreateRun;
   originalParameters:
