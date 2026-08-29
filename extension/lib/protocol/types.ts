@@ -52,6 +52,32 @@ export interface BacktestRange {
   end_date: string;
 }
 
+export interface ConvergenceConfig {
+  enabled: boolean;
+  min_trials: number;
+  patience: number;
+  min_improvement_percent: number;
+}
+
+export interface RobustnessConfig {
+  enabled: boolean;
+  full_range?: BacktestRange | null;
+  validation_fraction: number;
+  folds: number;
+  top_candidates: number;
+}
+
+export interface StabilityConfig {
+  enabled: boolean;
+  perturbation_percent: number;
+}
+
+export interface ResearchConfig {
+  convergence: ConvergenceConfig;
+  robustness: RobustnessConfig;
+  stability: StabilityConfig;
+}
+
 export interface ChartContext {
   symbol: string;
   timeframe: string;
@@ -70,6 +96,7 @@ export interface CreateRun {
   chart: ChartContext;
   backtest_range?: BacktestRange | null;
   baseline_parameters?: Record<string, Primitive>;
+  research?: ResearchConfig;
 }
 
 export interface NextTrial {
@@ -111,7 +138,14 @@ export interface RunProgress {
   target_trials: number;
   failed_trials: number;
   best: BestTrial | null;
+  termination_reason?: 'target_trials' | 'converged' | 'user' | null;
   trials: TrialSummary[];
+}
+
+export interface RunAnalysis {
+  run_id: string;
+  parameter_importance: Record<string, number>;
+  completed_trials: number;
 }
 
 export interface Envelope<T = unknown> {
