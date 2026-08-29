@@ -40,6 +40,12 @@ import type { PreparedOptimisationRun } from './useStrategyConfiguration';
 
 type TrialExecution = TrialExecutionUpdate;
 
+export interface CompatibilityWatchdog {
+  status: 'idle' | 'healthy' | 'failed';
+  lastSuccessfulTrialAt: number | null;
+  lastFailure: string | null;
+}
+
 interface UseOptimisationRunOptions {
   adapter: TradingViewAdapter;
   prepareRun: () => Promise<PreparedOptimisationRun>;
@@ -90,6 +96,12 @@ export function useOptimisationRun({
   const [stopChoiceVisible, setStopChoiceVisible] =
     useState(false);
   const [busy, setBusy] = useState(false);
+  const [watchdog, setWatchdog] =
+    useState<CompatibilityWatchdog>({
+      status: 'idle',
+      lastSuccessfulTrialAt: null,
+      lastFailure: null,
+    });
 
   const [startedAt, setStartedAt] =
     useState<number | null>(null);
@@ -109,6 +121,84 @@ export function useOptimisationRun({
     useRef<AbortController | null>(null);
   const recoveringBackendRef = useRef(false);
   const consecutiveExecutionFailuresRef = useRef(0);
+
+  const assertCompatibility =
+    useCallback(
+      async (
+        strategyId: string,
+        config: CreateRun,
+      ) => {
+        const diagnostics =
+          await adapter.diagnostics(
+            strategyId,
+          );
+        const critical = new Set([
+          'chart-api',
+          'strategy-detection',
+          'inputs-readable',
+          'inputs-writable',
+          'report-source',
+          'metrics-readable',
+          'strategy-signature',
+        ]);
+        const failed =
+          diagnostics.checks.filter(
+            (check) =>
+              critical.has(check.id) &&
+              !check.ok,
+          );
+
+        if (
+          config.backtest_range &&
+          !diagnostics.deepBacktesting
+            .available
+        ) {
+          failed.push({
+            id: 'deep-backtesting',
+            label: 'Deep Backtesting',
+            ok: false,
+            detail:
+              diagnostics.deepBacktesting
+                .reason ??
+              'Unavailable',
+          });
+        }
+
+        if (failed.length > 0) {
+          const reason =
+            failed
+              .map(
+                (check) =>
+                  check.label +
+                  (check.detail
+                    ? ': ' +
+                      check.detail
+                    : ''),
+              )
+              .join('; ');
+
+          setWatchdog({
+            status: 'failed',
+            lastSuccessfulTrialAt:
+              null,
+            lastFailure: reason,
+          });
+
+          throw new Error(
+            'SAFETY: TradingView compatibility pre-flight failed: ' +
+              reason,
+          );
+        }
+
+        setWatchdog({
+          status: 'healthy',
+          lastSuccessfulTrialAt:
+            null,
+          lastFailure: null,
+        });
+      },
+      [adapter],
+    );
 
   const recoverBackendRun =
     useCallback(async () => {
@@ -201,6 +291,12 @@ export function useOptimisationRun({
         });
 
         consecutiveExecutionFailuresRef.current = 0;
+        setWatchdog((current) => ({
+          status: 'healthy',
+          lastSuccessfulTrialAt:
+            Date.now(),
+          lastFailure: null,
+        }));
       } catch (cause) {
         const aborted =
           cause instanceof DOMException &&
@@ -240,6 +336,15 @@ export function useOptimisationRun({
               reason,
             ) ||
             consecutiveExecutionFailuresRef.current >= 3;
+
+          if (fatalIntegrationFailure) {
+            setWatchdog((current) => ({
+              status: 'failed',
+              lastSuccessfulTrialAt:
+                current.lastSuccessfulTrialAt,
+              lastFailure: reason,
+            }));
+          }
 
           try {
             if (fatalIntegrationFailure) {
@@ -318,6 +423,11 @@ export function useOptimisationRun({
     async (
       prepared: PreparedOptimisationRun,
     ) => {
+      await assertCompatibility(
+        prepared.strategyId,
+        prepared.config,
+      );
+
       const now = Date.now();
 
       const persisted: PersistedOptimisationRun = {
@@ -365,7 +475,10 @@ export function useOptimisationRun({
         },
       });
     },
-    [sendRequest],
+    [
+      assertCompatibility,
+      sendRequest,
+    ],
   );
 
   const resetFailedStart =
@@ -487,6 +600,10 @@ export function useOptimisationRun({
           candidate.config,
           originalParametersRef.current,
         );
+        await assertCompatibility(
+          strategyId,
+          candidate.config,
+        );
 
         activeRunIdRef.current =
           candidate.config.run_id;
@@ -541,6 +658,7 @@ export function useOptimisationRun({
     }, [
       connected,
       pairingRequired,
+      assertCompatibility,
       restorePersistedRun,
       resumeCandidate,
       sendRequest,
@@ -558,6 +676,11 @@ export function useOptimisationRun({
       setRunConfig(null);
       setStartedAt(null);
       setFinishedAt(null);
+      setWatchdog({
+        status: 'idle',
+        lastSuccessfulTrialAt: null,
+        lastFailure: null,
+      });
     }, []);
 
   const stopOptimisation =
@@ -792,6 +915,11 @@ export function useOptimisationRun({
     setStartedAt(null);
     setFinishedAt(null);
     setStopChoiceVisible(false);
+    setWatchdog({
+      status: 'idle',
+      lastSuccessfulTrialAt: null,
+      lastFailure: null,
+    });
   }, []);
 
   useEffect(() => {
@@ -946,6 +1074,7 @@ export function useOptimisationRun({
     stopChoiceVisible,
     busy: busy || backend.busy,
     elapsedMs,
+    watchdog,
     setPairingCode: backend.setPairingCode,
     pairBackend: backend.pairBackend,
     startOptimisation,
