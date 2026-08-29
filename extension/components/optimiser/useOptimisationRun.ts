@@ -9,9 +9,16 @@ import {
 
 import type { BackgroundMessage } from '../../lib/messages';
 import {
+  runAuxiliaryStudy,
+} from '../../lib/optimisation/auxiliary-study-runner';
+import {
   buildRunJson,
   buildTrialsCsv,
 } from '../../lib/optimisation/export';
+import {
+  evaluateOptimisationTrial,
+  type TrialExecutionUpdate,
+} from '../../lib/optimisation/trial-executor';
 import {
   clearActiveRun,
   finishActiveRun,
@@ -31,11 +38,7 @@ import type { TradingViewAdapter } from '../../lib/tradingview/adapter';
 import { useBackendConnection } from './useBackendConnection';
 import type { PreparedOptimisationRun } from './useStrategyConfiguration';
 
-interface TrialExecution {
-  number: number;
-  parameters: Record<string, unknown>;
-  phase: 'checking' | 'recalculating' | 'submitting';
-}
+type TrialExecution = TrialExecutionUpdate;
 
 interface UseOptimisationRunOptions {
   adapter: TradingViewAdapter;
@@ -178,65 +181,23 @@ export function useOptimisationRun({
         trial.trial_number;
       const controller = new AbortController();
       abortControllerRef.current = controller;
-      const trialStartedAt = Date.now();
-
       try {
-        setCurrentTrial({
-          number: trial.trial_number,
-          parameters: trial.parameters,
-          phase: 'checking',
-        });
-
-        await adapter.assertRunContext(
-          strategyId,
-          config,
-          originalParametersRef.current,
-        );
-
-        setCurrentTrial({
-          number: trial.trial_number,
-          parameters: trial.parameters,
-          phase: 'recalculating',
-        });
-
-        const metrics =
-          await adapter.evaluateParameters(
+        const result =
+          await evaluateOptimisationTrial({
+            adapter,
             strategyId,
-            trial.parameters,
-            config.backtest_range
-              ? {
-                  startDate:
-                    config.backtest_range
-                      .start_date,
-                  endDate:
-                    config.backtest_range
-                      .end_date,
-                }
-              : null,
-            controller.signal,
-          );
-
-        await adapter.assertRunContext(
-          strategyId,
-          config,
-          originalParametersRef.current,
-        );
-
-        setCurrentTrial({
-          number: trial.trial_number,
-          parameters: trial.parameters,
-          phase: 'submitting',
-        });
+            config,
+            trial,
+            originalParameters:
+              originalParametersRef.current,
+            signal: controller.signal,
+            onPhase:
+              setCurrentTrial,
+          });
 
         await sendRequest({
           type: 'TRIAL_RESULT',
-          payload: {
-            run_id: trial.run_id,
-            trial_number: trial.trial_number,
-            metrics,
-            duration_ms:
-              Date.now() - trialStartedAt,
-          },
+          payload: result,
         });
 
         consecutiveExecutionFailuresRef.current = 0;
@@ -634,6 +595,60 @@ export function useOptimisationRun({
       }
     }, [applyParameters, setError]);
 
+  const runAuxiliaryOptimisation =
+    useCallback(
+      async (
+        config: CreateRun,
+        strategyId: string,
+        originalParameters:
+          Record<string, unknown> | null,
+        signal?: AbortSignal,
+        onPhase?: (
+          update: TrialExecutionUpdate,
+        ) => void,
+        onProgress?: (
+          progress: RunProgress,
+        ) => void,
+      ): Promise<RunProgress> =>
+        runAuxiliaryStudy({
+          adapter,
+          strategyId,
+          config,
+          originalParameters,
+          signal,
+          onPhase,
+          onProgress,
+          transport: {
+            request: sendRequest,
+            subscribe: (listener) => {
+              const runtimeListener = (
+                message: unknown,
+              ) => {
+                if (
+                  message &&
+                  typeof message === 'object' &&
+                  'type' in message
+                ) {
+                  listener(
+                    message as BackgroundMessage,
+                  );
+                }
+              };
+
+              browser.runtime.onMessage.addListener(
+                runtimeListener,
+              );
+
+              return () =>
+                browser.runtime.onMessage.removeListener(
+                  runtimeListener,
+                );
+            },
+          },
+        }),
+      [adapter, sendRequest],
+    );
+
   const getRunAnalysis = useCallback(
     async (): Promise<RunAnalysis | null> => {
       const runId =
@@ -881,6 +896,7 @@ export function useOptimisationRun({
     exportRun,
     getRunAnalysis,
     getOriginalParameters,
+    runAuxiliaryOptimisation,
     clearDisplayedRun,
   };
 }
