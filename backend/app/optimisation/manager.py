@@ -18,6 +18,7 @@ from app.models import (
     RunStatus,
     TrialFailure,
     TrialResult,
+    TrialSummary,
 )
 
 
@@ -221,6 +222,7 @@ class OptimisationManager:
             target_trials=run.config.target_trials,
             failed_trials=sum(t.state == TrialState.FAIL for t in run.study.trials),
             best=self._best(run),
+            trials=self._trial_summaries(run),
         )
 
     @staticmethod
@@ -230,6 +232,34 @@ class OptimisationManager:
     @classmethod
     def _complete_count(cls, run: ActiveRun) -> int:
         return cls._complete_count_for_study(run.study)
+
+    @staticmethod
+    def _trial_summaries(run: ActiveRun) -> list[TrialSummary]:
+        summaries: list[TrialSummary] = []
+        for trial in run.study.trials:
+            if trial.state not in {TrialState.COMPLETE, TrialState.FAIL}:
+                continue
+
+            metrics = trial.user_attrs.get("metrics")
+            metrics_dict = (
+                {key: float(value) for key, value in metrics.items()}
+                if isinstance(metrics, dict)
+                else {}
+            )
+            constraints = dict(trial.constraints)
+
+            summaries.append(
+                TrialSummary(
+                    trial_number=trial.number,
+                    state="complete" if trial.state == TrialState.COMPLETE else "failed",
+                    objective_value=float(trial.value) if trial.value is not None else None,
+                    parameters=dict(trial.params),
+                    metrics=metrics_dict,
+                    constraints=constraints,
+                    failure_reason=trial.user_attrs.get("failure_reason"),
+                )
+            )
+        return summaries
 
     @staticmethod
     def _best(run: ActiveRun) -> BestTrial | None:
