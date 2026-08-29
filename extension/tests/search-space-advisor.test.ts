@@ -31,14 +31,30 @@ const inputs: StrategyInput[] = [
   },
 ];
 
+const enable = (
+  configs: ReturnType<
+    typeof createParameterConfigs
+  >,
+  id: string,
+) => {
+  const config = configs[id];
+  if (!config) {
+    throw new Error(
+      'Missing advisor test config: ' + id,
+    );
+  }
+  config.enabled = true;
+  return config;
+};
+
 describe('search-space advisor', () => {
   it('flags a thin budget and suggests log search for very wide positive ranges', () => {
     const configs =
       createParameterConfigs(inputs);
 
-    configs.length!.enabled = true;
-    configs.multiplier!.enabled = true;
-    configs.mode!.enabled = true;
+    enable(configs, 'length');
+    enable(configs, 'multiplier');
+    enable(configs, 'mode');
 
     const advice = analyseSearchSpace(
       inputs,
@@ -66,11 +82,11 @@ describe('search-space advisor', () => {
     const configs =
       createParameterConfigs(inputs);
 
-    configs.length!.enabled = true;
-    configs.mode!.enabled = true;
-    configs.length!.conditionParameter =
-      'mode';
-    configs.length!.conditionValues = ['A'];
+    enable(configs, 'mode');
+    const length =
+      enable(configs, 'length');
+    length.conditionParameter = 'mode';
+    length.conditionValues = ['A'];
 
     const advice = analyseSearchSpace(
       inputs,
@@ -94,8 +110,8 @@ describe('search-space advisor', () => {
         inputs[2]!,
       ]);
 
-    configs.length!.enabled = true;
-    configs.mode!.enabled = true;
+    enable(configs, 'length');
+    enable(configs, 'mode');
 
     const advice = analyseSearchSpace(
       [inputs[0]!, inputs[2]!],
