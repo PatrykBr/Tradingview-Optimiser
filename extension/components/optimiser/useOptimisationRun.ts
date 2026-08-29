@@ -12,8 +12,7 @@ import {
   runAuxiliaryStudy,
 } from '../../lib/optimisation/auxiliary-study-runner';
 import {
-  buildRunJson,
-  buildTrialsCsv,
+  buildRunExport,
 } from '../../lib/optimisation/export';
 import {
   compatibilityFailureReason,
@@ -61,12 +60,6 @@ interface UseOptimisationRunOptions {
   selectedStrategyId: string;
   setError: Dispatch<SetStateAction<string | undefined>>;
 }
-
-const safeFilename = (value: string): string =>
-  value
-    .replace(/[^a-z0-9._-]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || 'optimisation';
 
 export function useOptimisationRun({
   adapter,
@@ -793,31 +786,13 @@ export function useOptimisationRun({
     async (format: 'csv' | 'json') => {
       if (!runConfig || !progress) return;
 
-      const base =
-        safeFilename(
-          runConfig.chart.strategy_name,
-        ) +
-        '-' +
-        runConfig.run_id.slice(0, 8);
-      const isCsv = format === 'csv';
-
       await sendRequest({
         type: 'EXPORT_RESULTS',
-        payload: {
-          filename: base + '.' + format,
-          mimeType: isCsv
-            ? 'text/csv'
-            : 'application/json',
-          content: isCsv
-            ? buildTrialsCsv(
-                runConfig,
-                progress,
-              )
-            : buildRunJson(
-                runConfig,
-                progress,
-              ),
-        },
+        payload: buildRunExport(
+          runConfig,
+          progress,
+          format,
+        ),
       });
     },
     [progress, runConfig, sendRequest],
