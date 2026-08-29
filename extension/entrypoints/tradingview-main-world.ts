@@ -287,18 +287,191 @@ const unwrapValue = (value: unknown): unknown => {
   return value;
 };
 
+const normaliseText = (value: string): string =>
+  value.replace(/\s+/g, ' ').trim();
+
+const parseUiNumber = (
+  value: string,
+  preferPercent = false,
+): number | undefined => {
+  const matches = value.match(
+    /[−-]?\d[\d\s,.]*(?:\.\d+)?%?/g,
+  );
+  if (!matches) return undefined;
+
+  const candidates = matches
+    .map((raw) => {
+      const percent = raw.includes('%');
+      const cleaned = raw
+        .replace(/−/g, '-')
+        .replace(/%/g, '')
+        .replace(/\s/g, '');
+
+      let normalised = cleaned;
+      if (
+        cleaned.includes(',') &&
+        cleaned.includes('.')
+      ) {
+        normalised = cleaned.replace(/,/g, '');
+      } else if (
+        cleaned.includes(',') &&
+        !cleaned.includes('.')
+      ) {
+        const parts = cleaned.split(',');
+        normalised =
+          parts.at(-1)?.length === 3
+            ? cleaned.replace(/,/g, '')
+            : cleaned.replace(',', '.');
+      }
+
+      const numeric = Number(normalised);
+      return Number.isFinite(numeric)
+        ? { numeric, percent }
+        : null;
+    })
+    .filter(
+      (
+        candidate,
+      ): candidate is {
+        numeric: number;
+        percent: boolean;
+      } => candidate !== null,
+    );
+
+  const preferred = preferPercent
+    ? candidates.find((candidate) => candidate.percent)
+    : candidates.find((candidate) => !candidate.percent) ??
+      candidates[0];
+
+  return preferred?.numeric;
+};
+
+const findVisibleMetricValue = (
+  labels: RegExp[],
+  preferPercent = false,
+): number | undefined => {
+  const elements = document.querySelectorAll<HTMLElement>(
+    'span, div, td, th',
+  );
+
+  for (const element of elements) {
+    if (element.offsetParent === null) continue;
+
+    const ownText = normaliseText(
+      element.textContent ?? '',
+    );
+    if (
+      ownText.length > 80 ||
+      !labels.some((pattern) => pattern.test(ownText))
+    ) {
+      continue;
+    }
+
+    let container: HTMLElement | null = element;
+    for (let depth = 0; depth < 4 && container; depth += 1) {
+      const text = normaliseText(container.textContent ?? '');
+      const withoutLabel = labels.reduce(
+        (current, pattern) =>
+          current.replace(pattern, ' '),
+        text,
+      );
+      const value = parseUiNumber(
+        withoutLabel,
+        preferPercent,
+      );
+      if (value !== undefined) return value;
+      container = container.parentElement;
+    }
+  }
+
+  return undefined;
+};
+
+const readVisibleStrategyReportMetrics = () => {
+  const metrics: Record<string, number> = {};
+  const put = (key: string, value: number | undefined) => {
+    if (value !== undefined) metrics[key] = value;
+  };
+
+  put(
+    'profitFactor',
+    findVisibleMetricValue([/^profit factor$/i]),
+  );
+  put(
+    'totalTrades',
+    findVisibleMetricValue([/^total trades$/i]),
+  );
+  put(
+    'percentProfitable',
+    findVisibleMetricValue(
+      [/^profitable trades$/i, /^percent profitable$/i],
+      true,
+    ),
+  );
+  put(
+    'netProfitPercent',
+    findVisibleMetricValue(
+      [/^total p&l$/i, /^net profit$/i],
+      true,
+    ),
+  );
+  put(
+    'maxDrawdownPercent',
+    findVisibleMetricValue(
+      [
+        /^max equity drawdown$/i,
+        /^max(?:imum)? drawdown$/i,
+      ],
+      true,
+    ),
+  );
+  put(
+    'sharpeRatio',
+    findVisibleMetricValue([/^sharpe ratio$/i]),
+  );
+  put(
+    'sortinoRatio',
+    findVisibleMetricValue([/^sortino ratio$/i]),
+  );
+
+  for (const [key, value] of Object.entries(metrics)) {
+    metrics['tv.visible.' + key] = value;
+  }
+
+  return Object.keys(metrics).length > 0
+    ? metrics
+    : null;
+};
+
+const isDeepBacktestingActive = (): boolean =>
+  findClickableByText(/reset to chart session/i) !== null;
+
 const readStrategyMetrics = (strategyId: string) => {
   const chart = getChart();
   const source = getStrategySource(chart, strategyId);
-  if (!source || typeof source.reportData !== 'function') return null;
 
-  try {
-    return extractTradingViewMetrics(
-      unwrapValue(source.reportData()),
-    );
-  } catch {
-    return null;
+  let internalMetrics: Record<string, number> | null = null;
+  if (source && typeof source.reportData === 'function') {
+    try {
+      internalMetrics = extractTradingViewMetrics(
+        unwrapValue(source.reportData()),
+      );
+    } catch {
+      internalMetrics = null;
+    }
   }
+
+  const visibleMetrics =
+    readVisibleStrategyReportMetrics();
+
+  if (isDeepBacktestingActive() && visibleMetrics) {
+    return {
+      ...(internalMetrics ?? {}),
+      ...visibleMetrics,
+    };
+  }
+
+  return internalMetrics ?? visibleMetrics;
 };
 
 const readStrategyReportSnapshot = (strategyId: string) => {
@@ -355,6 +528,8 @@ const readStrategyReportSnapshot = (strategyId: string) => {
     stableStringify({
       revisionFields,
       performance,
+      metrics,
+      deepBacktesting: isDeepBacktestingActive(),
     }),
   );
 
