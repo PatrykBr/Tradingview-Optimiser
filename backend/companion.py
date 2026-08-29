@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
+import optuna
 import uvicorn
 
 from app.main import app
@@ -24,7 +26,33 @@ def _configure_frozen_data_dir() -> None:
     os.environ["TVOPT_DATA_DIR"] = str(data_dir)
 
 
+def _run_packaged_storage_self_test() -> None:
+    with TemporaryDirectory(prefix="tradecopy-companion-self-test-") as temp_dir:
+        database_path = Path(temp_dir) / "self-test.db"
+        storage_url = f"sqlite:///{database_path.resolve()}"
+
+        study = optuna.create_study(
+            study_name="tradecopy-companion-self-test",
+            storage=storage_url,
+            direction="maximize",
+        )
+        trial = study.ask()
+        trial.suggest_int("value", 1, 2)
+        study.tell(trial, 1.0)
+
+        if study.best_value != 1.0:
+            raise RuntimeError(
+                "Optuna packaged storage self-test produced an unexpected result"
+            )
+
+    print("TradeCopy Companion packaged storage self-test passed.")
+
+
 def main() -> None:
+    if "--self-test" in sys.argv[1:]:
+        _run_packaged_storage_self_test()
+        return
+
     _configure_frozen_data_dir()
     settings = Settings()
 
