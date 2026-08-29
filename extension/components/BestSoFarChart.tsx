@@ -1,22 +1,35 @@
+import { formatMetric } from '../lib/optimisation/metrics';
 import type { BestSoFarPoint } from '../lib/optimisation/results';
 
 interface BestSoFarChartProps {
   points: BestSoFarPoint[];
+  metricKey: string;
 }
 
 export default function BestSoFarChart({
   points,
+  metricKey,
 }: BestSoFarChartProps) {
   if (points.length < 2) return null;
 
   const width = 330;
   const height = 92;
-  const padding = 8;
+  const leftPadding = 34;
+  const rightPadding = 8;
+  const verticalPadding = 10;
 
   const values = points.map((point) => point.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const spread = max - min || 1;
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const rawSpread = rawMax - rawMin;
+
+  const domainPadding =
+    rawSpread > 0
+      ? rawSpread * 0.08
+      : Math.max(Math.abs(rawMax) * 0.05, 0.05);
+  const min = rawMin - domainPadding;
+  const max = rawMax + domainPadding;
+  const spread = max - min;
 
   const firstTrial = points[0]!.trial;
   const lastTrial = points[points.length - 1]!.trial;
@@ -24,16 +37,20 @@ export default function BestSoFarChart({
 
   const coordinates = points.map((point) => {
     const x =
-      padding +
+      leftPadding +
       ((point.trial - firstTrial) / trialSpread) *
-        (width - padding * 2);
+        (width - leftPadding - rightPadding);
     const y =
       height -
-      padding -
+      verticalPadding -
       ((point.value - min) / spread) *
-        (height - padding * 2);
+        (height - verticalPadding * 2);
 
-    return { x, y };
+    return {
+      ...point,
+      x,
+      y,
+    };
   });
 
   const path = coordinates
@@ -46,17 +63,73 @@ export default function BestSoFarChart({
     )
     .join(' ');
 
+  const improvements = coordinates.filter(
+    (point, index) =>
+      index === 0 ||
+      point.value !== coordinates[index - 1]!.value,
+  );
+  const best = improvements.at(-1)!;
+
   return (
     <div className="bestChart">
+      <div className="bestChartHeader">
+        <span>Best so far</span>
+        <strong>
+          {formatMetric(metricKey, best.value)}
+        </strong>
+      </div>
+
       <svg
         viewBox={'0 0 ' + width + ' ' + height}
         role="img"
-        aria-label="Best objective value so far"
+        aria-label={
+          'Best objective value so far: ' +
+          formatMetric(metricKey, best.value)
+        }
       >
-        <path className="bestChartLine" d={path} fill="none" />
+        <text
+          className="bestChartAxisLabel"
+          x="2"
+          y="13"
+        >
+          {formatMetric(metricKey, rawMax)}
+        </text>
+        <text
+          className="bestChartAxisLabel"
+          x="2"
+          y={height - 2}
+        >
+          {formatMetric(metricKey, rawMin)}
+        </text>
+
+        <path
+          className="bestChartLine"
+          d={path}
+          fill="none"
+        />
+
+        {improvements.map((point, index) => (
+          <circle
+            key={point.trial}
+            className={
+              index === improvements.length - 1
+                ? 'bestChartPoint bestChartPointCurrent'
+                : 'bestChartPoint'
+            }
+            cx={point.x}
+            cy={point.y}
+            r={
+              index === improvements.length - 1
+                ? 3
+                : 2
+            }
+          />
+        ))}
       </svg>
+
       <div className="bestChartLabels">
         <span>Trial {firstTrial}</span>
+        <span>Best at trial {best.trial}</span>
         <span>Trial {lastTrial}</span>
       </div>
     </div>
