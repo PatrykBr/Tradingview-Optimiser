@@ -97,3 +97,48 @@ export const buildRunJson = (
     null,
     2,
   );
+
+
+export interface RunExport {
+  filename: string;
+  mimeType: string;
+  content: string;
+}
+
+const safeFilename = (
+  value: string,
+): string =>
+  value
+    .replace(/[^a-z0-9._-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'optimisation';
+
+export const buildRunExport = (
+  config: CreateRun,
+  progress: RunProgress,
+  format: 'csv' | 'json',
+): RunExport => {
+  const base =
+    safeFilename(
+      config.chart.strategy_name,
+    ) +
+    '-' +
+    config.run_id.slice(0, 8);
+  const isCsv = format === 'csv';
+
+  return {
+    filename: base + '.' + format,
+    mimeType: isCsv
+      ? 'text/csv'
+      : 'application/json',
+    content: isCsv
+      ? buildTrialsCsv(
+          config,
+          progress,
+        )
+      : buildRunJson(
+          config,
+          progress,
+        ),
+  };
+};
