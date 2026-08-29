@@ -11,6 +11,7 @@ export type BackendEvent =
   | {
       type: 'connection';
       connected: boolean;
+      backendVersion?: string;
       optunaVersion?: string;
       pairingRequired?: boolean;
     }
@@ -41,6 +42,7 @@ export class BackendClient {
   #manualClose = false;
   #authenticated = false;
   #pairingRequired = false;
+  #backendVersion: string | undefined;
   #optunaVersion: string | undefined;
 
   subscribe(listener: Listener): () => void {
@@ -55,6 +57,9 @@ export class BackendClient {
   } {
     return {
       connected: this.#authenticated,
+      ...(this.#backendVersion
+        ? { backendVersion: this.#backendVersion }
+        : {}),
       ...(this.#optunaVersion ? { optunaVersion: this.#optunaVersion } : {}),
       pairingRequired: this.#pairingRequired,
     };
@@ -297,8 +302,14 @@ export class BackendClient {
 
     switch (message.type) {
       case 'CONNECTED': {
-        const payload = message.payload as { optuna_version?: string };
-        this.#optunaVersion = payload.optuna_version;
+        const payload = message.payload as {
+          backend_version?: string;
+          optuna_version?: string;
+        };
+        this.#backendVersion =
+          payload.backend_version;
+        this.#optunaVersion =
+          payload.optuna_version;
         this.#authenticated = true;
         this.#pairingRequired = false;
         this.#emitConnection(true);
@@ -373,6 +384,12 @@ export class BackendClient {
     this.#emit({
       type: 'connection',
       connected,
+      ...(this.#backendVersion
+        ? {
+            backendVersion:
+              this.#backendVersion,
+          }
+        : {}),
       ...(this.#optunaVersion
         ? { optunaVersion: this.#optunaVersion }
         : {}),
