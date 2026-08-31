@@ -47,7 +47,7 @@ def test_websocket_connects_and_pongs(monkeypatch, tmp_path) -> None:
 
         connected = websocket.receive_json()
         assert connected["type"] == "CONNECTED"
-        assert connected["payload"]["protocol_version"] == 1
+        assert connected["payload"]["protocol_version"] == 2
         assert connected["payload"]["backend_version"] == "0.2.0"
         assert connected["payload"]["optuna_version"]
 
