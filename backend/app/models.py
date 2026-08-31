@@ -293,7 +293,7 @@ class CreateRun(BaseModel):
 
 
 class TrialResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     run_id: str
     trial_number: int = Field(ge=0)
     metrics: dict[str, float]
@@ -370,4 +370,11 @@ class RunUpdate(BaseModel):
 class RunAnalysis(BaseModel):
     run_id: str
     parameter_importance: dict[str, float] = Field(default_factory=dict)
+    parameter_importance_status: Literal[
+        "available",
+        "insufficient_data",
+        "not_applicable",
+        "failed",
+    ] = "available"
+    parameter_importance_error: str | None = None
     completed_trials: int

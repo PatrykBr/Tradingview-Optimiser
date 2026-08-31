@@ -4,7 +4,6 @@ import hmac
 import logging
 import os
 import secrets
-from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -70,8 +69,14 @@ class PairingManager:
 
         token = secrets.token_urlsafe(32)
         self._token_path.write_text(token, encoding="utf-8")
-        with suppress(OSError):
+        try:
             os.chmod(self._token_path, 0o600)
+        except OSError as exc:
+            logger.warning(
+                "Could not restrict optimiser token permissions on %s: %s",
+                self._token_path,
+                exc,
+            )
         return token
 
     def _rotate_pairing_code(self) -> None:

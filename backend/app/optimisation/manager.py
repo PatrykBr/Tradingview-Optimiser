@@ -59,6 +59,14 @@ class ActiveRun:
     best: BestTrial | None = None
 
 
+class UnknownRunError(KeyError):
+    """Raised when a requested optimisation run does not exist."""
+
+
+class StaleTrialError(ValueError):
+    """Raised when a browser submits a result for a non-outstanding trial."""
+
+
 class OptimisationManager:
     def __init__(self, storage_url: str) -> None:
         self._storage_url = storage_url
@@ -225,10 +233,14 @@ class OptimisationManager:
                 actual = result.metrics.get(metric_filter.metric)
 
                 if actual is None:
-                    # Missing constraint metrics are treated as infeasible rather
-                    # than as an execution failure. This covers valid no-trade
-                    # outcomes where TradingView leaves ratios such as PF undefined.
-                    violation = 1.0e12
+                    if total_trades == 0:
+                        # Undefined ratios are a legitimate no-trade outcome.
+                        violation = 1.0e12
+                    else:
+                        raise ValueError(
+                            f"constraint metric {metric_filter.metric!r} "
+                            "missing from trial metrics"
+                        )
                 elif metric_filter.operator == "lte":
                     violation = actual - metric_filter.value
                 else:
@@ -330,6 +342,27 @@ class OptimisationManager:
 
             return self._progress(run)
 
+    async def abort(self, run_id: str, reason: str) -> RunProgress:
+        """Force-stop a run and fail any outstanding browser-owned trial."""
+        async with self._run_lock(run_id):
+            run = self._require(run_id)
+
+            if run.outstanding_trial is not None:
+                trial = run.outstanding_trial
+                trial.set_user_attr("failure_reason", reason)
+                run.study.tell(trial, state=TrialState.FAIL)
+                run.outstanding_trial = None
+                self._record_failed_trial(run, trial, reason)
+
+            if run.status not in {RunStatus.COMPLETED, RunStatus.STOPPED}:
+                self._set_status(
+                    run,
+                    RunStatus.STOPPED,
+                    termination_reason="user",
+                )
+
+            return self._progress(run)
+
     async def progress(self, run_id: str) -> RunProgress:
         async with self._run_lock(run_id):
             return self._progress(self._require(run_id))
@@ -373,13 +406,14 @@ class OptimisationManager:
             return RunAnalysis(
                 run_id=run_id,
                 parameter_importance={},
+                parameter_importance_status="insufficient_data",
                 completed_trials=completed_count,
             )
 
         # PED-ANOVA can be noticeably CPU-heavy on large studies. Work from
         # Optuna's immutable FrozenTrial snapshot outside the run lock and off
         # the event loop so trial submission/other studies stay responsive.
-        importance = await asyncio.to_thread(
+        importance, importance_status, importance_error = await asyncio.to_thread(
             self._parameter_importance,
             feasible,
             direction,
@@ -388,6 +422,8 @@ class OptimisationManager:
         return RunAnalysis(
             run_id=run_id,
             parameter_importance=importance,
+            parameter_importance_status=importance_status,
+            parameter_importance_error=importance_error,
             completed_trials=completed_count,
         )
 
@@ -395,28 +431,30 @@ class OptimisationManager:
     def _parameter_importance(
         feasible: list[FrozenTrial],
         direction: str,
-    ) -> dict[str, float]:
+    ) -> tuple[dict[str, float], str, str | None]:
         common_parameters = set(feasible[0].params)
         for trial in feasible[1:]:
             common_parameters.intersection_update(trial.params)
 
         if not common_parameters:
-            return {}
+            return {}, "not_applicable", None
 
         try:
             analysis_study = optuna.create_study(
                 direction=direction,
             )
             analysis_study.add_trials(feasible)
-            return get_param_importances(
+            importance = get_param_importances(
                 analysis_study,
                 evaluator=PedAnovaImportanceEvaluator(
                     target_quantile=0.2,
                 ),
                 params=sorted(common_parameters),
             )
-        except (ValueError, RuntimeError):
-            return {}
+        except (ValueError, RuntimeError) as exc:
+            return {}, "failed", str(exc)
+
+        return importance, "available", None
 
     def _next_trial_locked(self, run: ActiveRun) -> NextTrial | None:
         if run.status != RunStatus.RUNNING:
@@ -965,7 +1003,7 @@ class OptimisationManager:
             return lock
 
         if run_id not in self._runs:
-            raise KeyError(f"unknown run_id: {run_id}")
+            raise UnknownRunError(f"unknown run_id: {run_id}")
 
         lock = asyncio.Lock()
         self._run_locks[run_id] = lock
@@ -975,14 +1013,14 @@ class OptimisationManager:
         try:
             return self._runs[run_id]
         except KeyError as exc:
-            raise KeyError(f"unknown run_id: {run_id}") from exc
+            raise UnknownRunError(f"unknown run_id: {run_id}") from exc
 
     @staticmethod
     def _require_outstanding(run: ActiveRun, trial_number: int) -> Trial:
         trial = run.outstanding_trial
         if trial is None or trial.number != trial_number:
             current = None if trial is None else trial.number
-            raise ValueError(
+            raise StaleTrialError(
                 f"trial {trial_number} is not the outstanding trial (current={current})"
             )
         return trial

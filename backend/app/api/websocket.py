@@ -13,7 +13,7 @@ from app.models import (
     TrialFailure,
     TrialResult,
 )
-from app.optimisation.manager import OptimisationManager
+from app.optimisation.manager import OptimisationManager, StaleTrialError, UnknownRunError
 from app.pairing import PairingManager
 from app.protocol import ConnectedPayload, Envelope, ErrorPayload, encode
 from app.version import BACKEND_VERSION
@@ -46,11 +46,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 await _dispatch(websocket, manager, envelope)
             except (ValidationError, ValueError, KeyError) as exc:
                 request_id = raw.get("request_id") if isinstance(raw, dict) else None
+                if isinstance(exc, UnknownRunError):
+                    code = "UNKNOWN_RUN"
+                elif isinstance(exc, StaleTrialError):
+                    code = "STALE_TRIAL"
+                else:
+                    code = "INVALID_REQUEST"
+
                 await websocket.send_json(
                     encode(
                         "ERROR",
                         ErrorPayload(
-                            code="INVALID_REQUEST",
+                            code=code,
                             message=str(exc),
                             retryable=False,
                         ),
@@ -157,6 +164,20 @@ async def _dispatch(
                 await websocket.send_json(encode("NEXT_TRIAL", next_trial))
         case "STOP_RUN":
             progress = await manager.stop(str(envelope.payload["run_id"]))
+            await websocket.send_json(
+                encode(
+                    "RUN_UPDATE",
+                    _status_update(progress),
+                    envelope.request_id,
+                )
+            )
+        case "ABORT_RUN":
+            run_id = str(envelope.payload["run_id"])
+            reason = str(
+                envelope.payload.get("reason")
+                or "Optimisation aborted by the browser"
+            )
+            progress = await manager.abort(run_id, reason)
             await websocket.send_json(
                 encode(
                     "RUN_UPDATE",

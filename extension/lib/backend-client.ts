@@ -1,3 +1,7 @@
+import {
+  OptimiserError,
+  type SerializedOptimiserError,
+} from './errors';
 import type { BackendState } from './messages';
 import type {
   CreateRun,
@@ -100,7 +104,11 @@ export class BackendClient {
       if (this.#socket === socket) this.#socket = null;
 
       this.#rejectPending(
-        new Error('Backend connection closed before the request completed'),
+        new OptimiserError(
+          'BACKEND_DISCONNECTED',
+          'Backend connection closed before the request completed',
+          true,
+        ),
       );
 
       if (event.code === 1008) {
@@ -178,6 +186,16 @@ export class BackendClient {
     await this.#request('STOP_RUN', { run_id: runId });
   }
 
+  async abortRun(
+    runId: string,
+    reason: string,
+  ): Promise<void> {
+    await this.#request('ABORT_RUN', {
+      run_id: runId,
+      reason,
+    });
+  }
+
   async deleteRun(runId: string): Promise<void> {
     await this.#request('DELETE_RUN', { run_id: runId });
   }
@@ -214,7 +232,13 @@ export class BackendClient {
 
   #request(type: string, payload: unknown): Promise<Envelope> {
     if (this.#socket?.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new Error('Backend is not connected'));
+      return Promise.reject(
+        new OptimiserError(
+          'BACKEND_DISCONNECTED',
+          'Backend is not connected',
+          true,
+        ),
+      );
     }
 
     const requestId = crypto.randomUUID();
@@ -228,8 +252,10 @@ export class BackendClient {
       const timeout = setTimeout(() => {
         this.#pendingRequests.delete(requestId);
         reject(
-          new Error(
+          new OptimiserError(
+            'REQUEST_TIMEOUT',
             'Backend request timed out: ' + type,
+            true,
           ),
         );
       }, REQUEST_TIMEOUT_MS);
@@ -282,9 +308,16 @@ export class BackendClient {
         this.#pendingRequests.delete(message.request_id);
 
         if (message.type === 'ERROR') {
-          const payload = message.payload as { message?: string };
+          const payload =
+            message.payload as Partial<SerializedOptimiserError>;
+
           pending.reject(
-            new Error(payload.message ?? 'Backend rejected the request'),
+            new OptimiserError(
+              payload.code ?? 'BACKEND_ERROR',
+              payload.message ??
+                'Backend rejected the request',
+              payload.retryable ?? false,
+            ),
           );
         } else {
           pending.resolve(message);
@@ -346,10 +379,13 @@ export class BackendClient {
         break;
 
       case 'ERROR': {
-        const payload = message.payload as { message?: string };
+        const payload =
+          message.payload as Partial<SerializedOptimiserError>;
         this.#emit({
           type: 'error',
-          message: payload.message ?? 'Unknown backend error',
+          message:
+            payload.message ??
+            'Unknown backend error',
         });
         break;
       }

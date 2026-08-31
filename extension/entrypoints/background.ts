@@ -1,4 +1,10 @@
 import { BackendClient } from '../lib/backend-client';
+import {
+  combineFailures,
+  isOptimiserErrorCode,
+  serialiseOptimiserError,
+  toOptimiserError,
+} from '../lib/errors';
 import type {
   BackgroundMessage,
   ExtensionRequest,
@@ -25,48 +31,159 @@ export default defineBackground(() => {
     const stored = await browser.storage.local.get(RUN_OWNERS_KEY);
     const owners = stored[RUN_OWNERS_KEY];
 
-    if (!owners || typeof owners !== 'object') return;
+    if (owners === undefined) return;
+    if (
+      !owners ||
+      typeof owners !== 'object' ||
+      Array.isArray(owners)
+    ) {
+      throw new Error(
+        'Persisted optimiser run ownership is corrupted',
+      );
+    }
 
     for (const [runId, tabId] of Object.entries(
       owners as Record<string, unknown>,
     )) {
-      if (typeof tabId === 'number') {
-        runOwners.set(runId, tabId);
+      if (typeof tabId !== 'number') {
+        throw new Error(
+          'Persisted optimiser run ownership is corrupted for ' +
+            runId,
+        );
       }
+      runOwners.set(runId, tabId);
     }
   };
 
-  const sendToTab = (tabId: number, message: BackgroundMessage) =>
-    browser.tabs.sendMessage(tabId, message).catch(() => undefined);
-
-  const broadcast = (message: BackgroundMessage) => {
-    void browser.tabs
-      .query({ url: ['https://*.tradingview.com/*'] })
-      .then((tabs) => {
-        for (const tab of tabs) {
-          if (tab.id !== undefined) void sendToTab(tab.id, message);
-        }
-      });
+  const sendToTab = async (
+    tabId: number,
+    message: BackgroundMessage,
+  ): Promise<void> => {
+    await browser.tabs.sendMessage(
+      tabId,
+      message,
+    );
   };
 
-  const routeRunMessage = (
+  const broadcast = async (
+    message: BackgroundMessage,
+  ): Promise<void> => {
+    const tabs = await browser.tabs.query({
+      url: ['https://*.tradingview.com/*'],
+    });
+
+    await Promise.allSettled(
+      tabs
+        .filter(
+          (tab): tab is typeof tab & { id: number } =>
+            tab.id !== undefined,
+        )
+        .map((tab) =>
+          sendToTab(tab.id, message),
+        ),
+    );
+  };
+
+  const clearRunOwner = async (
+    runId: string,
+  ): Promise<void> => {
+    runOwners.delete(runId);
+    await persistRunOwners();
+  };
+
+  const routeRunMessage = async (
     runId: string,
     message: BackgroundMessage,
-  ) => {
+    critical = false,
+  ): Promise<void> => {
     const owner = runOwners.get(runId);
 
-    if (owner !== undefined) {
-      void sendToTab(owner, message);
+    if (owner === undefined) {
+      if (critical) {
+        const reason =
+          'No TradingView tab owns the next optimiser trial';
+        try {
+          await backend.abortRun(
+            runId,
+            reason,
+          );
+        } catch (cause) {
+          await broadcast({
+            type: 'BACKEND_ERROR',
+            message:
+              combineFailures(
+                new Error(reason),
+                cause,
+                'Could not stop an undeliverable optimisation',
+              ).message,
+          });
+        }
+        return;
+      }
+
+      await broadcast(message);
       return;
     }
 
-    broadcast(message);
+    try {
+      await sendToTab(
+        owner,
+        message,
+      );
+    } catch (cause) {
+      try {
+        await clearRunOwner(runId);
+      } catch (ownerFailure) {
+        console.error(
+          'Failed to clear stale optimiser run ownership',
+          ownerFailure,
+        );
+      }
+
+      if (!critical) {
+        await broadcast(message);
+        return;
+      }
+
+      const deliveryError =
+        toOptimiserError(
+          cause,
+          'DELIVERY_FAILED',
+          true,
+        );
+      const reason =
+        'Could not deliver the next optimiser trial to its TradingView tab: ' +
+        deliveryError.message;
+
+      try {
+        await backend.abortRun(
+          runId,
+          reason,
+        );
+      } catch (abortFailure) {
+        await broadcast({
+          type: 'BACKEND_ERROR',
+          message:
+            combineFailures(
+              deliveryError,
+              abortFailure,
+              'Trial delivery failed and the backend run could not be aborted',
+            ).message,
+        });
+        return;
+      }
+
+      await broadcast({
+        type: 'BACKEND_ERROR',
+        message: reason,
+      });
+    }
   };
 
   backend.subscribe((event) => {
     switch (event.type) {
       case 'connection':
-        broadcast({
+        void broadcast({
           type: 'BACKEND_STATE',
           connected: event.connected,
           ...(event.backendVersion
@@ -88,7 +205,7 @@ export default defineBackground(() => {
 
       case 'progress': {
         const progress: RunProgress = event.progress;
-        routeRunMessage(progress.run_id, {
+        void routeRunMessage(progress.run_id, {
           type: 'RUN_PROGRESS',
           progress,
         });
@@ -97,7 +214,7 @@ export default defineBackground(() => {
 
       case 'update': {
         const update: RunUpdate = event.update;
-        routeRunMessage(update.run_id, {
+        void routeRunMessage(update.run_id, {
           type: 'RUN_UPDATE',
           update,
         });
@@ -106,22 +223,36 @@ export default defineBackground(() => {
 
       case 'trial': {
         const trial: NextTrial = event.trial;
-        routeRunMessage(trial.run_id, {
-          type: 'NEXT_TRIAL',
-          trial,
-        });
+        void routeRunMessage(
+          trial.run_id,
+          {
+            type: 'NEXT_TRIAL',
+            trial,
+          },
+          true,
+        );
         break;
       }
 
       case 'error':
-        broadcast({ type: 'BACKEND_ERROR', message: event.message });
+        void broadcast({ type: 'BACKEND_ERROR', message: event.message });
         break;
     }
   });
 
   browser.action.onClicked.addListener(async (tab) => {
     if (tab.id === undefined) return;
-    await sendToTab(tab.id, { type: 'TOGGLE_UI' });
+    try {
+      await sendToTab(
+        tab.id,
+        { type: 'TOGGLE_UI' },
+      );
+    } catch (cause) {
+      console.warn(
+        'Could not toggle optimiser UI in the selected tab',
+        cause,
+      );
+    }
   });
 
   browser.runtime.onMessage.addListener(
@@ -145,17 +276,47 @@ export default defineBackground(() => {
             await backend.pair(msg.payload.code);
             return backend.state;
 
-          case 'CREATE_RUN':
+          case 'CREATE_RUN': {
+            await backend.createRun(
+              msg.payload,
+            );
+
             if (sender.tab?.id !== undefined) {
-              runOwners.set(msg.payload.run_id, sender.tab.id);
-              await persistRunOwners();
+              runOwners.set(
+                msg.payload.run_id,
+                sender.tab.id,
+              );
+
+              try {
+                await persistRunOwners();
+              } catch (cause) {
+                runOwners.delete(
+                  msg.payload.run_id,
+                );
+
+                try {
+                  await backend.deleteRun(
+                    msg.payload.run_id,
+                  );
+                } catch (rollbackFailure) {
+                  throw combineFailures(
+                    cause,
+                    rollbackFailure,
+                    'Could not persist run ownership and backend rollback failed',
+                  );
+                }
+
+                throw cause;
+              }
             }
-            await backend.createRun(msg.payload);
+
             return { ok: true };
+          }
 
           case 'CLEAR_RUN_OWNER':
-            runOwners.delete(msg.payload.runId);
-            await persistRunOwners();
+            await clearRunOwner(
+              msg.payload.runId,
+            );
             return { ok: true };
 
           case 'START_RUN':
@@ -164,6 +325,17 @@ export default defineBackground(() => {
 
           case 'STOP_RUN':
             await backend.stopRun(msg.payload.runId);
+            return { ok: true };
+
+          case 'ABORT_RUN':
+            await backend.abortRun(
+              msg.payload.runId,
+              msg.payload.reason ??
+                'Optimisation aborted by the browser',
+            );
+            await clearRunOwner(
+              msg.payload.runId,
+            );
             return { ok: true };
 
           case 'DELETE_RUN':
@@ -212,7 +384,11 @@ export default defineBackground(() => {
         .catch((error) => {
           sendResponse({
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error:
+              serialiseOptimiserError(
+                error,
+                'BACKGROUND_REQUEST_FAILED',
+              ),
           });
         });
 
@@ -220,6 +396,36 @@ export default defineBackground(() => {
     },
   );
 
-  void loadRunOwners();
-  void backend.connect();
+  void loadRunOwners().catch(
+    (cause) => {
+      console.error(
+        'Could not restore optimiser run ownership',
+        cause,
+      );
+      void broadcast({
+        type: 'BACKEND_ERROR',
+        message:
+          'Could not restore optimiser run ownership: ' +
+          toOptimiserError(cause).message,
+      });
+    },
+  );
+
+  void backend.connect().catch(
+    (cause) => {
+      console.error(
+        'Initial optimiser backend connection failed',
+        cause,
+      );
+      void broadcast({
+        type: 'BACKEND_ERROR',
+        message:
+          toOptimiserError(
+            cause,
+            'BACKEND_DISCONNECTED',
+            true,
+          ).message,
+      });
+    },
+  );
 });

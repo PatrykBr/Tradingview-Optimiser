@@ -28,6 +28,10 @@ export type ExtensionRequest =
   | { type: 'CREATE_RUN'; payload: CreateRun }
   | { type: 'START_RUN'; payload: { runId: string } }
   | { type: 'STOP_RUN'; payload: { runId: string } }
+  | {
+      type: 'ABORT_RUN';
+      payload: { runId: string; reason?: string };
+    }
   | { type: 'DELETE_RUN'; payload: { runId: string } }
   | {
       type: 'GET_RUN_ANALYSIS';

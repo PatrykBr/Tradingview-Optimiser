@@ -185,6 +185,12 @@ export interface RunUpdate {
 export interface RunAnalysis {
   run_id: string;
   parameter_importance: Record<string, number>;
+  parameter_importance_status:
+    | 'available'
+    | 'insufficient_data'
+    | 'not_applicable'
+    | 'failed';
+  parameter_importance_error: string | null;
   completed_trials: number;
 }
 
