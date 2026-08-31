@@ -113,7 +113,14 @@ def test_websocket_returns_run_analysis(monkeypatch, tmp_path) -> None:
             }
         )
         created = websocket.receive_json()
-        assert created["type"] == "RUN_PROGRESS"
+        assert created == {
+            "type": "RUN_CREATED",
+            "request_id": "create-1",
+            "payload": {
+                "run_id": "analysis-run",
+                "status": "created",
+            },
+        }
 
         websocket.send_json(
             {
@@ -185,7 +192,10 @@ def test_websocket_deletes_completed_run(monkeypatch, tmp_path) -> None:
                 "payload": {"run_id": "delete-run"},
             }
         )
-        websocket.receive_json()
+        stopped = websocket.receive_json()
+        assert stopped["type"] == "RUN_UPDATE"
+        assert stopped["payload"]["status"] == "stopped"
+        assert stopped["payload"]["trial_updates"] == []
 
         websocket.send_json(
             {
@@ -249,7 +259,9 @@ def test_websocket_streams_incremental_trial_updates(monkeypatch, tmp_path) -> N
                 },
             }
         )
-        websocket.receive_json()
+        created = websocket.receive_json()
+        assert created["type"] == "RUN_CREATED"
+        assert "trials" not in created["payload"]
 
         websocket.send_json(
             {
