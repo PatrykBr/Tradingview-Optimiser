@@ -122,6 +122,13 @@ const formatDuration = (
   return remainingSeconds + 's';
 };
 
+const formatPhaseDuration = (
+  milliseconds: number,
+): string =>
+  milliseconds < 1_000
+    ? Math.round(milliseconds) + 'ms'
+    : formatDuration(milliseconds);
+
 export default function RunProgressSection({
   run,
   inputLabel,
@@ -362,6 +369,55 @@ export default function RunProgressSection({
     [run.progress],
   );
 
+  const phaseTimings = useMemo(() => {
+    const trials =
+      run.progress?.trials;
+    if (!trials) return null;
+
+    let samples = 0;
+    let evaluationMs = 0;
+    let contextMs = 0;
+
+    for (
+      let index = trials.length - 1;
+      index >= 0 && samples < 20;
+      index -= 1
+    ) {
+      const metrics =
+        trials[index]?.metrics;
+      if (!metrics) continue;
+
+      const evaluation =
+        metrics['tvopt.evaluationMs'];
+      const contextPre =
+        metrics['tvopt.contextPreMs'];
+      const contextPost =
+        metrics['tvopt.contextPostMs'];
+
+      if (
+        !Number.isFinite(evaluation) ||
+        !Number.isFinite(contextPre) ||
+        !Number.isFinite(contextPost)
+      ) {
+        continue;
+      }
+
+      evaluationMs += evaluation!;
+      contextMs +=
+        contextPre! + contextPost!;
+      samples += 1;
+    }
+
+    return samples > 0
+      ? {
+          evaluationMs:
+            evaluationMs / samples,
+          contextMs:
+            contextMs / samples,
+        }
+      : null;
+  }, [run.progress]);
+
   if (
     !run.progress &&
     !run.currentTrial &&
@@ -411,6 +467,23 @@ export default function RunProgressSection({
               ETA {formatDuration(eta)}
             </span>
           </div>
+
+          {phaseTimings && (
+            <div className="runTiming">
+              <span>
+                Avg TradingView{' '}
+                {formatPhaseDuration(
+                  phaseTimings.evaluationMs,
+                )}
+              </span>
+              <span>
+                safety{' '}
+                {formatPhaseDuration(
+                  phaseTimings.contextMs,
+                )}
+              </span>
+            </div>
+          )}
 
           {run.currentTrial && (
             <div className="currentTrial">
