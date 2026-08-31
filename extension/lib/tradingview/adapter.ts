@@ -76,10 +76,14 @@ export class TradingViewAdapter {
 
   readReportPollSnapshot(
     strategyId: string,
+    expectedDeepBacktesting = false,
   ): Promise<TradingViewReportPollSnapshot> {
     return this.bridge.request<TradingViewReportPollSnapshot>(
       'readReportPollSnapshot',
-      { strategyId },
+      {
+        strategyId,
+        expectedDeepBacktesting,
+      },
     );
   }
 
@@ -291,6 +295,7 @@ export class TradingViewAdapter {
     const before =
       await this.readReportPollSnapshot(
         strategyId,
+        true,
       );
     await this.#applyDeepBacktestRange(
       range,
@@ -301,6 +306,7 @@ export class TradingViewAdapter {
       before,
       undefined,
       30_000,
+      true,
     );
 
     const verified =
@@ -322,9 +328,12 @@ export class TradingViewAdapter {
     range: TradingViewBacktestRange | null,
     signal?: AbortSignal,
   ): Promise<TradingViewMetrics> {
+    const expectedDeepBacktesting =
+      range !== null;
     const before =
       await this.readReportPollSnapshot(
         strategyId,
+        expectedDeepBacktesting,
       );
     await this.applyParameters(
       strategyId,
@@ -359,6 +368,8 @@ export class TradingViewAdapter {
         strategyId,
         before,
         signal,
+        30_000,
+        expectedDeepBacktesting,
       );
     } catch (cause) {
       const message =
@@ -372,6 +383,7 @@ export class TradingViewAdapter {
       const retryBefore =
         await this.readReportPollSnapshot(
           strategyId,
+          expectedDeepBacktesting,
         );
       await this.applyParameters(
         strategyId,
@@ -390,6 +402,7 @@ export class TradingViewAdapter {
         retryBefore,
         signal,
         35_000,
+        expectedDeepBacktesting,
       );
     }
   }
@@ -399,6 +412,7 @@ export class TradingViewAdapter {
     before: TradingViewReportPollSnapshot | null,
     signal?: AbortSignal,
     timeoutMs = 30_000,
+    expectedDeepBacktesting = false,
   ): Promise<TradingViewMetrics> {
     const startedAt = Date.now();
     const beforeToken = before?.token ?? null;
@@ -420,6 +434,7 @@ export class TradingViewAdapter {
       const snapshot =
         await this.readReportPollSnapshot(
           strategyId,
+          expectedDeepBacktesting,
         );
 
       if (snapshot.error) {
