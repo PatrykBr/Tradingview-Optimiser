@@ -7,6 +7,9 @@ import type {
   RunProgress,
 } from '../protocol/types';
 import {
+  mergeRunUpdate,
+} from './run-progress';
+import {
   createStudyTrialRunner,
 } from './study-trial-runner';
 import {
@@ -61,6 +64,8 @@ export const runAuxiliaryStudy =
     }
 
     let settled = false;
+    let latestProgress: RunProgress | null =
+      null;
     let resolveProgress:
       | ((
           progress: RunProgress,
@@ -194,18 +199,42 @@ export const runAuxiliaryStudy =
         message.progress.run_id ===
           request.config.run_id
       ) {
+        latestProgress =
+          message.progress;
         request.onProgress?.(
-          message.progress,
+          latestProgress,
         );
 
         if (
           isTerminal(
-            message.progress.status,
+            latestProgress.status,
           )
         ) {
-          finish(
-            message.progress,
+          finish(latestProgress);
+        }
+        return;
+      }
+
+      if (
+        message.type === 'RUN_UPDATE' &&
+        message.update.run_id ===
+          request.config.run_id
+      ) {
+        latestProgress =
+          mergeRunUpdate(
+            latestProgress,
+            message.update,
           );
+        request.onProgress?.(
+          latestProgress,
+        );
+
+        if (
+          isTerminal(
+            latestProgress.status,
+          )
+        ) {
+          finish(latestProgress);
         }
         return;
       }
