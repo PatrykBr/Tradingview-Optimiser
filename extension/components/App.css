@@ -586,6 +586,15 @@ code {
   font-size: 11px;
 }
 
+.trialPagination {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  text-align: center;
+}
+
 .trialList {
   max-height: 235px;
   overflow: auto;
