@@ -2,6 +2,7 @@ import type {
   CreateRun,
   NextTrial,
   RunProgress,
+  RunUpdate,
   TrialResult,
 } from './protocol/types';
 
@@ -16,6 +17,7 @@ export type BackgroundMessage =
   | { type: 'TOGGLE_UI' }
   | ({ type: 'BACKEND_STATE' } & BackendState)
   | { type: 'RUN_PROGRESS'; progress: RunProgress }
+  | { type: 'RUN_UPDATE'; update: RunUpdate }
   | { type: 'NEXT_TRIAL'; trial: NextTrial }
   | { type: 'BACKEND_ERROR'; message: string };
 
