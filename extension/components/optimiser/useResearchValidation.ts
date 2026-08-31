@@ -8,6 +8,9 @@ import {
 } from 'react';
 
 import {
+  toOptimiserError,
+} from '../../lib/errors';
+import {
   runMonteCarloValidation,
 } from '../../lib/optimisation/monte-carlo-runner';
 import {
@@ -66,6 +69,10 @@ export function useResearchValidation({
     useState(false);
   const [phase, setPhase] =
     useState<string>();
+  const [
+    analysisError,
+    setAnalysisError,
+  ] = useState<string>();
   const validationAbortRef =
     useRef<AbortController | null>(
       null,
@@ -86,8 +93,16 @@ export function useResearchValidation({
   );
 
   useEffect(() => {
-    void refreshHistory();
-  }, [refreshHistory]);
+    void refreshHistory().catch(
+      (cause) => {
+        setError(
+          'Could not load experiment history: ' +
+            toOptimiserError(cause)
+              .message,
+        );
+      },
+    );
+  }, [refreshHistory, setError]);
 
   useEffect(() => {
     if (
@@ -99,13 +114,22 @@ export function useResearchValidation({
     }
 
     const timer = setTimeout(() => {
-      void refreshHistory();
+      void refreshHistory().catch(
+        (cause) => {
+          setError(
+            'Could not refresh experiment history: ' +
+              toOptimiserError(cause)
+                .message,
+          );
+        },
+      );
     }, 150);
 
     return () => clearTimeout(timer);
   }, [
     refreshHistory,
     run.progress?.status,
+    setError,
   ]);
 
   const currentExperiment =
@@ -138,6 +162,8 @@ export function useResearchValidation({
 
     const loadAnalysis =
       async () => {
+        setAnalysisError(undefined);
+
         try {
           const result =
             await run.getRunAnalysis();
@@ -151,11 +177,26 @@ export function useResearchValidation({
             result,
           );
 
+          if (
+            result.parameter_importance_status ===
+            'failed'
+          ) {
+            setAnalysisError(
+              result.parameter_importance_error ??
+                'Parameter importance analysis failed',
+            );
+          }
+
           if (!cancelled) {
             await refreshHistory();
           }
-        } catch {
-          // Importance is supplemental; the completed optimisation stays valid.
+        } catch (cause) {
+          if (!cancelled) {
+            setAnalysisError(
+              toOptimiserError(cause)
+                .message,
+            );
+          }
         }
       };
 
@@ -361,6 +402,7 @@ export function useResearchValidation({
 
   return {
     analysis,
+    analysisError,
     research,
     experiments,
     busy,

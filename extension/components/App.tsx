@@ -1,10 +1,6 @@
 import {
-  useCallback,
   useMemo,
-  useRef,
   useState,
-  type Dispatch,
-  type SetStateAction,
 } from 'react';
 
 import BackendSection from './optimiser/BackendSection';
@@ -16,9 +12,6 @@ import { useResearchValidation } from './optimiser/useResearchValidation';
 import { useStrategyConfiguration } from './optimiser/useStrategyConfiguration';
 import { TradingViewAdapter } from '../lib/tradingview/adapter';
 import type { TradingViewBridge } from '../lib/tradingview/bridge';
-import {
-  isExtensionContextInvalidated,
-} from '../lib/extension-context';
 
 interface AppProps {
   bridge: TradingViewBridge;
@@ -29,38 +22,8 @@ export default function App({ bridge }: AppProps) {
     () => new TradingViewAdapter(bridge),
     [bridge],
   );
-  const [error, setErrorState] = useState<string>();
-  const errorRef =
-    useRef<string | undefined>(undefined);
-  const reloadRequestedRef = useRef(false);
-
-  const setError = useCallback<
-    Dispatch<SetStateAction<string | undefined>>
-  >((next) => {
-    const resolved =
-      typeof next === 'function'
-        ? next(errorRef.current)
-        : next;
-
-    errorRef.current = resolved;
-
-    if (
-      resolved &&
-      isExtensionContextInvalidated(resolved)
-    ) {
-      if (!reloadRequestedRef.current) {
-        reloadRequestedRef.current = true;
-        queueMicrotask(() => {
-          window.location.reload();
-        });
-      }
-
-      setErrorState(undefined);
-      return;
-    }
-
-    setErrorState(resolved);
-  }, []);
+  const [error, setError] =
+    useState<string>();
 
   const configuration =
     useStrategyConfiguration(adapter, setError);

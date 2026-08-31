@@ -1,9 +1,13 @@
 import {
   cloneOptimisationDraft,
+  isOptimisationDraft,
   normaliseOptimisationDraft,
   type OptimisationDraft,
 } from './draft';
-import type { ParameterConfig } from './parameter-config';
+import {
+  isParameterConfig,
+  type ParameterConfig,
+} from './parameter-config';
 
 export interface SavedOptimisationPreset {
   version: 2;
@@ -34,10 +38,39 @@ const isRecord = (
   value !== null &&
   !Array.isArray(value);
 
-const normalisePreset = (
+const parseParameterConfigs = (
   value: unknown,
-): SavedOptimisationPreset | null => {
-  if (!isRecord(value)) return null;
+): Record<string, ParameterConfig> => {
+  if (!isRecord(value)) {
+    throw new Error(
+      'Saved configuration parameter settings are corrupted',
+    );
+  }
+
+  const result:
+    Record<string, ParameterConfig> = {};
+
+  for (const [id, config] of Object.entries(value)) {
+    if (!isParameterConfig(config)) {
+      throw new Error(
+        'Saved configuration contains invalid parameter settings for ' +
+          id,
+      );
+    }
+    result[id] = config;
+  }
+
+  return result;
+};
+
+const parsePreset = (
+  value: unknown,
+): SavedOptimisationPreset => {
+  if (!isRecord(value)) {
+    throw new Error(
+      'Saved configuration record is corrupted',
+    );
+  }
 
   if (
     typeof value.id !== 'string' ||
@@ -45,39 +78,44 @@ const normalisePreset = (
     typeof value.strategyName !== 'string' ||
     typeof value.strategySignature !== 'string' ||
     typeof value.createdAt !== 'number' ||
+    !Number.isFinite(value.createdAt) ||
     typeof value.updatedAt !== 'number' ||
-    !isRecord(value.parameterConfigs)
+    !Number.isFinite(value.updatedAt)
   ) {
-    return null;
+    throw new Error(
+      'Saved configuration metadata is corrupted',
+    );
   }
 
-  const version = value.version;
-
-  if (
-    version === 2 &&
-    !isRecord(value.draft)
-  ) {
-    return null;
-  }
-
-  const draftSource =
-    version === 2
-      ? value.draft
-      : version === 1
-        ? value
-        : null;
-
-  if (draftSource === null) {
-    return null;
-  }
-
-  // The map is reconciled against the current TradingView input model before
-  // use, which supplies defaults for missing/new fields and drops unknown IDs.
   const parameterConfigs =
-    value.parameterConfigs as Record<
-      string,
-      ParameterConfig
-    >;
+    parseParameterConfigs(
+      value.parameterConfigs,
+    );
+
+  let draft: OptimisationDraft;
+
+  if (value.version === 2) {
+    if (!isOptimisationDraft(value.draft)) {
+      throw new Error(
+        'Saved configuration has an invalid v2 draft',
+      );
+    }
+    draft =
+      cloneOptimisationDraft(
+        value.draft,
+      );
+  } else if (value.version === 1) {
+    // v1 stored draft fields on the record itself. This is an explicit,
+    // one-way migration. Current-version corruption is never defaulted.
+    draft =
+      normaliseOptimisationDraft(
+        value,
+      );
+  } else {
+    throw new Error(
+      'Saved configuration uses an unsupported version',
+    );
+  }
 
   return {
     version: 2,
@@ -87,10 +125,7 @@ const normalisePreset = (
     strategySignature:
       value.strategySignature,
     parameterConfigs,
-    draft:
-      normaliseOptimisationDraft(
-        draftSource,
-      ),
+    draft,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };
@@ -106,17 +141,17 @@ const readAllPresets =
       );
     const value = stored[PRESETS_KEY];
 
-    if (!Array.isArray(value)) return [];
-
-    const presets: SavedOptimisationPreset[] =
-      [];
-
-    for (const item of value) {
-      const preset = normalisePreset(item);
-      if (preset) presets.push(preset);
+    if (value === undefined) {
+      return [];
     }
 
-    return presets;
+    if (!Array.isArray(value)) {
+      throw new Error(
+        'Saved configuration storage is corrupted',
+      );
+    }
+
+    return value.map(parsePreset);
   };
 
 const writeAllPresets = async (

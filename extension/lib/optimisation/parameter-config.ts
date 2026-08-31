@@ -52,6 +52,59 @@ export const isPrimitive = (
   typeof value === 'number' ||
   typeof value === 'boolean';
 
+export const isParameterConfig = (
+  value: unknown,
+): value is ParameterConfig => {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+
+  const record =
+    value as Record<string, unknown>;
+  const expectedKeys = new Set([
+    'enabled',
+    'low',
+    'high',
+    'step',
+    'log',
+    'choices',
+    'conditionParameter',
+    'conditionValues',
+  ]);
+
+  if (
+    Object.keys(record).length !==
+      expectedKeys.size ||
+    Object.keys(record).some(
+      (key) => !expectedKeys.has(key),
+    )
+  ) {
+    return false;
+  }
+
+  return (
+    typeof record.enabled === 'boolean' &&
+    typeof record.low === 'string' &&
+    typeof record.high === 'string' &&
+    typeof record.step === 'string' &&
+    typeof record.log === 'boolean' &&
+    Array.isArray(record.choices) &&
+    record.choices.every(isPrimitive) &&
+    typeof record.conditionParameter ===
+      'string' &&
+    Array.isArray(
+      record.conditionValues,
+    ) &&
+    record.conditionValues.every(
+      isPrimitive,
+    )
+  );
+};
+
 export const isOptimisableInput = (
   input: StrategyInput,
 ): boolean =>

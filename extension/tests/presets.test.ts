@@ -1,9 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import {
+  afterEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 
 import {
   defaultParameterConfig,
+  isParameterConfig,
   reconcileParameterConfigs,
 } from '../lib/optimisation/parameter-config';
+import {
+  DEFAULT_OPTIMISATION_DRAFT,
+} from '../lib/optimisation/draft';
+import {
+  loadStrategyPresets,
+} from '../lib/optimisation/presets';
 import type { StrategyInput } from '../lib/tradingview/types';
 
 const inputs: StrategyInput[] = [
@@ -40,6 +53,71 @@ const requireInput = (
 };
 
 describe('saved strategy configurations', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('validates current parameter configuration shape', () => {
+    expect(
+      isParameterConfig(
+        defaultParameterConfig(
+          requireInput(0),
+        ),
+      ),
+    ).toBe(true);
+
+    expect(
+      isParameterConfig({
+        ...defaultParameterConfig(
+          requireInput(0),
+        ),
+        enabled: 'yes',
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects corrupted v2 presets instead of silently defaulting them', async () => {
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({
+            strategyOptimisationPresetsV1: [
+              {
+                version: 2,
+                id: 'preset-1',
+                name: 'Broken',
+                strategyName:
+                  'Strategy',
+                strategySignature:
+                  'signature',
+                parameterConfigs: {
+                  in_0:
+                    defaultParameterConfig(
+                      requireInput(0),
+                    ),
+                },
+                draft: {
+                  ...DEFAULT_OPTIMISATION_DRAFT,
+                  targetTrials: 100,
+                },
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            ],
+          })),
+        },
+      },
+    });
+
+    await expect(
+      loadStrategyPresets(
+        'signature',
+      ),
+    ).rejects.toThrow(
+      /invalid v2 draft/,
+    );
+  });
+
   it('restores saved parameter settings against the current input model', () => {
     const saved = {
       in_0: {

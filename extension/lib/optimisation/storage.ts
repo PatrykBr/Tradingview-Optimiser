@@ -13,12 +13,23 @@ interface RunEnvironment {
   optunaVersion?: string;
 }
 
+export type PersistedRunIntent =
+  | 'running'
+  | 'stopped';
+
+export type PersistedRunPhase =
+  | 'starting'
+  | 'running'
+  | 'stopping';
+
 export interface PersistedOptimisationRun {
-  version: 1;
+  version: 2;
   config: CreateRun;
   strategyId: string;
   originalParameters: Record<string, unknown>;
   startedAt: number;
+  intent: PersistedRunIntent;
+  phase: PersistedRunPhase;
   environment?: RunEnvironment;
   finishedAt?: number;
   lastProgress?: RunProgress;
@@ -45,6 +56,126 @@ export interface ExperimentRecord {
   analysis?: RunAnalysis;
   research?: ResearchEvaluation;
 }
+
+const isRecord = (
+  value: unknown,
+): value is Record<string, unknown> =>
+  typeof value === 'object' &&
+  value !== null &&
+  !Array.isArray(value);
+
+const parsePersistedRun = (
+  value: unknown,
+  label: string,
+): PersistedOptimisationRun => {
+  if (!isRecord(value)) {
+    throw new Error(
+      label + ' is corrupted',
+    );
+  }
+
+  const config = value.config;
+  const originalParameters =
+    value.originalParameters;
+
+  if (
+    !isRecord(config) ||
+    typeof config.run_id !== 'string' ||
+    typeof value.strategyId !== 'string' ||
+    !isRecord(originalParameters) ||
+    typeof value.startedAt !== 'number' ||
+    !Number.isFinite(value.startedAt)
+  ) {
+    throw new Error(
+      label + ' is corrupted or incompatible',
+    );
+  }
+
+  const base = {
+    config: config as unknown as CreateRun,
+    strategyId: value.strategyId,
+    originalParameters,
+    startedAt: value.startedAt,
+    ...(isRecord(value.environment)
+      ? {
+          environment:
+            value.environment as unknown as RunEnvironment,
+        }
+      : {}),
+    ...(typeof value.finishedAt === 'number' &&
+    Number.isFinite(value.finishedAt)
+      ? { finishedAt: value.finishedAt }
+      : {}),
+    ...(isRecord(value.lastProgress)
+      ? {
+          lastProgress:
+            value.lastProgress as unknown as RunProgress,
+        }
+      : {}),
+  };
+
+  if (value.version === 1) {
+    return {
+      version: 2,
+      ...base,
+      intent: 'running',
+      phase: 'running',
+    };
+  }
+
+  if (
+    value.version !== 2 ||
+    (value.intent !== 'running' &&
+      value.intent !== 'stopped') ||
+    (value.phase !== 'starting' &&
+      value.phase !== 'running' &&
+      value.phase !== 'stopping')
+  ) {
+    throw new Error(
+      label + ' has an unsupported version or lifecycle state',
+    );
+  }
+
+  return {
+    version: 2,
+    ...base,
+    intent: value.intent,
+    phase: value.phase,
+  };
+};
+
+const RUN_STATUSES = new Set<RunStatus>([
+  'created',
+  'running',
+  'stop_requested',
+  'stopped',
+  'completed',
+  'failed',
+]);
+
+const isExperimentRecord = (
+  value: unknown,
+): value is ExperimentRecord => {
+  if (!isRecord(value)) return false;
+
+  return (
+    value.version === 1 &&
+    typeof value.runId === 'string' &&
+    isRecord(value.config) &&
+    typeof value.startedAt === 'number' &&
+    Number.isFinite(value.startedAt) &&
+    typeof value.finishedAt === 'number' &&
+    Number.isFinite(value.finishedAt) &&
+    typeof value.status === 'string' &&
+    RUN_STATUSES.has(
+      value.status as RunStatus,
+    ) &&
+    typeof value.completedTrials === 'number' &&
+    typeof value.failedTrials === 'number' &&
+    (value.best === null ||
+      isRecord(value.best))
+  );
+};
 
 const ACTIVE_RUN_KEY = 'activeOptimisationRun';
 const LAST_RUN_KEY = 'lastOptimisationRun';
@@ -135,11 +266,22 @@ export const updateActiveRunProgress = async (
 
   try {
     const run = await loadActiveRun();
+    if (!run) {
+      throw new Error(
+        'Active optimisation state disappeared while checkpointing ' +
+          progress.run_id,
+      );
+    }
+
     if (
-      !run ||
       run.config.run_id !== progress.run_id
     ) {
-      return;
+      throw new Error(
+        'Active optimisation checkpoint belongs to ' +
+          run.config.run_id +
+          ', not ' +
+          progress.run_id,
+      );
     }
 
     await browser.storage.local.set({
@@ -169,26 +311,14 @@ export const loadActiveRun =
       );
     const value = stored[ACTIVE_RUN_KEY];
 
-    if (
-      !value ||
-      typeof value !== 'object'
-    ) {
+    if (value === undefined) {
       return null;
     }
 
-    const run =
-      value as Partial<PersistedOptimisationRun>;
-    if (
-      run.version !== 1 ||
-      !run.config ||
-      typeof run.strategyId !== 'string' ||
-      typeof run.startedAt !== 'number' ||
-      !run.originalParameters
-    ) {
-      return null;
-    }
-
-    return run as PersistedOptimisationRun;
+    return parsePersistedRun(
+      value,
+      'Active optimisation state',
+    );
   };
 
 const experimentFromRun = (
@@ -245,28 +375,43 @@ export const finishActiveRun = async (
 ): Promise<void> => {
   const run = await loadActiveRun();
 
-  if (
-    run &&
-    run.config.run_id === progress.run_id
-  ) {
-    const finishedAt = Date.now();
-
-    await browser.storage.local.set({
-      [LAST_RUN_KEY]: {
-        ...run,
-        finishedAt,
-        lastProgress: progress,
-      },
-    });
-
-    await saveExperiment(
-      experimentFromRun(
-        run,
-        progress,
-        finishedAt,
-      ),
+  if (!run) {
+    throw new Error(
+      'Cannot finish optimisation ' +
+        progress.run_id +
+        ' because its persisted active state is missing',
     );
   }
+
+  if (
+    run.config.run_id !== progress.run_id
+  ) {
+    throw new Error(
+      'Cannot finish optimisation ' +
+        progress.run_id +
+        ' while ' +
+        run.config.run_id +
+        ' is persisted as active',
+    );
+  }
+
+  const finishedAt = Date.now();
+
+  await browser.storage.local.set({
+    [LAST_RUN_KEY]: {
+      ...run,
+      finishedAt,
+      lastProgress: progress,
+    },
+  });
+
+  await saveExperiment(
+    experimentFromRun(
+      run,
+      progress,
+      finishedAt,
+    ),
+  );
 
   await browser.storage.local.remove(
     ACTIVE_RUN_KEY,
@@ -290,14 +435,14 @@ export const loadLastRun =
       );
     const value = stored[LAST_RUN_KEY];
 
-    if (
-      !value ||
-      typeof value !== 'object'
-    ) {
+    if (value === undefined) {
       return null;
     }
 
-    return value as PersistedOptimisationRun;
+    return parsePersistedRun(
+      value,
+      'Last optimisation state',
+    );
   };
 
 export const loadExperimentHistory =
@@ -308,19 +453,25 @@ export const loadExperimentHistory =
       );
     const value = stored[EXPERIMENTS_KEY];
 
-    if (!Array.isArray(value)) return [];
+    if (value === undefined) {
+      return [];
+    }
 
-    return value
-      .filter(
-        (item): item is ExperimentRecord =>
-          item !== null &&
-          typeof item === 'object' &&
-          (item as Partial<ExperimentRecord>)
-            .version === 1 &&
-          typeof (
-            item as Partial<ExperimentRecord>
-          ).runId === 'string',
-      )
+    if (!Array.isArray(value)) {
+      throw new Error(
+        'Experiment history is corrupted',
+      );
+    }
+
+    for (const item of value) {
+      if (!isExperimentRecord(item)) {
+        throw new Error(
+          'Experiment history contains a corrupted or incompatible record',
+        );
+      }
+    }
+
+    return [...value]
       .sort(
         (left, right) =>
           right.finishedAt - left.finishedAt,
@@ -343,10 +494,20 @@ const updateExperiment = async (
       experiment.runId === runId,
   );
 
-  if (index < 0) return;
+  if (index < 0) {
+    throw new Error(
+      'Experiment ' +
+        runId +
+        ' was not found in local history',
+    );
+  }
 
   const current = experiments[index];
-  if (!current) return;
+  if (!current) {
+    throw new Error(
+      'Experiment history index became inconsistent',
+    );
+  }
 
   experiments[index] = {
     ...current,

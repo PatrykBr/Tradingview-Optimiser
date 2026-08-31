@@ -1,3 +1,6 @@
+import {
+  isOptimiserErrorCode,
+} from '../errors';
 import type {
   NextTrial,
   TrialResult,
@@ -67,26 +70,38 @@ const errorMessage = (
       : String(cause);
 
 const isBackendTransportError = (
-  message: string,
+  cause: unknown,
 ): boolean =>
-  /backend (is not connected|connection closed|request timed out)|backend client disconnected/i.test(
-    message,
+  isOptimiserErrorCode(
+    cause,
+    'BACKEND_DISCONNECTED',
+    'REQUEST_TIMEOUT',
+    'EXTENSION_CONTEXT_INVALIDATED',
+    'EXTENSION_RUNTIME_ERROR',
   );
 
 const isStaleTrialError = (
-  message: string,
+  cause: unknown,
 ): boolean =>
-  /not the outstanding trial|unknown run_id/i.test(
-    message,
+  isOptimiserErrorCode(
+    cause,
+    'STALE_TRIAL',
+    'UNKNOWN_RUN',
   );
 
 const isFatalIntegrationFailure = (
-  reason: string,
+  cause: unknown,
   consecutiveIntegrationFailures: number,
 ): boolean =>
-  reason.startsWith('SAFETY:') ||
-  /deep backtesting.*(could not|not available|failed)|could not open tradingview strategy tester/i.test(
-    reason,
+  isOptimiserErrorCode(
+    cause,
+    'TV_CONTEXT_CHANGED',
+    'TV_STRATEGY_TESTER_UNAVAILABLE',
+    'TV_DEEP_BACKTEST_UNAVAILABLE',
+    'TV_DEEP_REPORT_UNAVAILABLE',
+    'TV_REPORT_PARSE_FAILED',
+    'TV_REPORT_SOURCE_UNAVAILABLE',
+    'TV_METRIC_SOURCE_CHANGED',
   ) ||
   consecutiveIntegrationFailures >= 3;
 
@@ -127,9 +142,9 @@ export const createStudyTrialRunner = (
     } catch (cause) {
       const message = errorMessage(cause);
 
-      if (isBackendTransportError(message)) {
+      if (isBackendTransportError(cause)) {
         options.onTransportError?.(message);
-      } else if (isStaleTrialError(message)) {
+      } else if (isStaleTrialError(cause)) {
         options.onStaleTrial?.(message);
       } else {
         options.onReportError?.(
@@ -174,21 +189,22 @@ export const createStudyTrialRunner = (
       const reason = errorMessage(cause);
       const aborted = isAbortError(cause);
 
-      if (isBackendTransportError(reason)) {
+      if (isBackendTransportError(cause)) {
         pendingTrial = null;
         options.onTransportError?.(reason);
         return;
       }
 
-      if (isStaleTrialError(reason)) {
+      if (isStaleTrialError(cause)) {
         pendingTrial = null;
         options.onStaleTrial?.(reason);
         return;
       }
 
       const runtimeError =
-        /strategy runtime error/i.test(
-          reason,
+        isOptimiserErrorCode(
+          cause,
+          'TV_STRATEGY_RUNTIME',
         );
 
       if (
@@ -200,7 +216,7 @@ export const createStudyTrialRunner = (
 
       const fatal =
         isFatalIntegrationFailure(
-          reason,
+          cause,
           consecutiveIntegrationFailures,
         );
 

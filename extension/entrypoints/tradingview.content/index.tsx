@@ -3,9 +3,6 @@ import ReactDOM from 'react-dom/client';
 import App from '../../components/App';
 import '../../components/App.css';
 import { TradingViewBridge } from '../../lib/tradingview/bridge';
-import {
-  isExtensionContextInvalidated,
-} from '../../lib/extension-context';
 
 interface DragState {
   pointerId: number;
@@ -142,48 +139,6 @@ export default defineContentScript({
       reloadRequested = true;
       window.location.reload();
     };
-
-    const onUnhandledRejection = (
-      event: PromiseRejectionEvent,
-    ) => {
-      if (
-        !isExtensionContextInvalidated(
-          event.reason,
-        )
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      reloadWithFreshContext();
-    };
-
-    const onWindowError = (
-      event: ErrorEvent,
-    ) => {
-      if (
-        !isExtensionContextInvalidated(
-          event.error ?? event.message,
-        )
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      reloadWithFreshContext();
-    };
-
-    // These intentionally use regular window listeners rather than WXT's
-    // context-bound helpers. They need to remain alive long enough to recover
-    // the page after the old extension context has already been invalidated.
-    window.addEventListener(
-      'unhandledrejection',
-      onUnhandledRejection,
-    );
-    window.addEventListener(
-      'error',
-      onWindowError,
-    );
     let removeDragListeners: (() => void) | undefined;
     let removeInputIsolation: (() => void) | undefined;
     let removeContextRecovery: (() => void) | undefined;

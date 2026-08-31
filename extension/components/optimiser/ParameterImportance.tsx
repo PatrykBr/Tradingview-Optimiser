@@ -4,6 +4,7 @@ import type {
 
 interface ParameterImportanceProps {
   analysis: RunAnalysis | null;
+  loadError?: string;
   inputLabel: (
     id: string,
   ) => string;
@@ -11,6 +12,7 @@ interface ParameterImportanceProps {
 
 export default function ParameterImportance({
   analysis,
+  loadError,
   inputLabel,
 }: ParameterImportanceProps) {
   const entries = Object.entries(
@@ -20,6 +22,29 @@ export default function ParameterImportance({
       right - left,
     )
     .slice(0, 8);
+
+  const failure =
+    loadError ??
+    (analysis
+      ?.parameter_importance_status ===
+    'failed'
+      ? analysis
+          .parameter_importance_error ??
+        'Parameter importance analysis failed'
+      : undefined);
+
+  if (failure) {
+    return (
+      <div className="researchBlock">
+        <div className="researchBlockTitle">
+          Parameter importance
+        </div>
+        <div className="error">
+          {failure}
+        </div>
+      </div>
+    );
+  }
 
   if (entries.length === 0) {
     return null;

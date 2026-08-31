@@ -1,3 +1,8 @@
+import {
+  combineFailures,
+  isOptimiserErrorCode,
+  toOptimiserError,
+} from '../errors';
 import type {
   BackgroundMessage,
   ExtensionRequest,
@@ -256,15 +261,25 @@ export const runAuxiliaryStudy =
       );
 
     const abortListener = () => {
+      runner.cancel();
+
       void request.transport
         .request({
-          type: 'STOP_RUN',
+          type: 'ABORT_RUN',
           payload: {
             runId:
               request.config.run_id,
+            reason:
+              'Auxiliary optimisation cancelled',
           },
         })
-        .catch(() => undefined);
+        .catch((cause) => {
+          fail(
+            toOptimiserError(
+              cause,
+            ),
+          );
+        });
     };
 
     request.signal?.addEventListener(
@@ -272,6 +287,10 @@ export const runAuxiliaryStudy =
       abortListener,
       { once: true },
     );
+
+    let primaryFailure:
+      | unknown
+      | undefined;
 
     try {
       await request.transport.request({
@@ -289,6 +308,9 @@ export const runAuxiliaryStudy =
       });
 
       return await completion;
+    } catch (cause) {
+      primaryFailure = cause;
+      throw cause;
     } finally {
       runner.dispose();
       unsubscribe();
@@ -296,6 +318,31 @@ export const runAuxiliaryStudy =
         'abort',
         abortListener,
       );
+
+      let cleanupFailure:
+        | unknown
+        | undefined;
+
+      try {
+        await request.transport.request({
+          type: 'ABORT_RUN',
+          payload: {
+            runId:
+              request.config.run_id,
+            reason:
+              'Cleaning up temporary optimisation study',
+          },
+        });
+      } catch (cause) {
+        if (
+          !isOptimiserErrorCode(
+            cause,
+            'UNKNOWN_RUN',
+          )
+        ) {
+          cleanupFailure = cause;
+        }
+      }
 
       try {
         await request.transport.request({
@@ -305,18 +352,59 @@ export const runAuxiliaryStudy =
               request.config.run_id,
           },
         });
-      } catch {
-        try {
-          await request.transport.request({
-            type: 'CLEAR_RUN_OWNER',
-            payload: {
-              runId:
-                request.config.run_id,
-            },
-          });
-        } catch {
-          // Temporary-study cleanup is best-effort after cancellation/failure.
+      } catch (cause) {
+        if (
+          !isOptimiserErrorCode(
+            cause,
+            'UNKNOWN_RUN',
+          )
+        ) {
+          cleanupFailure =
+            cleanupFailure === undefined
+              ? cause
+              : combineFailures(
+                  cleanupFailure,
+                  cause,
+                  'Temporary-study cleanup failed in multiple steps',
+                );
         }
+      }
+
+      try {
+        await request.transport.request({
+          type: 'CLEAR_RUN_OWNER',
+          payload: {
+            runId:
+              request.config.run_id,
+          },
+        });
+      } catch (cause) {
+        cleanupFailure =
+          cleanupFailure === undefined
+            ? cause
+            : combineFailures(
+                cleanupFailure,
+                cause,
+                'Temporary-study ownership cleanup also failed',
+              );
+      }
+
+      if (
+        cleanupFailure !== undefined
+      ) {
+        if (
+          primaryFailure !== undefined
+        ) {
+          throw combineFailures(
+            primaryFailure,
+            cleanupFailure,
+            'Auxiliary optimisation failed and cleanup also failed',
+          );
+        }
+
+        throw toOptimiserError(
+          cleanupFailure,
+        );
       }
     }
   };

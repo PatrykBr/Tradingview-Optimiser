@@ -1,3 +1,7 @@
+import {
+  OptimiserError,
+  isOptimiserErrorCode,
+} from '../errors';
 import type { CreateRun } from '../protocol/types';
 import type { TradingViewBridge } from './bridge';
 import type { ClosedTradeSnapshot } from './trades';
@@ -6,6 +10,7 @@ import type {
   DetectedStrategy,
   StrategyInput,
   TradingViewDiagnostics,
+  TradingViewMetricSource,
   TradingViewMetrics,
   TradingViewReportPollSnapshot,
   TradingViewReportSnapshot,
@@ -20,6 +25,21 @@ export interface TradingViewBacktestRange {
   startDate: string;
   endDate: string;
 }
+
+const expectedMetricSource = (
+  deepBacktesting: boolean,
+): TradingViewMetricSource =>
+  deepBacktesting
+    ? 'deep-visible'
+    : 'internal';
+
+const safetyError = (
+  message: string,
+): OptimiserError =>
+  new OptimiserError(
+    'TV_CONTEXT_CHANGED',
+    message,
+  );
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -167,7 +187,10 @@ export class TradingViewAdapter {
       'ensureStrategyTester',
     );
     if (!opened) {
-      throw new Error('Could not open TradingView Strategy Tester');
+      throw new OptimiserError(
+        'TV_STRATEGY_TESTER_UNAVAILABLE',
+        'Could not open TradingView Strategy Tester',
+      );
     }
   }
 
@@ -187,7 +210,7 @@ export class TradingViewAdapter {
       config.chart.timeframe !==
         snapshot.timeframe
     ) {
-      throw new Error(
+      throw safetyError(
         'SAFETY: TradingView chart changed. Expected ' +
           config.chart.symbol +
           ' ' +
@@ -220,7 +243,7 @@ export class TradingViewAdapter {
             originalParameters[input.id],
           )
         ) {
-          throw new Error(
+          throw safetyError(
             'SAFETY: Fixed strategy input "' +
               input.label +
               '" changed during the optimisation.',
@@ -238,7 +261,7 @@ export class TradingViewAdapter {
       expectedMode
     ) {
       this.#verifiedDeepRangeKey = null;
-      throw new Error(
+      throw safetyError(
         'SAFETY: TradingView backtest mode changed during the optimisation.',
       );
     }
@@ -247,7 +270,7 @@ export class TradingViewAdapter {
       snapshot.strategySignature !==
       config.chart.strategy_signature
     ) {
-      throw new Error(
+      throw safetyError(
         'SAFETY: The TradingView strategy or its input structure changed during the optimisation.',
       );
     }
@@ -260,7 +283,7 @@ export class TradingViewAdapter {
       snapshot.settingsSignature !==
         expectedSettingsSignature
     ) {
-      throw new Error(
+      throw safetyError(
         'SAFETY: TradingView strategy properties changed during the optimisation.',
       );
     }
@@ -359,7 +382,16 @@ export class TradingViewAdapter {
       ) {
         try {
           await this.#refreshDeepBacktest();
-        } catch {
+        } catch (cause) {
+          if (
+            !isOptimiserErrorCode(
+              cause,
+              'TV_DEEP_BACKTEST_UNAVAILABLE',
+            )
+          ) {
+            throw cause;
+          }
+
           this.#verifiedDeepRangeKey = null;
           await this.#applyDeepBacktestRange(
             range,
@@ -381,10 +413,13 @@ export class TradingViewAdapter {
         expectedDeepBacktesting,
       );
     } catch (cause) {
-      const message =
-        cause instanceof Error ? cause.message : String(cause);
-
-      if (!/timed out|remained ambiguous/i.test(message)) {
+      if (
+        !isOptimiserErrorCode(
+          cause,
+          'TV_REPORT_TIMEOUT',
+          'TV_REPORT_AMBIGUOUS',
+        )
+      ) {
         throw cause;
       }
 
@@ -447,8 +482,10 @@ export class TradingViewAdapter {
         );
 
       if (snapshot.error) {
-        throw new Error(
-          'TradingView strategy runtime error: ' + snapshot.error,
+        throw new OptimiserError(
+          'TV_STRATEGY_RUNTIME',
+          'TradingView strategy runtime error: ' +
+            snapshot.error,
         );
       }
 
@@ -458,6 +495,25 @@ export class TradingViewAdapter {
         lastRevision = null;
         await sleep(150, signal);
         continue;
+      }
+
+      const expectedSource =
+        expectedMetricSource(
+          expectedDeepBacktesting,
+        );
+      if (
+        snapshot.metricSource !==
+        expectedSource
+      ) {
+        throw new OptimiserError(
+          'TV_METRIC_SOURCE_CHANGED',
+          'TradingView metric source changed or became ambiguous. Expected ' +
+            expectedSource +
+            ', got ' +
+            String(
+              snapshot.metricSource,
+            ),
+        );
       }
 
       lastMetrics = snapshot.metrics;
@@ -491,28 +547,20 @@ export class TradingViewAdapter {
         stableReads >= 3 &&
         elapsed >= 500
       ) {
-        return (
+        const metrics =
           await this.readMetrics(
             strategyId,
             expectedDeepBacktesting,
-          )
-        ) ?? snapshot.metrics;
-      }
+          );
 
-      // A parameter change may legitimately produce a byte-identical report.
-      // After a conservative grace period, accept a stable report rather than
-      // incorrectly failing an otherwise valid trial.
-      if (
-        !sawReportChange &&
-        stableReads >= 6 &&
-        elapsed >= 5_000
-      ) {
-        return (
-          await this.readMetrics(
-            strategyId,
-            expectedDeepBacktesting,
-          )
-        ) ?? snapshot.metrics;
+        if (!metrics) {
+          throw new OptimiserError(
+            'TV_REPORT_PARSE_FAILED',
+            'TradingView report became unavailable after it appeared stable',
+          );
+        }
+
+        return metrics;
       }
 
       await sleep(
@@ -522,15 +570,19 @@ export class TradingViewAdapter {
     }
 
     if (lastMetrics) {
-      throw new Error(
+      throw new OptimiserError(
+        'TV_REPORT_AMBIGUOUS',
         'TradingView report remained ambiguous after ' +
           Math.round(timeoutMs / 1000) +
           ' seconds',
+        true,
       );
     }
 
-    throw new Error(
+    throw new OptimiserError(
+      'TV_REPORT_TIMEOUT',
       'Timed out waiting for TradingView Strategy Tester to recalculate',
+      true,
     );
   }
 
@@ -583,7 +635,7 @@ export class TradingViewAdapter {
         range.to - expectedTo,
       ) > toleranceMs
     ) {
-      throw new Error(
+      throw safetyError(
         'SAFETY: TradingView Deep Backtesting report date range does not match the optimisation configuration.',
       );
     }
@@ -613,7 +665,8 @@ export class TradingViewAdapter {
       !result.supported ||
       !result.applied
     ) {
-      throw new Error(
+      throw new OptimiserError(
+        'TV_DEEP_BACKTEST_UNAVAILABLE',
         result.reason ??
           'TradingView Deep Backtesting report could not be refreshed',
       );
@@ -635,7 +688,8 @@ export class TradingViewAdapter {
     );
 
     if (!result.supported || !result.applied) {
-      throw new Error(
+      throw new OptimiserError(
+        'TV_DEEP_BACKTEST_UNAVAILABLE',
         result.reason ??
           'TradingView Deep Backtesting could not be updated',
       );

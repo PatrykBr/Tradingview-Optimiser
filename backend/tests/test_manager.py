@@ -126,6 +126,82 @@ async def test_no_trade_trial_is_completed_with_poor_objective(tmp_path: Path) -
     assert progress.best.objective_value == pytest.approx(-1.0e12)
 
 
+@pytest.mark.asyncio
+async def test_missing_constraint_metric_with_trades_is_an_error(
+    tmp_path: Path,
+) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
+    config = make_config("missing-filter-metric", target_trials=1)
+    await manager.create_run(config)
+
+    _, active = await manager.start(config.run_id)
+    assert active is not None
+
+    with pytest.raises(ValueError, match="constraint metric 'maxDrawdownPercent' missing"):
+        await manager.submit_result(
+            TrialResult(
+                run_id=config.run_id,
+                trial_number=active.trial_number,
+                metrics={
+                    "profitFactor": 1.7,
+                    "totalTrades": 150,
+                },
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_no_trade_missing_constraint_metrics_are_infeasible_not_errors(
+    tmp_path: Path,
+) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
+    config = make_config("no-trade-filter-test", target_trials=1)
+    await manager.create_run(config)
+
+    _, active = await manager.start(config.run_id)
+    assert active is not None
+
+    progress, next_trial = await manager.submit_result(
+        TrialResult(
+            run_id=config.run_id,
+            trial_number=active.trial_number,
+            metrics={"totalTrades": 0},
+        )
+    )
+
+    assert next_trial is None
+    assert progress.status == "completed"
+    assert progress.best is None
+    assert progress.completed_trials == 1
+
+
+@pytest.mark.asyncio
+async def test_abort_fails_outstanding_browser_trial_and_stops_run(
+    tmp_path: Path,
+) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
+    config = make_config("abort-run-test", target_trials=10)
+    await manager.create_run(config)
+
+    _, active = await manager.start(config.run_id)
+    assert active is not None
+
+    progress = await manager.abort(
+        config.run_id,
+        "owner tab disappeared",
+    )
+
+    assert progress.status == "stopped"
+    assert progress.termination_reason == "user"
+    assert progress.failed_trials == 1
+    assert progress.trials[-1].failure_reason == "owner tab disappeared"
+
+    restarted = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
+    restored = await restarted.create_run(config)
+    assert restored.status == "stopped"
+    assert restored.failed_trials == 1
+
+
 def test_conditional_controller_can_appear_after_child() -> None:
     config = CreateRun.model_validate(
         {

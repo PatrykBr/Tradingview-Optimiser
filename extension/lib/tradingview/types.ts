@@ -30,10 +30,15 @@ export interface TradingViewMetrics {
   [metric: string]: number;
 }
 
+export type TradingViewMetricSource =
+  | 'internal'
+  | 'deep-visible';
+
 export interface TradingViewReportPollSnapshot {
   metrics: TradingViewMetrics | null;
   token: string | null;
   objectId: number | null;
+  metricSource: TradingViewMetricSource | null;
   error: string | null;
 }
 

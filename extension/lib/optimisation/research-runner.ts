@@ -1,3 +1,4 @@
+import { combineFailures } from '../errors';
 import type {
   BacktestRange,
   CreateRun,
@@ -598,6 +599,12 @@ export const runResearchValidation = async (
       if (primaryFailure === undefined) {
         throw restoreFailure;
       }
+
+      throw combineFailures(
+        primaryFailure,
+        restoreFailure,
+        'Research validation failed and TradingView state could not be restored',
+      );
     }
   }
 };

@@ -1,3 +1,4 @@
+import { combineFailures } from '../errors';
 import type {
   BacktestRange,
   CreateRun,

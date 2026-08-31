@@ -12,6 +12,7 @@ import type {
 } from '../lib/protocol/types';
 import {
   clearActiveRun,
+  loadActiveRun,
   saveActiveRun,
   updateActiveRunProgress,
 } from '../lib/optimisation/storage';
@@ -64,6 +65,59 @@ describe('active run checkpoints', () => {
     vi.unstubAllGlobals();
   });
 
+  it('migrates v1 active state explicitly and rejects corrupted state', async () => {
+    const stored:
+      Record<string, unknown> = {
+      activeOptimisationRun: {
+        version: 1,
+        config,
+        strategyId:
+          'strategy-1',
+        originalParameters: {},
+        startedAt: 1_000,
+      },
+    };
+
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(
+            async (key: string) => ({
+              [key]: stored[key],
+            }),
+          ),
+          set: vi.fn(),
+          remove: vi.fn(),
+        },
+      },
+    });
+
+    await expect(
+      loadActiveRun(),
+    ).resolves.toMatchObject({
+      version: 2,
+      intent: 'running',
+      phase: 'running',
+    });
+
+    stored.activeOptimisationRun = {
+      version: 2,
+      config,
+      strategyId:
+        'strategy-1',
+      originalParameters: {},
+      startedAt: 1_000,
+      intent: 'maybe',
+      phase: 'running',
+    };
+
+    await expect(
+      loadActiveRun(),
+    ).rejects.toThrow(
+      /unsupported version or lifecycle state/,
+    );
+  });
+
   it('avoids storage writes for every fast trial while keeping lightweight checkpoints', async () => {
     const stored: Record<string, unknown> = {};
     const set = vi.fn(
@@ -99,11 +153,13 @@ describe('active run checkpoints', () => {
     );
 
     await saveActiveRun({
-      version: 1,
+      version: 2,
       config,
       strategyId: 'strategy-1',
       originalParameters: {},
       startedAt: now,
+      intent: 'running',
+      phase: 'running',
     });
     expect(set).toHaveBeenCalledTimes(1);
 

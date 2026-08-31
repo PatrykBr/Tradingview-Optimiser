@@ -55,10 +55,18 @@ export default function ResearchSection({
       research.analysis
         ?.parameter_importance ?? {},
     ).length > 0;
+  const hasImportanceError =
+    Boolean(
+      research.analysisError,
+    ) ||
+    research.analysis
+      ?.parameter_importance_status ===
+      'failed';
 
   if (
     !canValidate &&
     !hasImportance &&
+    !hasImportanceError &&
     research.experiments.length === 0
   ) {
     return null;
@@ -78,6 +86,12 @@ export default function ResearchSection({
 
       <ParameterImportance
         analysis={research.analysis}
+        {...(research.analysisError
+          ? {
+              loadError:
+                research.analysisError,
+            }
+          : {})}
         inputLabel={inputLabel}
       />
 

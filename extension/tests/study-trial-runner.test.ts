@@ -5,6 +5,9 @@ import {
 } from 'vitest';
 
 import {
+  OptimiserError,
+} from '../lib/errors';
+import {
   createStudyTrialRunner,
   type StudyTrialFailure,
 } from '../lib/optimisation/study-trial-runner';
@@ -182,6 +185,58 @@ describe('study trial runner', () => {
     runner.dispose();
   });
 
+  it('stops immediately on a typed TradingView safety failure', async () => {
+    const failures:
+      StudyTrialFailure[] = [];
+    const stopped: string[] = [];
+
+    let resolveFailure:
+      | (() => void)
+      | undefined;
+    const failed =
+      new Promise<void>((resolve) => {
+        resolveFailure = resolve;
+      });
+
+    const runner =
+      createStudyTrialRunner({
+        runId: 'run-1',
+        evaluate: async () => {
+          throw new OptimiserError(
+            'TV_CONTEXT_CHANGED',
+            'TradingView chart changed',
+          );
+        },
+        transport: {
+          submitResult: async () => {},
+          submitFailure: async () => {},
+          stopRun: async (
+            runId,
+          ) => {
+            stopped.push(runId);
+          },
+        },
+        onFailure: (
+          failure,
+        ) => {
+          failures.push(failure);
+          resolveFailure?.();
+        },
+      });
+
+    runner.enqueue(trial(0));
+    await failed;
+
+    expect(
+      failures[0]?.fatal,
+    ).toBe(true);
+    expect(stopped).toEqual([
+      'run-1',
+    ]);
+
+    runner.dispose();
+  });
+
   it('does not turn a backend disconnect into a failed strategy trial', async () => {
     const reportedFailures: number[] =
       [];
@@ -202,8 +257,10 @@ describe('study trial runner', () => {
         ) => result(nextTrial),
         transport: {
           submitResult: async () => {
-            throw new Error(
+            throw new OptimiserError(
+              'BACKEND_DISCONNECTED',
               'Backend connection closed before the request completed',
+              true,
             );
           },
           submitFailure: async (

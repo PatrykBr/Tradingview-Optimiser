@@ -91,6 +91,96 @@ const isRecord = (
   value !== null &&
   !Array.isArray(value);
 
+const isFilterConfig = (
+  value: unknown,
+): value is FilterConfig => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const keys = Object.keys(value);
+  return (
+    keys.length === 2 &&
+    keys.includes('enabled') &&
+    keys.includes('value') &&
+    typeof value.enabled === 'boolean' &&
+    typeof value.value === 'string'
+  );
+};
+
+const STRING_DRAFT_FIELDS = [
+  'objectiveMetric',
+  'targetTrials',
+  'startDate',
+  'endDate',
+  'convergenceMinTrials',
+  'convergencePatience',
+  'convergenceMinImprovementPercent',
+  'robustnessValidationPercent',
+  'robustnessFolds',
+  'robustnessTopCandidates',
+  'stabilityPerturbationPercent',
+  'walkForwardFolds',
+  'walkForwardTrialsPerFold',
+  'walkForwardInitialTrainingPercent',
+  'monteCarloSimulations',
+  'monteCarloConfidencePercent',
+] as const;
+
+const BOOLEAN_DRAFT_FIELDS = [
+  'dateRangeEnabled',
+  'convergenceEnabled',
+  'robustnessEnabled',
+  'stabilityEnabled',
+  'walkForwardEnabled',
+  'monteCarloEnabled',
+] as const;
+
+const FILTER_DRAFT_FIELDS = [
+  'maxDrawdownFilter',
+  'minProfitFactorFilter',
+  'minTradesFilter',
+] as const;
+
+const DRAFT_FIELDS = new Set<string>([
+  ...STRING_DRAFT_FIELDS,
+  ...BOOLEAN_DRAFT_FIELDS,
+  ...FILTER_DRAFT_FIELDS,
+]);
+
+export const isOptimisationDraft = (
+  value: unknown,
+): value is OptimisationDraft => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (
+    Object.keys(value).some(
+      (key) => !DRAFT_FIELDS.has(key),
+    ) ||
+    Object.keys(value).length !==
+      DRAFT_FIELDS.size
+  ) {
+    return false;
+  }
+
+  return (
+    STRING_DRAFT_FIELDS.every(
+      (key) =>
+        typeof value[key] === 'string',
+    ) &&
+    BOOLEAN_DRAFT_FIELDS.every(
+      (key) =>
+        typeof value[key] === 'boolean',
+    ) &&
+    FILTER_DRAFT_FIELDS.every(
+      (key) =>
+        isFilterConfig(value[key]),
+    )
+  );
+};
+
 const stringField = (
   record: Record<string, unknown>,
   key: keyof OptimisationDraft,

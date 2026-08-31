@@ -7,6 +7,12 @@ import {
   type SetStateAction,
 } from 'react';
 
+import {
+  OptimiserError,
+  combineFailures,
+  isOptimiserErrorCode,
+  toOptimiserError,
+} from '../../lib/errors';
 import type { BackgroundMessage } from '../../lib/messages';
 import {
   runAuxiliaryStudy,
@@ -45,9 +51,6 @@ import type {
 import type { TradingViewAdapter } from '../../lib/tradingview/adapter';
 import { useBackendConnection } from './useBackendConnection';
 import type { PreparedOptimisationRun } from './useStrategyConfiguration';
-import {
-  isExtensionContextInvalidated,
-} from '../../lib/extension-context';
 
 type TrialExecution = TrialExecutionUpdate;
 
@@ -127,6 +130,64 @@ export function useOptimisationRun({
   const finishingRunIdRef =
     useRef<string | null>(null);
   const recoveringBackendRef = useRef(false);
+  const activePersistenceRef =
+    useRef<PersistedOptimisationRun | null>(
+      null,
+    );
+
+  const persistLifecycle =
+    useCallback(
+      async (
+        patch: Partial<
+          Pick<
+            PersistedOptimisationRun,
+            'intent' | 'phase' | 'strategyId'
+          >
+        >,
+      ) => {
+        const current =
+          activePersistenceRef.current;
+
+        if (!current) {
+          throw new Error(
+            'Active optimisation lifecycle state is missing',
+          );
+        }
+
+        const next = {
+          ...current,
+          ...patch,
+        };
+
+        await saveActiveRun(next);
+        activePersistenceRef.current =
+          next;
+      },
+      [],
+    );
+
+  const clearActiveState =
+    useCallback(async () => {
+      await clearActiveRun();
+      activePersistenceRef.current =
+        null;
+      activeRunIdRef.current = null;
+      activeStrategyIdRef.current =
+        null;
+      activeConfigRef.current = null;
+      originalParametersRef.current =
+        null;
+      trialRunnerRef.current?.dispose();
+      trialRunnerRef.current = null;
+      progressRef.current = null;
+      finishingRunIdRef.current = null;
+      setActiveRunId(null);
+      setProgress(null);
+      setRunConfig(null);
+      setCurrentTrial(null);
+      setStartedAt(null);
+      setFinishedAt(null);
+    }, []);
 
   const assertCompatibility =
     useCallback(
@@ -149,7 +210,8 @@ export function useOptimisationRun({
             lastFailure: reason,
           });
 
-          throw new Error(
+          throw new OptimiserError(
+            'TV_CONTEXT_CHANGED',
             'SAFETY: TradingView compatibility pre-flight failed: ' +
               reason,
           );
@@ -167,12 +229,17 @@ export function useOptimisationRun({
 
   const recoverBackendRun =
     useCallback(async () => {
-      const config = activeConfigRef.current;
-      const runId = activeRunIdRef.current;
+      const config =
+        activeConfigRef.current;
+      const runId =
+        activeRunIdRef.current;
+      const persisted =
+        activePersistenceRef.current;
 
       if (
         !config ||
         !runId ||
+        !persisted ||
         recoveringBackendRef.current
       ) {
         return;
@@ -181,6 +248,21 @@ export function useOptimisationRun({
       recoveringBackendRef.current = true;
 
       try {
+        if (
+          persisted.intent ===
+          'stopped'
+        ) {
+          await sendRequest({
+            type: 'ABORT_RUN',
+            payload: {
+              runId,
+              reason:
+                'Retrying a previously requested user stop',
+            },
+          });
+          return;
+        }
+
         await sendRequest({
           type: 'CREATE_RUN',
           payload: config,
@@ -189,17 +271,24 @@ export function useOptimisationRun({
           type: 'START_RUN',
           payload: { runId },
         });
+        await persistLifecycle({
+          phase: 'running',
+        });
       } catch (cause) {
         setError(
           'Could not recover the active optimisation: ' +
-            (cause instanceof Error
-              ? cause.message
-              : String(cause)),
+            toOptimiserError(
+              cause,
+            ).message,
         );
       } finally {
         recoveringBackendRef.current = false;
       }
-    }, [sendRequest, setError]);
+    }, [
+      persistLifecycle,
+      sendRequest,
+      setError,
+    ]);
 
   const configureTrialRunner =
     useCallback(
@@ -311,6 +400,103 @@ export function useOptimisationRun({
       ],
     );
 
+  const startBackendRun =
+    useCallback(
+      async (
+        persisted:
+          PersistedOptimisationRun,
+      ) => {
+        let created = false;
+
+        try {
+          await sendRequest({
+            type: 'CREATE_RUN',
+            payload:
+              persisted.config,
+          });
+          created = true;
+
+          await sendRequest({
+            type: 'START_RUN',
+            payload: {
+              runId:
+                persisted.config
+                  .run_id,
+            },
+          });
+
+          await persistLifecycle({
+            phase: 'running',
+          });
+        } catch (cause) {
+          const error =
+            toOptimiserError(
+              cause,
+              'RUN_START_FAILED',
+            );
+
+          if (error.retryable) {
+            throw new OptimiserError(
+              error.code,
+              error.message +
+                '. The run state is saved and will be recovered when the connection is restored.',
+              true,
+            );
+          }
+
+          if (created) {
+            try {
+              await sendRequest({
+                type: 'ABORT_RUN',
+                payload: {
+                  runId:
+                    persisted.config
+                      .run_id,
+                  reason:
+                    'Rolling back a failed optimisation start',
+                },
+              });
+              await sendRequest({
+                type: 'DELETE_RUN',
+                payload: {
+                  runId:
+                    persisted.config
+                      .run_id,
+                },
+              });
+            } catch (
+              rollbackFailure
+            ) {
+              if (
+                !isOptimiserErrorCode(
+                  rollbackFailure,
+                  'UNKNOWN_RUN',
+                )
+              ) {
+                await persistLifecycle({
+                  intent: 'stopped',
+                  phase: 'stopping',
+                });
+                throw combineFailures(
+                  error,
+                  rollbackFailure,
+                  'Optimisation start failed and backend rollback also failed',
+                );
+              }
+            }
+          }
+
+          await clearActiveState();
+          throw error;
+        }
+      },
+      [
+        clearActiveState,
+        persistLifecycle,
+        sendRequest,
+      ],
+    );
+
   const beginPreparedRun = useCallback(
     async (
       prepared: PreparedOptimisationRun,
@@ -323,12 +509,14 @@ export function useOptimisationRun({
       const now = Date.now();
 
       const persisted: PersistedOptimisationRun = {
-        version: 1,
+        version: 2,
         config: prepared.config,
         strategyId: prepared.strategyId,
         originalParameters:
           prepared.originalParameters,
         startedAt: now,
+        intent: 'running',
+        phase: 'starting',
         environment: {
           extensionVersion:
             browser.runtime
@@ -349,6 +537,8 @@ export function useOptimisationRun({
       };
 
       await saveActiveRun(persisted);
+      activePersistenceRef.current =
+        persisted;
 
       activeRunIdRef.current =
         prepared.config.run_id;
@@ -378,48 +568,18 @@ export function useOptimisationRun({
       setResumeCandidate(null);
       setStopChoiceVisible(false);
 
-      await sendRequest({
-        type: 'CREATE_RUN',
-        payload: prepared.config,
-      });
-      await sendRequest({
-        type: 'START_RUN',
-        payload: {
-          runId:
-            prepared.config.run_id,
-        },
-      });
+      await startBackendRun(
+        persisted,
+      );
     },
     [
       assertCompatibility,
       backend.backendVersion,
       backend.optunaVersion,
       configureTrialRunner,
-      sendRequest,
+      startBackendRun,
     ],
   );
-
-  const resetFailedStart =
-    useCallback(async () => {
-      try {
-        await clearActiveRun();
-      } catch (cause) {
-        // A stale content-script context cannot access extension storage.
-        // Preserve the original start failure so App can refresh the tab
-        // instead of turning cleanup into an unhandled rejection.
-        if (!isExtensionContextInvalidated(cause)) {
-          throw cause;
-        }
-      }
-
-      activeRunIdRef.current = null;
-      activeStrategyIdRef.current = null;
-      activeConfigRef.current = null;
-      originalParametersRef.current = null;
-      trialRunnerRef.current?.dispose();
-      trialRunnerRef.current = null;
-      setActiveRunId(null);
-    }, []);
 
   const assertBackendReady =
     useCallback(() => {
@@ -449,7 +609,6 @@ export function useOptimisationRun({
           prepared,
         );
       } catch (cause) {
-        await resetFailedStart();
         setError(
           cause instanceof Error
             ? cause.message
@@ -462,7 +621,6 @@ export function useOptimisationRun({
       assertBackendReady,
       beginPreparedRun,
       prepareRun,
-      resetFailedStart,
       setError,
     ]);
 
@@ -482,7 +640,6 @@ export function useOptimisationRun({
             prepared,
           );
         } catch (cause) {
-          await resetFailedStart();
           setError(
             cause instanceof Error
               ? cause.message
@@ -495,7 +652,6 @@ export function useOptimisationRun({
       [
         assertBackendReady,
         beginPreparedRun,
-        resetFailedStart,
         setError,
       ],
     );
@@ -561,21 +717,22 @@ export function useOptimisationRun({
         );
         setResumeCandidate(null);
 
-        await saveActiveRun({
+        const persisted: PersistedOptimisationRun = {
           ...candidate,
+          version: 2,
           strategyId,
-        });
+          intent: 'running',
+          phase: 'starting',
+        };
+        await saveActiveRun(
+          persisted,
+        );
+        activePersistenceRef.current =
+          persisted;
 
-        await sendRequest({
-          type: 'CREATE_RUN',
-          payload: candidate.config,
-        });
-        await sendRequest({
-          type: 'START_RUN',
-          payload: {
-            runId: candidate.config.run_id,
-          },
-        });
+        await startBackendRun(
+          persisted,
+        );
       } catch (cause) {
         setError(
           cause instanceof Error
@@ -592,29 +749,20 @@ export function useOptimisationRun({
       configureTrialRunner,
       restorePersistedRun,
       resumeCandidate,
-      sendRequest,
       setError,
+      startBackendRun,
     ]);
 
   const discardResumeCandidate =
     useCallback(async () => {
-      await clearActiveRun();
-      originalParametersRef.current = null;
-      activeStrategyIdRef.current = null;
-      activeConfigRef.current = null;
+      await clearActiveState();
       setResumeCandidate(null);
-      progressRef.current = null;
-      finishingRunIdRef.current = null;
-      setProgress(null);
-      setRunConfig(null);
-      setStartedAt(null);
-      setFinishedAt(null);
       setWatchdog({
         status: 'idle',
         lastSuccessfulTrialAt: null,
         lastFailure: null,
       });
-    }, []);
+    }, [clearActiveState]);
 
   const stopOptimisation =
     useCallback(async () => {
@@ -623,21 +771,72 @@ export function useOptimisationRun({
 
       setError(undefined);
 
+      let persistenceFailure:
+        | unknown
+        | undefined;
+
       try {
-        await sendRequest({
-          type: 'STOP_RUN',
-          payload: { runId },
+        await persistLifecycle({
+          intent: 'stopped',
+          phase: 'stopping',
         });
       } catch (cause) {
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : String(cause),
-        );
-      } finally {
-        trialRunnerRef.current?.cancel();
+        persistenceFailure = cause;
       }
-    }, [sendRequest, setError]);
+
+      trialRunnerRef.current?.cancel();
+
+      try {
+        await sendRequest({
+          type: 'ABORT_RUN',
+          payload: {
+            runId,
+            reason:
+              'Optimisation stopped by user',
+          },
+        });
+
+        if (
+          persistenceFailure !==
+          undefined
+        ) {
+          setError(
+            'The backend run was stopped, but the local stop state could not be persisted: ' +
+              toOptimiserError(
+                persistenceFailure,
+              ).message,
+          );
+        }
+      } catch (cause) {
+        const error =
+          toOptimiserError(cause);
+
+        if (
+          persistenceFailure !==
+          undefined
+        ) {
+          setError(
+            combineFailures(
+              error,
+              persistenceFailure,
+              'The stop request failed and could not be persisted for recovery',
+            ).message,
+          );
+          return;
+        }
+
+        setError(
+          error.retryable
+            ? error.message +
+                '. Your stop request is saved and will be retried when the backend reconnects.'
+            : error.message,
+        );
+      }
+    }, [
+      persistLifecycle,
+      sendRequest,
+      setError,
+    ]);
 
   const applyParameters = useCallback(
     async (
@@ -844,6 +1043,8 @@ export function useOptimisationRun({
     const initialisePersistedRun = async () => {
       const saved = await loadActiveRun();
       if (saved) {
+        activePersistenceRef.current =
+          saved;
         setResumeCandidate(saved);
         progressRef.current =
           saved.lastProgress ?? null;
@@ -883,6 +1084,67 @@ export function useOptimisationRun({
   }, [setError]);
 
   useEffect(() => {
+    const saved =
+      resumeCandidate;
+
+    if (
+      !connected ||
+      !saved ||
+      saved.intent !== 'stopped'
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void sendRequest({
+      type: 'ABORT_RUN',
+      payload: {
+        runId:
+          saved.config.run_id,
+        reason:
+          'Retrying a persisted user stop after reload',
+      },
+    })
+      .catch((cause) => {
+        if (
+          isOptimiserErrorCode(
+            cause,
+            'UNKNOWN_RUN',
+          )
+        ) {
+          return;
+        }
+        throw cause;
+      })
+      .then(async () => {
+        if (cancelled) return;
+        await clearActiveRun();
+        activePersistenceRef.current =
+          null;
+        setResumeCandidate(null);
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setError(
+            'Could not complete the saved stop request: ' +
+              toOptimiserError(cause)
+                .message,
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    connected,
+    resumeCandidate,
+    sendRequest,
+    setError,
+  ]);
+
+  useEffect(() => {
     if (!connected || !activeRunIdRef.current) {
       return;
     }
@@ -904,7 +1166,13 @@ export function useOptimisationRun({
         setProgress(nextProgress);
         void updateActiveRunProgress(
           nextProgress,
-        );
+        ).catch((cause) => {
+          setError(
+            'The optimisation is running, but its recovery checkpoint could not be saved: ' +
+              toOptimiserError(cause)
+                .message,
+          );
+        });
         return;
       }
 
@@ -921,10 +1189,23 @@ export function useOptimisationRun({
         nextProgress.run_id;
 
       void (async () => {
-        await finishActiveRun(
-          nextProgress,
-        );
+        try {
+          await finishActiveRun(
+            nextProgress,
+          );
+        } catch (cause) {
+          finishingRunIdRef.current =
+            null;
+          setError(
+            'The run finished, but its final state could not be persisted: ' +
+              toOptimiserError(cause)
+                .message,
+          );
+          return;
+        }
 
+        activePersistenceRef.current =
+          null;
         activeRunIdRef.current = null;
         trialRunnerRef.current?.dispose();
         trialRunnerRef.current = null;
@@ -947,12 +1228,16 @@ export function useOptimisationRun({
               runId: finishedRunId,
             },
           });
-        } catch {
-          // The run itself is already safely persisted locally.
+        } catch (cause) {
+          setError(
+            'The run finished safely, but background ownership cleanup failed: ' +
+              toOptimiserError(cause)
+                .message,
+          );
         }
       })();
     },
-    [sendRequest],
+    [sendRequest, setError],
   );
 
   useEffect(() => {
@@ -995,7 +1280,11 @@ export function useOptimisationRun({
         return;
       }
 
-      if (message.type === 'NEXT_TRIAL') {
+      if (
+        message.type === 'NEXT_TRIAL' &&
+        message.trial.run_id ===
+          activeRunIdRef.current
+      ) {
         trialRunnerRef.current?.enqueue(
           message.trial,
         );

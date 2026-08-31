@@ -169,7 +169,13 @@ export class BackendClient {
     if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
     this.#reconnectTimer = null;
 
-    this.#rejectPending(new Error('Backend client disconnected'));
+    this.#rejectPending(
+      new OptimiserError(
+        'BACKEND_DISCONNECTED',
+        'Backend client disconnected',
+        true,
+      ),
+    );
     this.#socket?.close();
     this.#socket = null;
   }
@@ -271,7 +277,15 @@ export class BackendClient {
       } catch (error) {
         clearTimeout(timeout);
         this.#pendingRequests.delete(requestId);
-        reject(error instanceof Error ? error : new Error(String(error)));
+        reject(
+          new OptimiserError(
+            'BACKEND_DISCONNECTED',
+            error instanceof Error
+              ? error.message
+              : String(error),
+            true,
+          ),
+        );
       }
     });
   }

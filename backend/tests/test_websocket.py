@@ -214,6 +214,116 @@ def test_websocket_deletes_completed_run(monkeypatch, tmp_path) -> None:
         }
 
 
+def test_websocket_returns_structured_unknown_run_error(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("TVOPT_DATA_DIR", str(tmp_path))
+    token = "0123456789abcdef0123456789abcdef"
+    monkeypatch.setenv("TVOPT_EXTENSION_TOKEN", token)
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/ws") as websocket,
+    ):
+        websocket.send_json(
+            {
+                "type": "AUTH",
+                "request_id": "auth-1",
+                "payload": {"token": token},
+            }
+        )
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "START_RUN",
+                "request_id": "missing-run",
+                "payload": {"run_id": "does-not-exist"},
+            }
+        )
+        error = websocket.receive_json()
+
+        assert error["type"] == "ERROR"
+        assert error["request_id"] == "missing-run"
+        assert error["payload"]["code"] == "UNKNOWN_RUN"
+        assert error["payload"]["retryable"] is False
+
+
+def test_websocket_abort_stops_outstanding_trial(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("TVOPT_DATA_DIR", str(tmp_path))
+    token = "0123456789abcdef0123456789abcdef"
+    monkeypatch.setenv("TVOPT_EXTENSION_TOKEN", token)
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/ws") as websocket,
+    ):
+        websocket.send_json(
+            {
+                "type": "AUTH",
+                "request_id": "auth-1",
+                "payload": {"token": token},
+            }
+        )
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "CREATE_RUN",
+                "request_id": "create-abort",
+                "payload": {
+                    "run_id": "abort-ws-run",
+                    "objective_metric": "profitFactor",
+                    "direction": "maximize",
+                    "target_trials": 5,
+                    "parameters": [
+                        {
+                            "type": "int",
+                            "name": "length",
+                            "low": 5,
+                            "high": 20,
+                            "step": 1,
+                        }
+                    ],
+                    "filters": [],
+                    "chart": {
+                        "symbol": "OANDA:XAUUSD",
+                        "timeframe": "5",
+                        "strategy_name": "Test Strategy",
+                        "strategy_signature": "signature-123",
+                    },
+                },
+            }
+        )
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "START_RUN",
+                "request_id": "start-abort",
+                "payload": {"run_id": "abort-ws-run"},
+            }
+        )
+        websocket.receive_json()
+        next_trial = websocket.receive_json()
+        assert next_trial["type"] == "NEXT_TRIAL"
+
+        websocket.send_json(
+            {
+                "type": "ABORT_RUN",
+                "request_id": "abort-1",
+                "payload": {
+                    "run_id": "abort-ws-run",
+                    "reason": "tab delivery failed",
+                },
+            }
+        )
+        update = websocket.receive_json()
+
+        assert update["type"] == "RUN_UPDATE"
+        assert update["request_id"] == "abort-1"
+        assert update["payload"]["status"] == "stopped"
+        assert update["payload"]["failed_trials"] == 1
+
+
 def test_websocket_streams_incremental_trial_updates(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("TVOPT_DATA_DIR", str(tmp_path))
     token = "0123456789abcdef0123456789abcdef"

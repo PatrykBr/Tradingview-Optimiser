@@ -1,3 +1,5 @@
+import { isExtensionContextInvalidated } from './extension-context';
+
 export interface SerializedOptimiserError {
   code: string;
   message: string;
@@ -27,9 +29,6 @@ const messageFor = (cause: unknown): string =>
       ? cause
       : String(cause);
 
-const INVALIDATED_CONTEXT_PATTERN =
-  /extension context invalidated/i;
-
 export const toOptimiserError = (
   cause: unknown,
   fallbackCode = 'INTERNAL_ERROR',
@@ -44,7 +43,7 @@ export const toOptimiserError = (
   // Browser extension APIs do not expose a structured error code when an
   // installed extension version is replaced. Keep this browser-specific
   // string classification at one boundary and convert it immediately.
-  if (INVALIDATED_CONTEXT_PATTERN.test(message)) {
+  if (isExtensionContextInvalidated(message)) {
     return new OptimiserError(
       'EXTENSION_CONTEXT_INVALIDATED',
       message || 'Extension context invalidated',

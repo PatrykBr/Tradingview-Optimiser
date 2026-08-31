@@ -1,4 +1,8 @@
 import {
+  OptimiserError,
+  serialiseOptimiserError,
+} from '../lib/errors';
+import {
   asRecord,
   buildStrategySignature,
   extractTradingViewMetrics,
@@ -347,42 +351,77 @@ const unwrapValue = (value: unknown): unknown => {
   return value;
 };
 
+interface MetricsRead {
+  metrics: Record<string, number>;
+  source: 'internal' | 'deep-visible';
+}
+
 const readMetricsFromRawReport = (
   rawReport: unknown,
   deepBacktesting: boolean,
-): Record<string, number> | null => {
-  let internalMetrics: Record<string, number> | null = null;
+): MetricsRead => {
+  let internalMetrics:
+    | Record<string, number>
+    | null = null;
+  let internalFailure: string | null =
+    null;
 
   try {
     internalMetrics =
-      extractTradingViewMetrics(rawReport);
-  } catch {
-    internalMetrics = null;
+      extractTradingViewMetrics(
+        rawReport,
+      );
+  } catch (cause) {
+    internalFailure =
+      cause instanceof Error
+        ? cause.message
+        : String(cause);
   }
 
-  // In regular chart-session mode reportData() is authoritative. Avoid
-  // touching TradingView's large rendered DOM on every polling iteration.
-  if (!deepBacktesting && internalMetrics) {
-    return internalMetrics;
+  if (!deepBacktesting) {
+    if (internalMetrics) {
+      return {
+        metrics: internalMetrics,
+        source: 'internal',
+      };
+    }
+
+    throw new OptimiserError(
+      'TV_REPORT_PARSE_FAILED',
+      internalFailure
+        ? 'TradingView internal report metrics could not be parsed: ' +
+            internalFailure
+        : 'TradingView internal report metrics are unavailable',
+    );
   }
 
   const visibleMetrics =
     readVisibleStrategyReportMetrics();
 
-  if (deepBacktesting && visibleMetrics) {
-    if (internalMetrics) {
-      const comparableKeys = [
-        'profitFactor',
-        'totalTrades',
-        'netProfitPercent',
-        'maxDrawdownPercent',
-        'sharpeRatio',
-        'sortinoRatio',
-      ];
+  if (!visibleMetrics) {
+    throw new OptimiserError(
+      'TV_DEEP_REPORT_UNAVAILABLE',
+      'TradingView Deep Backtesting metrics are not visible. Refusing to reuse chart-session metrics.',
+    );
+  }
 
-      const disagrees = comparableKeys.some((key) => {
-        const internal = internalMetrics?.[key];
-        const visible = visibleMetrics[key];
+  if (internalMetrics) {
+    const comparableKeys = [
+      'profitFactor',
+      'totalTrades',
+      'netProfitPercent',
+      'maxDrawdownPercent',
+      'sharpeRatio',
+      'sortinoRatio',
+    ];
+
+    const disagrees =
+      comparableKeys.some((key) => {
+        const internal =
+          internalMetrics?.[key];
+        const visible =
+          visibleMetrics[key];
+
         if (
           internal === undefined ||
           visible === undefined
@@ -391,24 +430,33 @@ const readMetricsFromRawReport = (
         }
 
         const tolerance =
-          Math.max(1, Math.abs(visible)) * 1.0e-6;
-        return Math.abs(internal - visible) > tolerance;
+          Math.max(
+            1,
+            Math.abs(visible),
+          ) * 1.0e-6;
+
+        return (
+          Math.abs(
+            internal - visible,
+          ) > tolerance
+        );
       });
 
-      if (!disagrees) {
-        return {
+    if (!disagrees) {
+      return {
+        metrics: {
           ...internalMetrics,
           ...visibleMetrics,
-        };
-      }
+        },
+        source: 'deep-visible',
+      };
     }
-
-    // A disagreement means reportData() is still describing the regular
-    // chart session. Never contaminate a Deep Backtesting trial with it.
-    return visibleMetrics;
   }
 
-  return internalMetrics ?? visibleMetrics;
+  return {
+    metrics: visibleMetrics,
+    source: 'deep-visible',
+  };
 };
 
 const readStrategyMetrics = (
@@ -416,27 +464,45 @@ const readStrategyMetrics = (
   expectedDeepBacktesting?: boolean,
 ) => {
   const chart = getChart();
-  const source = getStrategySource(chart, strategyId);
+  const source =
+    getStrategySource(
+      chart,
+      strategyId,
+    );
 
   if (
     !source ||
-    typeof source.reportData !== 'function'
+    typeof source.reportData !==
+      'function'
   ) {
-    return readVisibleStrategyReportMetrics();
+    throw new OptimiserError(
+      'TV_REPORT_SOURCE_UNAVAILABLE',
+      'TradingView strategy report source is unavailable',
+    );
   }
 
   let rawReport: unknown;
   try {
-    rawReport = unwrapValue(source.reportData());
-  } catch {
-    rawReport = null;
+    rawReport =
+      unwrapValue(
+        source.reportData(),
+      );
+  } catch (cause) {
+    throw new OptimiserError(
+      'TV_REPORT_SOURCE_UNAVAILABLE',
+      'TradingView strategy report source could not be read: ' +
+        (cause instanceof Error
+          ? cause.message
+          : String(cause)),
+      true,
+    );
   }
 
   return readMetricsFromRawReport(
     rawReport,
     expectedDeepBacktesting ??
       isDeepBacktestingActive(),
-  );
+  ).metrics;
 };
 
 const readStrategyClosedTrades = (
@@ -518,7 +584,10 @@ const compactReportMetrics = (
 
 interface ReportCoreSnapshot {
   report: UnknownRecord;
-  metrics: Record<string, number> | null;
+  metrics: Record<string, number>;
+  metricSource:
+    | 'internal'
+    | 'deep-visible';
   token: string;
   objectId: number | null;
   deepBacktesting: boolean;
@@ -545,8 +614,15 @@ const readStrategyReportCore = (
     // full context snapshot. This avoids both duplicated work and mixed-state
     // snapshots while TradingView is recalculating.
     rawReport = unwrapValue(source.reportData());
-  } catch {
-    return null;
+  } catch (cause) {
+    throw new OptimiserError(
+      'TV_REPORT_SOURCE_UNAVAILABLE',
+      'TradingView strategy report source could not be read: ' +
+        (cause instanceof Error
+          ? cause.message
+          : String(cause)),
+      true,
+    );
   }
 
   const objectId = reportObjectId(rawReport);
@@ -554,10 +630,13 @@ const readStrategyReportCore = (
   const deepBacktesting =
     expectedDeepBacktesting ??
     isDeepBacktestingActive();
-  const metrics = readMetricsFromRawReport(
-    rawReport,
-    deepBacktesting,
-  );
+  const metricRead =
+    readMetricsFromRawReport(
+      rawReport,
+      deepBacktesting,
+    );
+  const metrics =
+    metricRead.metrics;
   const runtimeError =
     report.error ??
     report.runtimeError ??
@@ -593,12 +672,16 @@ const readStrategyReportCore = (
       revisionMetrics,
       objectId,
       deepBacktesting,
+      metricSource:
+        metricRead.source,
     }),
   );
 
   return {
     report,
     metrics,
+    metricSource:
+      metricRead.source,
     token,
     objectId,
     deepBacktesting,
@@ -609,16 +692,6 @@ const readStrategyReportCore = (
         : null,
   };
 };
-
-const unavailableReportSnapshot = () => ({
-  metrics: null,
-  token: null,
-  objectId: null,
-  backtestRange: null,
-  settingsSignature: null,
-  error:
-    'TradingView strategy report source is unavailable',
-});
 
 const readStrategyReportPollSnapshot = (
   strategyId: string,
@@ -631,13 +704,10 @@ const readStrategyReportPollSnapshot = (
     );
 
   if (!core) {
-    return {
-      metrics: null,
-      token: null,
-      objectId: null,
-      error:
-        'TradingView strategy report source is unavailable',
-    };
+    throw new OptimiserError(
+      'TV_REPORT_SOURCE_UNAVAILABLE',
+      'TradingView strategy report source is unavailable',
+    );
   }
 
   return {
@@ -645,6 +715,8 @@ const readStrategyReportPollSnapshot = (
       compactReportMetrics(core.metrics),
     token: core.token,
     objectId: core.objectId,
+    metricSource:
+      core.metricSource,
     error: core.error,
   };
 };
@@ -656,7 +728,10 @@ const readStrategyReportSnapshot = (
     readStrategyReportCore(strategyId);
 
   if (!core) {
-    return unavailableReportSnapshot();
+    throw new OptimiserError(
+      'TV_REPORT_SOURCE_UNAVAILABLE',
+      'TradingView strategy report source is unavailable',
+    );
   }
 
   const settings = asRecord(
@@ -703,6 +778,8 @@ const readStrategyReportSnapshot = (
     metrics: core.metrics,
     token: core.token,
     objectId: core.objectId,
+    metricSource:
+      core.metricSource,
     backtestRange:
       from !== null && to !== null
         ? { from, to }
@@ -842,13 +919,38 @@ const runDiagnostics = (strategyId: string | null) => {
       ok: Boolean(source?.reportData),
     });
 
-    const snapshot = readStrategyReportSnapshot(strategyId);
-    checks.push({
-      id: 'metrics-readable',
-      label: 'Strategy Tester metrics',
-      ok: Boolean(snapshot.metrics),
-      ...(snapshot.error ? { detail: snapshot.error } : {}),
-    });
+    try {
+      const snapshot =
+        readStrategyReportSnapshot(
+          strategyId,
+        );
+      checks.push({
+        id: 'metrics-readable',
+        label:
+          'Strategy Tester metrics',
+        ok:
+          Boolean(snapshot.metrics) &&
+          snapshot.metricSource !==
+            null,
+        detail:
+          snapshot.error ??
+          (snapshot.metricSource
+            ? 'source: ' +
+              snapshot.metricSource
+            : 'Metric source unavailable'),
+      });
+    } catch (error) {
+      checks.push({
+        id: 'metrics-readable',
+        label:
+          'Strategy Tester metrics',
+        ok: false,
+        detail:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      });
+    }
 
     const tradeSnapshot =
       readStrategyClosedTrades(strategyId);
@@ -1055,7 +1157,11 @@ export default defineUnlistedScript(() => {
           detail: {
             id: request.id,
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error:
+              serialiseOptimiserError(
+                error,
+                'TV_BRIDGE_REQUEST_FAILED',
+              ),
           },
         }),
       );

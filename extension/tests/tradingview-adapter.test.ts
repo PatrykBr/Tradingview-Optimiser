@@ -141,6 +141,8 @@ describe('TradingView adapter run context', () => {
                   },
                   token: 'before',
                   objectId: 1,
+                  metricSource:
+                    'internal',
                   error: null,
                 }
               : {
@@ -149,6 +151,8 @@ describe('TradingView adapter run context', () => {
                   },
                   token: 'after',
                   objectId: 2,
+                  metricSource:
+                    'internal',
                   error: null,
                 };
           }
@@ -207,6 +211,79 @@ describe('TradingView adapter run context', () => {
             'readReportPollSnapshot',
         ).length,
       ).toBeGreaterThanOrEqual(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails closed when TradingView never publishes a new report revision', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const bridge = {
+        request: async (
+          action: string,
+        ) => {
+          if (
+            action ===
+            'readReportPollSnapshot'
+          ) {
+            return {
+              metrics: {
+                profitFactor: 1.2,
+              },
+              token: 'unchanged',
+              objectId: 1,
+              metricSource:
+                'internal',
+              error: null,
+            };
+          }
+
+          if (
+            action ===
+            'applyParameters'
+          ) {
+            return {
+              confirmed: {
+                in_0: 15,
+              },
+            };
+          }
+
+          if (
+            action ===
+            'ensureStrategyTester'
+          ) {
+            return true;
+          }
+
+          throw new Error(
+            'Unexpected bridge request: ' +
+              action,
+          );
+        },
+      } as unknown as TradingViewBridge;
+
+      const adapter =
+        new TradingViewAdapter(bridge);
+      const evaluation =
+        adapter.evaluateParameters(
+          'strategy-1',
+          { in_0: 15 },
+          null,
+        );
+
+      const assertion =
+        expect(evaluation).rejects.toThrow(
+          /ambiguous|recalculate/i,
+        );
+
+      await vi.advanceTimersByTimeAsync(
+        66_000,
+      );
+
+      await assertion;
     } finally {
       vi.useRealTimers();
     }

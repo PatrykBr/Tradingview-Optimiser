@@ -1,7 +1,6 @@
 import { BackendClient } from '../lib/backend-client';
 import {
   combineFailures,
-  isOptimiserErrorCode,
   serialiseOptimiserError,
   toOptimiserError,
 } from '../lib/errors';
@@ -294,19 +293,14 @@ export default defineBackground(() => {
                   msg.payload.run_id,
                 );
 
-                try {
-                  await backend.deleteRun(
-                    msg.payload.run_id,
-                  );
-                } catch (rollbackFailure) {
-                  throw combineFailures(
-                    cause,
-                    rollbackFailure,
-                    'Could not persist run ownership and backend rollback failed',
-                  );
-                }
-
-                throw cause;
+                // CREATE_RUN is idempotent and may have reopened an existing
+                // study. Never delete durable optimisation history just because
+                // extension owner metadata could not be persisted.
+                throw toOptimiserError(
+                  cause,
+                  'RUN_OWNER_PERSIST_FAILED',
+                  true,
+                );
               }
             }
 

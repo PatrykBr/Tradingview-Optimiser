@@ -1,3 +1,8 @@
+import {
+  OptimiserError,
+  type SerializedOptimiserError,
+} from '../errors';
+
 const REQUEST_EVENT = 'tvopt:request';
 const RESPONSE_EVENT = 'tvopt:response';
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -12,7 +17,7 @@ interface BridgeResponse<T = unknown> {
   id: string;
   ok: boolean;
   result?: T;
-  error?: string;
+  error?: SerializedOptimiserError | string;
 }
 
 export class TradingViewBridge {
@@ -37,7 +42,13 @@ export class TradingViewBridge {
     return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.#pending.delete(id);
-        reject(new Error('Timed out waiting for TradingView page API'));
+        reject(
+          new OptimiserError(
+            'TV_BRIDGE_TIMEOUT',
+            'Timed out waiting for TradingView page API',
+            true,
+          ),
+        );
       }, timeoutMs);
 
       this.#pending.set(id, {
@@ -59,7 +70,13 @@ export class TradingViewBridge {
     this.#script.removeEventListener(RESPONSE_EVENT, this.#onResponse as EventListener);
     for (const pending of this.#pending.values()) {
       clearTimeout(pending.timeout);
-      pending.reject(new Error('TradingView bridge disposed'));
+      pending.reject(
+        new OptimiserError(
+          'TV_BRIDGE_DISPOSED',
+          'TradingView bridge disposed',
+          true,
+        ),
+      );
     }
     this.#pending.clear();
   }
@@ -76,8 +93,29 @@ export class TradingViewBridge {
 
     if (response.ok) {
       pending.resolve(response.result);
-    } else {
-      pending.reject(new Error(response.error ?? 'TradingView page API request failed'));
+      return;
     }
+
+    if (
+      response.error &&
+      typeof response.error === 'object'
+    ) {
+      pending.reject(
+        new OptimiserError(
+          response.error.code,
+          response.error.message,
+          response.error.retryable,
+        ),
+      );
+      return;
+    }
+
+    pending.reject(
+      new OptimiserError(
+        'TV_BRIDGE_REQUEST_FAILED',
+        response.error ??
+          'TradingView page API request failed',
+      ),
+    );
   };
 }

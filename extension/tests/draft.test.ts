@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cloneOptimisationDraft,
   DEFAULT_OPTIMISATION_DRAFT,
+  isOptimisationDraft,
   normaliseOptimisationDraft,
 } from '../lib/optimisation/draft';
 
@@ -40,6 +41,21 @@ describe('optimisation draft', () => {
       monteCarloSimulations: '5000',
       monteCarloConfidencePercent: '90',
     });
+  });
+
+  it('distinguishes a complete current draft from a malformed one', () => {
+    expect(
+      isOptimisationDraft(
+        DEFAULT_OPTIMISATION_DRAFT,
+      ),
+    ).toBe(true);
+
+    expect(
+      isOptimisationDraft({
+        ...DEFAULT_OPTIMISATION_DRAFT,
+        targetTrials: 100,
+      }),
+    ).toBe(false);
   });
 
   it('clones nested filter state', () => {

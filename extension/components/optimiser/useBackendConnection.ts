@@ -6,6 +6,11 @@ import {
   type SetStateAction,
 } from 'react';
 
+import {
+  OptimiserError,
+  toOptimiserError,
+  type SerializedOptimiserError,
+} from '../../lib/errors';
 import type {
   BackendState,
   BackgroundMessage,
@@ -18,7 +23,7 @@ type ErrorSetter = Dispatch<
 
 const responseError = (
   response: unknown,
-): string | null => {
+): SerializedOptimiserError | null => {
   if (
     !response ||
     typeof response !== 'object'
@@ -28,11 +33,44 @@ const responseError = (
 
   const record =
     response as Record<string, unknown>;
+  if (record.ok !== false) {
+    return null;
+  }
 
-  return record.ok === false &&
-    typeof record.error === 'string'
-    ? record.error
-    : null;
+  const error = record.error;
+  if (typeof error === 'string') {
+    return {
+      code: 'BACKGROUND_REQUEST_FAILED',
+      message: error,
+      retryable: false,
+    };
+  }
+
+  if (
+    error &&
+    typeof error === 'object'
+  ) {
+    const candidate =
+      error as Partial<SerializedOptimiserError>;
+    if (
+      typeof candidate.code === 'string' &&
+      typeof candidate.message === 'string' &&
+      typeof candidate.retryable === 'boolean'
+    ) {
+      return {
+        code: candidate.code,
+        message: candidate.message,
+        retryable: candidate.retryable,
+      };
+    }
+  }
+
+  return {
+    code: 'BACKGROUND_REQUEST_FAILED',
+    message:
+      'Background request failed without a valid error payload',
+    retryable: false,
+  };
 };
 
 export function useBackendConnection(
@@ -51,14 +89,30 @@ export function useBackendConnection(
     async <T,>(
       request: ExtensionRequest,
     ): Promise<T> => {
-      const response =
-        await browser.runtime.sendMessage(
-          request,
-        );
-      const message = responseError(response);
+      let response: unknown;
 
-      if (message) {
-        throw new Error(message);
+      try {
+        response =
+          await browser.runtime.sendMessage(
+            request,
+          );
+      } catch (cause) {
+        throw toOptimiserError(
+          cause,
+          'EXTENSION_RUNTIME_ERROR',
+          true,
+        );
+      }
+
+      const error =
+        responseError(response);
+
+      if (error) {
+        throw new OptimiserError(
+          error.code,
+          error.message,
+          error.retryable,
+        );
       }
 
       return response as T;
@@ -168,9 +222,11 @@ export function useBackendConnection(
         browser.runtime.onMessage.removeListener(
           listener,
         );
-      } catch {
-        // The old content-script context may already be invalid while the
-        // TradingView tab is reloading into the new extension version.
+      } catch (cause) {
+        console.warn(
+          'Could not remove optimiser backend listener during teardown',
+          cause,
+        );
       }
     };
   }, [setError]);
