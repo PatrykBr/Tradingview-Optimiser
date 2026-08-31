@@ -307,6 +307,53 @@ const visibleDateInputs = (): HTMLInputElement[] => {
     .map(({ input }) => input);
 };
 
+export const refreshDeepBacktestReport =
+  async (): Promise<DeepBacktestResult> => {
+    ensureStrategyTester();
+    await sleep(100);
+
+    let updateButton = findClickableByText(
+      /generate report|update report|apply|calculate/i,
+    );
+
+    if (!updateButton) {
+      const deepButton = findClickableByText(
+        /deep backtesting/i,
+      );
+      if (!deepButton) {
+        return {
+          supported: false,
+          applied: false,
+          reason:
+            'Deep Backtesting is not available in the current TradingView interface.',
+        };
+      }
+
+      deepButton.click();
+      await sleep(180);
+      updateButton = findClickableByText(
+        /generate report|update report|apply|calculate/i,
+      );
+    }
+
+    if (!updateButton) {
+      return {
+        supported: true,
+        applied: false,
+        reason:
+          'Could not locate the Deep Backtesting report button.',
+      };
+    }
+
+    updateButton.click();
+
+    return {
+      supported: true,
+      applied: true,
+      reason: null,
+    };
+  };
+
 export const configureDeepBacktestRange = async (
   startDate: string,
   endDate: string,
