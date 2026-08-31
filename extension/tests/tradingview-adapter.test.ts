@@ -2,6 +2,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 
 import type {
@@ -112,6 +113,90 @@ describe('TradingView adapter run context', () => {
     expect(actions).toEqual([
       'getRunContextSnapshot',
     ]);
+  });
+
+  it('uses lightweight report snapshots in the trial polling hot path', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const actions: string[] = [];
+      let pollReads = 0;
+
+      const bridge = {
+        request: async (
+          action: string,
+        ) => {
+          actions.push(action);
+
+          if (
+            action ===
+            'readReportPollSnapshot'
+          ) {
+            pollReads += 1;
+
+            return pollReads === 1
+              ? {
+                  metrics: {
+                    profitFactor: 1,
+                  },
+                  token: 'before',
+                  objectId: 1,
+                  error: null,
+                }
+              : {
+                  metrics: {
+                    profitFactor: 2,
+                  },
+                  token: 'after',
+                  objectId: 2,
+                  error: null,
+                };
+          }
+
+          if (action === 'applyParameters') {
+            return {
+              confirmed: {
+                in_0: 15,
+              },
+            };
+          }
+
+          throw new Error(
+            'Unexpected bridge request: ' +
+              action,
+          );
+        },
+      } as unknown as TradingViewBridge;
+
+      const adapter =
+        new TradingViewAdapter(bridge);
+      const evaluation =
+        adapter.evaluateParameters(
+          'strategy-1',
+          { in_0: 15 },
+          null,
+        );
+
+      await vi.advanceTimersByTimeAsync(
+        1_000,
+      );
+
+      await expect(evaluation).resolves.toEqual({
+        profitFactor: 2,
+      });
+      expect(actions).not.toContain(
+        'readReportSnapshot',
+      );
+      expect(
+        actions.filter(
+          (action) =>
+            action ===
+            'readReportPollSnapshot',
+        ).length,
+      ).toBeGreaterThanOrEqual(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('still rejects fixed-input changes from the consolidated snapshot', async () => {
