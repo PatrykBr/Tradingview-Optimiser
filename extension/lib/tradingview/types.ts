@@ -30,16 +30,20 @@ export interface TradingViewMetrics {
   [metric: string]: number;
 }
 
-export interface TradingViewReportSnapshot {
+export interface TradingViewReportPollSnapshot {
   metrics: TradingViewMetrics | null;
   token: string | null;
   objectId: number | null;
+  error: string | null;
+}
+
+export interface TradingViewReportSnapshot
+  extends TradingViewReportPollSnapshot {
   backtestRange: {
     from: number;
     to: number;
   } | null;
   settingsSignature: string | null;
-  error: string | null;
 }
 
 export interface DiagnosticCheck {
