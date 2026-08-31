@@ -18,6 +18,9 @@ import {
   compatibilityFailureReason,
 } from '../../lib/optimisation/run-compatibility';
 import {
+  mergeRunUpdate,
+} from '../../lib/optimisation/run-progress';
+import {
   createStudyTrialRunner,
   type StudyTrialRunner,
 } from '../../lib/optimisation/study-trial-runner';
@@ -44,6 +47,13 @@ import { useBackendConnection } from './useBackendConnection';
 import type { PreparedOptimisationRun } from './useStrategyConfiguration';
 
 type TrialExecution = TrialExecutionUpdate;
+
+const isTerminalStatus = (
+  status: RunProgress['status'],
+): boolean =>
+  status === 'completed' ||
+  status === 'stopped' ||
+  status === 'failed';
 
 export interface CompatibilityWatchdog {
   status: 'idle' | 'healthy' | 'failed';
@@ -109,6 +119,10 @@ export function useOptimisationRun({
   >(null);
   const trialRunnerRef =
     useRef<StudyTrialRunner | null>(null);
+  const progressRef =
+    useRef<RunProgress | null>(null);
+  const finishingRunIdRef =
+    useRef<string | null>(null);
   const recoveringBackendRef = useRef(false);
 
   const assertCompatibility =
@@ -358,6 +372,8 @@ export function useOptimisationRun({
       setActiveRunId(
         prepared.config.run_id,
       );
+      progressRef.current = null;
+      finishingRunIdRef.current = null;
       setProgress(null);
       setCurrentTrial(null);
       setResumeCandidate(null);
@@ -523,6 +539,9 @@ export function useOptimisationRun({
         );
 
         setRunConfig(candidate.config);
+        progressRef.current =
+          candidate.lastProgress ?? null;
+        finishingRunIdRef.current = null;
         setProgress(
           candidate.lastProgress ?? null,
         );
@@ -581,6 +600,8 @@ export function useOptimisationRun({
       activeStrategyIdRef.current = null;
       activeConfigRef.current = null;
       setResumeCandidate(null);
+      progressRef.current = null;
+      finishingRunIdRef.current = null;
       setProgress(null);
       setRunConfig(null);
       setStartedAt(null);
@@ -801,6 +822,8 @@ export function useOptimisationRun({
     activeStrategyIdRef.current = null;
     activeConfigRef.current = null;
     originalParametersRef.current = null;
+    progressRef.current = null;
+    finishingRunIdRef.current = null;
     setProgress(null);
     setRunConfig(null);
     setCurrentTrial(null);
@@ -819,7 +842,11 @@ export function useOptimisationRun({
       const saved = await loadActiveRun();
       if (saved) {
         setResumeCandidate(saved);
-        setProgress(saved.lastProgress ?? null);
+        progressRef.current =
+          saved.lastProgress ?? null;
+        setProgress(
+          saved.lastProgress ?? null,
+        );
         setRunConfig(saved.config);
         setStartedAt(saved.startedAt);
         setFinishedAt(null);
@@ -830,6 +857,8 @@ export function useOptimisationRun({
 
       const last = await loadLastRun();
       if (last?.lastProgress) {
+        progressRef.current =
+          last.lastProgress;
         setProgress(last.lastProgress);
         setRunConfig(last.config);
         setStartedAt(last.startedAt);
@@ -860,11 +889,77 @@ export function useOptimisationRun({
     });
   }, [connected, recoverBackendRun]);
 
+  const acceptProgress = useCallback(
+    (nextProgress: RunProgress) => {
+      progressRef.current = nextProgress;
+
+      if (
+        !isTerminalStatus(
+          nextProgress.status,
+        )
+      ) {
+        setProgress(nextProgress);
+        void updateActiveRunProgress(
+          nextProgress,
+        );
+        return;
+      }
+
+      if (
+        finishingRunIdRef.current ===
+        nextProgress.run_id
+      ) {
+        return;
+      }
+      finishingRunIdRef.current =
+        nextProgress.run_id;
+
+      const finishedRunId =
+        nextProgress.run_id;
+
+      void (async () => {
+        await finishActiveRun(
+          nextProgress,
+        );
+
+        activeRunIdRef.current = null;
+        trialRunnerRef.current?.dispose();
+        trialRunnerRef.current = null;
+        setProgress(nextProgress);
+        setFinishedAt(Date.now());
+        setActiveRunId(null);
+        setCurrentTrial(null);
+
+        if (
+          nextProgress.status ===
+          'stopped'
+        ) {
+          setStopChoiceVisible(true);
+        }
+
+        try {
+          await sendRequest({
+            type: 'CLEAR_RUN_OWNER',
+            payload: {
+              runId: finishedRunId,
+            },
+          });
+        } catch {
+          // The run itself is already safely persisted locally.
+        }
+      })();
+    },
+    [sendRequest],
+  );
+
   useEffect(() => {
     const listener = (
       message: BackgroundMessage,
     ) => {
-      if (message.type === 'RUN_PROGRESS') {
+      if (
+        message.type ===
+        'RUN_PROGRESS'
+      ) {
         if (
           message.progress.run_id !==
           activeRunIdRef.current
@@ -872,53 +967,28 @@ export function useOptimisationRun({
           return;
         }
 
-        const terminal =
-          message.progress.status === 'completed' ||
-          message.progress.status === 'stopped' ||
-          message.progress.status === 'failed';
+        acceptProgress(
+          message.progress,
+        );
+        return;
+      }
 
-        if (!terminal) {
-          setProgress(message.progress);
-          void updateActiveRunProgress(
-            message.progress,
-          );
+      if (
+        message.type === 'RUN_UPDATE'
+      ) {
+        if (
+          message.update.run_id !==
+          activeRunIdRef.current
+        ) {
           return;
         }
 
-        const finishedRunId =
-          message.progress.run_id;
-
-        void (async () => {
-          await finishActiveRun(
-            message.progress,
-          );
-
-          activeRunIdRef.current = null;
-          trialRunnerRef.current?.dispose();
-          trialRunnerRef.current = null;
-          setProgress(message.progress);
-          setFinishedAt(Date.now());
-          setActiveRunId(null);
-          setCurrentTrial(null);
-
-          if (
-            message.progress.status ===
-            'stopped'
-          ) {
-            setStopChoiceVisible(true);
-          }
-
-          try {
-            await sendRequest({
-              type: 'CLEAR_RUN_OWNER',
-              payload: {
-                runId: finishedRunId,
-              },
-            });
-          } catch {
-            // The run itself is already safely persisted locally.
-          }
-        })();
+        acceptProgress(
+          mergeRunUpdate(
+            progressRef.current,
+            message.update,
+          ),
+        );
         return;
       }
 
@@ -936,7 +1006,7 @@ export function useOptimisationRun({
       browser.runtime.onMessage.removeListener(
         listener,
       );
-  }, [sendRequest]);
+  }, [acceptProgress]);
 
   useEffect(() => {
     if (activeRunId === null) return;
