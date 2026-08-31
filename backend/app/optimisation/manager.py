@@ -961,10 +961,16 @@ class OptimisationManager:
             )
 
     def _run_lock(self, run_id: str) -> asyncio.Lock:
-        return self._run_locks.setdefault(
-            run_id,
-            asyncio.Lock(),
-        )
+        lock = self._run_locks.get(run_id)
+        if lock is not None:
+            return lock
+
+        if run_id not in self._runs:
+            raise KeyError(f"unknown run_id: {run_id}")
+
+        lock = asyncio.Lock()
+        self._run_locks[run_id] = lock
+        return lock
 
     def _require(self, run_id: str) -> ActiveRun:
         try:
