@@ -111,17 +111,17 @@ async def _dispatch(
                 await websocket.send_json(encode("NEXT_TRIAL", next_trial))
         case "TRIAL_RESULT":
             result = TrialResult.model_validate(envelope.payload)
-            progress, next_trial = await manager.submit_result(result)
+            update, next_trial = await manager.submit_result(result)
             await websocket.send_json(
-                encode("RUN_PROGRESS", progress, envelope.request_id)
+                encode("RUN_UPDATE", update, envelope.request_id)
             )
             if next_trial is not None:
                 await websocket.send_json(encode("NEXT_TRIAL", next_trial))
         case "TRIAL_FAILED":
             failure = TrialFailure.model_validate(envelope.payload)
-            progress, next_trial = await manager.submit_failure(failure)
+            update, next_trial = await manager.submit_failure(failure)
             await websocket.send_json(
-                encode("RUN_PROGRESS", progress, envelope.request_id)
+                encode("RUN_UPDATE", update, envelope.request_id)
             )
             if next_trial is not None:
                 await websocket.send_json(encode("NEXT_TRIAL", next_trial))
