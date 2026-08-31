@@ -161,6 +161,13 @@ describe('TradingView adapter run context', () => {
             };
           }
 
+          if (action === 'readMetrics') {
+            return {
+              profitFactor: 2,
+              'tv.all.netProfit': 123,
+            };
+          }
+
           throw new Error(
             'Unexpected bridge request: ' +
               action,
@@ -183,10 +190,16 @@ describe('TradingView adapter run context', () => {
 
       await expect(evaluation).resolves.toEqual({
         profitFactor: 2,
+        'tv.all.netProfit': 123,
       });
       expect(actions).not.toContain(
         'readReportSnapshot',
       );
+      expect(
+        actions.filter(
+          (action) => action === 'readMetrics',
+        ),
+      ).toHaveLength(1);
       expect(
         actions.filter(
           (action) =>
