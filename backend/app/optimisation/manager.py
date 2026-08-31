@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
@@ -20,11 +20,24 @@ from app.models import (
     RunAnalysis,
     RunProgress,
     RunStatus,
+    RunUpdate,
     SearchParameter,
     TrialFailure,
     TrialResult,
     TrialSummary,
 )
+
+
+ParameterSignature = tuple[tuple[str, str], ...]
+
+
+@dataclass(slots=True, frozen=True)
+class ReusableTrial:
+    number: int
+    value: float
+    metrics: dict[str, float]
+    constraints: dict[str, float]
+    objective_fallback: str | None
 
 
 @dataclass(slots=True)
@@ -35,6 +48,16 @@ class ActiveRun:
     outstanding_trial: Trial | None = None
     termination_reason: str | None = None
     search_space_cardinality: int | None = None
+    completed_count: int = 0
+    failed_count: int = 0
+    reused_count: int = 0
+    summaries: list[TrialSummary] = field(default_factory=list)
+    reusable_by_signature: dict[ParameterSignature, ReusableTrial] = field(
+        default_factory=dict
+    )
+    evaluated_signatures: set[ParameterSignature] = field(default_factory=set)
+    convergence_values: list[float | None] = field(default_factory=list)
+    best: BestTrial | None = None
 
 
 class OptimisationManager:
