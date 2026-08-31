@@ -79,6 +79,8 @@ export const evaluateOptimisationTrial =
       request.config,
       request.originalParameters,
     );
+    const contextPreMs =
+      Date.now() - startedAt;
 
     request.onPhase?.({
       number:
@@ -88,6 +90,7 @@ export const evaluateOptimisationTrial =
       phase: 'recalculating',
     });
 
+    const evaluationStartedAt = Date.now();
     const metrics =
       await request.adapter.evaluateParameters(
         request.strategyId,
@@ -95,12 +98,17 @@ export const evaluateOptimisationTrial =
         rangeFor(request.config),
         request.signal,
       );
+    const evaluationMs =
+      Date.now() - evaluationStartedAt;
 
+    const contextPostStartedAt = Date.now();
     await request.adapter.assertRunContext(
       request.strategyId,
       request.config,
       request.originalParameters,
     );
+    const contextPostMs =
+      Date.now() - contextPostStartedAt;
 
     request.onPhase?.({
       number:
@@ -114,7 +122,15 @@ export const evaluateOptimisationTrial =
       run_id: request.trial.run_id,
       trial_number:
         request.trial.trial_number,
-      metrics,
+      metrics: {
+        ...metrics,
+        'tvopt.contextPreMs':
+          contextPreMs,
+        'tvopt.evaluationMs':
+          evaluationMs,
+        'tvopt.contextPostMs':
+          contextPostMs,
+      },
       duration_ms:
         Date.now() - startedAt,
     };
