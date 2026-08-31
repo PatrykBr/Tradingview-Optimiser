@@ -7,6 +7,7 @@ import type {
   StrategyInput,
   TradingViewDiagnostics,
   TradingViewMetrics,
+  TradingViewReportPollSnapshot,
   TradingViewReportSnapshot,
   TradingViewRunContextSnapshot,
 } from './types';
@@ -71,6 +72,15 @@ export class TradingViewAdapter {
     return this.bridge.request<TradingViewMetrics | null>('readMetrics', {
       strategyId,
     });
+  }
+
+  readReportPollSnapshot(
+    strategyId: string,
+  ): Promise<TradingViewReportPollSnapshot> {
+    return this.bridge.request<TradingViewReportPollSnapshot>(
+      'readReportPollSnapshot',
+      { strategyId },
+    );
   }
 
   readReportSnapshot(
@@ -279,7 +289,7 @@ export class TradingViewAdapter {
     }
 
     const before =
-      await this.readReportSnapshot(
+      await this.readReportPollSnapshot(
         strategyId,
       );
     await this.#applyDeepBacktestRange(
@@ -360,7 +370,7 @@ export class TradingViewAdapter {
 
       await this.ensureStrategyTester();
       const retryBefore =
-        await this.readReportSnapshot(
+        await this.readReportPollSnapshot(
           strategyId,
         );
       await this.applyParameters(
@@ -386,7 +396,7 @@ export class TradingViewAdapter {
 
   async waitForMetricsAfterChange(
     strategyId: string,
-    before: TradingViewReportSnapshot | null,
+    before: TradingViewReportPollSnapshot | null,
     signal?: AbortSignal,
     timeoutMs = 30_000,
   ): Promise<TradingViewMetrics> {
@@ -400,7 +410,7 @@ export class TradingViewAdapter {
 
     // Poll soon after the parameter write while still requiring several
     // stable reads before accepting a new report revision.
-    await sleep(200, signal);
+    await sleep(125, signal);
 
     while (Date.now() - startedAt < timeoutMs) {
       if (signal?.aborted) {
@@ -452,7 +462,7 @@ export class TradingViewAdapter {
       if (
         sawReportChange &&
         stableReads >= 3 &&
-        elapsed >= 650
+        elapsed >= 500
       ) {
         return snapshot.metrics;
       }
@@ -468,7 +478,10 @@ export class TradingViewAdapter {
         return snapshot.metrics;
       }
 
-      await sleep(200, signal);
+      await sleep(
+        elapsed < 1_500 ? 125 : 250,
+        signal,
+      );
     }
 
     if (lastMetrics) {
