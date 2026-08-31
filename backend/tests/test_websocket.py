@@ -201,3 +201,88 @@ def test_websocket_deletes_completed_run(monkeypatch, tmp_path) -> None:
             "request_id": "delete-1",
             "payload": {"run_id": "delete-run"},
         }
+
+
+def test_websocket_streams_incremental_trial_updates(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("TVOPT_DATA_DIR", str(tmp_path))
+    token = "0123456789abcdef0123456789abcdef"
+    monkeypatch.setenv("TVOPT_EXTENSION_TOKEN", token)
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/ws") as websocket,
+    ):
+        websocket.send_json(
+            {
+                "type": "AUTH",
+                "request_id": "auth-1",
+                "payload": {"token": token},
+            }
+        )
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "CREATE_RUN",
+                "request_id": "create-1",
+                "payload": {
+                    "run_id": "incremental-run",
+                    "objective_metric": "profitFactor",
+                    "direction": "maximize",
+                    "target_trials": 1,
+                    "parameters": [
+                        {
+                            "type": "int",
+                            "name": "length",
+                            "low": 5,
+                            "high": 20,
+                            "step": 1,
+                        }
+                    ],
+                    "filters": [],
+                    "chart": {
+                        "symbol": "OANDA:XAUUSD",
+                        "timeframe": "5",
+                        "strategy_name": "Test Strategy",
+                        "strategy_signature": "signature-123",
+                    },
+                },
+            }
+        )
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "START_RUN",
+                "request_id": "start-1",
+                "payload": {"run_id": "incremental-run"},
+            }
+        )
+        started = websocket.receive_json()
+        assert started["type"] == "RUN_PROGRESS"
+
+        next_trial = websocket.receive_json()
+        assert next_trial["type"] == "NEXT_TRIAL"
+
+        websocket.send_json(
+            {
+                "type": "TRIAL_RESULT",
+                "request_id": "result-1",
+                "payload": {
+                    "run_id": "incremental-run",
+                    "trial_number": next_trial["payload"]["trial_number"],
+                    "metrics": {
+                        "profitFactor": 1.7,
+                        "totalTrades": 100,
+                    },
+                },
+            }
+        )
+
+        update = websocket.receive_json()
+        assert update["type"] == "RUN_UPDATE"
+        assert update["request_id"] == "result-1"
+        assert update["payload"]["status"] == "completed"
+        assert update["payload"]["completed_trials"] == 1
+        assert len(update["payload"]["trial_updates"]) == 1
+        assert update["payload"]["trial_updates"][0]["trial_number"] == 0
