@@ -704,3 +704,32 @@ async def test_finite_search_space_stops_when_exhausted(tmp_path: Path) -> None:
     assert restored.status == "completed"
     assert restored.termination_reason == "search_space_exhausted"
 
+@pytest.mark.asyncio
+async def test_deleted_run_releases_per_run_lock(tmp_path: Path) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'test.db'}")
+    config = make_config("lock-cleanup-test", target_trials=1)
+    config.filters = []
+
+    await manager.create_run(config)
+    _, active = await manager.start(config.run_id)
+    assert active is not None
+
+    progress, next_trial = await manager.submit_result(
+        TrialResult(
+            run_id=config.run_id,
+            trial_number=active.trial_number,
+            metrics={
+                "profitFactor": 1.5,
+                "totalTrades": 100,
+            },
+        )
+    )
+
+    assert progress.status == "completed"
+    assert next_trial is None
+    assert config.run_id in manager._run_locks
+
+    await manager.delete_run(config.run_id)
+
+    assert config.run_id not in manager._run_locks
+
