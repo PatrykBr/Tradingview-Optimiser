@@ -12,7 +12,7 @@ const context = {
 };
 
 describe('trade Monte Carlo', () => {
-  it('is deterministic for the same trade sample', () => {
+  it('is deterministic for the same trade sample', async () => {
     const snapshot = {
       available: true,
       reason: null,
@@ -25,13 +25,13 @@ describe('trade Monte Carlo', () => {
       ],
     };
 
-    const first = runTradeMonteCarlo(
+    const first = await runTradeMonteCarlo(
       snapshot,
       1_000,
       0.9,
       context,
     );
-    const second = runTradeMonteCarlo(
+    const second = await runTradeMonteCarlo(
       snapshot,
       1_000,
       0.9,
@@ -46,8 +46,8 @@ describe('trade Monte Carlo', () => {
     expect(first.profitFactor).not.toBeNull();
   });
 
-  it('reports unavailable trade data without inventing statistics', () => {
-    const result = runTradeMonteCarlo(
+  it('reports unavailable trade data without inventing statistics', async () => {
+    const result = await runTradeMonteCarlo(
       {
         available: false,
         trades: [],
@@ -68,8 +68,8 @@ describe('trade Monte Carlo', () => {
     });
   });
 
-  it('produces bounded loss probability and ordered intervals', () => {
-    const result = runTradeMonteCarlo(
+  it('produces bounded loss probability and ordered intervals', async () => {
+    const result = await runTradeMonteCarlo(
       {
         available: true,
         reason: null,
