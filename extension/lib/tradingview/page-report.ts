@@ -349,15 +349,32 @@ const waitForDateInputs = async (
     timeoutMs,
   );
 
-const REPORT_BUTTON_PATTERN =
-  /generate report|update report|apply|calculate/i;
+const findReportButton = (): HTMLElement | null => {
+  const specific = findClickableByText(
+    /generate report|update report|calculate/i,
+  );
+  if (specific) return specific;
+
+  // "Apply" is too generic to trust globally. It is only a valid fallback
+  // while the Deep Backtesting date controls are actually visible.
+  return visibleDateInputs().length >= 2
+    ? findClickableByText(/^apply$/i)
+    : null;
+};
+
+const waitForReportButton = (
+  timeoutMs: number,
+): Promise<HTMLElement | null> =>
+  waitForValue(
+    findReportButton,
+    timeoutMs,
+  );
 
 export const refreshDeepBacktestReport =
   async (): Promise<DeepBacktestResult> => {
     ensureStrategyTester();
 
-    let updateButton = await waitForClickable(
-      REPORT_BUTTON_PATTERN,
+    let updateButton = await waitForReportButton(
       120,
     );
 
@@ -376,8 +393,7 @@ export const refreshDeepBacktestReport =
       }
 
       deepButton.click();
-      updateButton = await waitForClickable(
-        REPORT_BUTTON_PATTERN,
+      updateButton = await waitForReportButton(
         600,
       );
     }
@@ -449,8 +465,7 @@ export const configureDeepBacktestRange = async (
   setNativeInputValue(inputs[0]!, startDate);
   setNativeInputValue(inputs[1]!, endDate);
 
-  const updateButton = await waitForClickable(
-    REPORT_BUTTON_PATTERN,
+  const updateButton = await waitForReportButton(
     500,
   );
   if (!updateButton) {
