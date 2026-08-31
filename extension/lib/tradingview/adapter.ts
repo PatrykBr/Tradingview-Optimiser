@@ -8,6 +8,7 @@ import type {
   TradingViewDiagnostics,
   TradingViewMetrics,
   TradingViewReportSnapshot,
+  TradingViewRunContextSnapshot,
 } from './types';
 
 interface ApplyParametersResult {
@@ -38,6 +39,8 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   });
 
 export class TradingViewAdapter {
+  #verifiedDeepRangeKey: string | null = null;
+
   constructor(private readonly bridge: TradingViewBridge) {}
 
   detectStrategies(): Promise<DetectedStrategy[]> {
@@ -108,8 +111,13 @@ export class TradingViewAdapter {
     );
   }
 
-  getBacktestMode(): Promise<'chart' | 'deep'> {
-    return this.bridge.request<'chart' | 'deep'>('getBacktestMode');
+  getRunContextSnapshot(
+    strategyId: string,
+  ): Promise<TradingViewRunContextSnapshot> {
+    return this.bridge.request<TradingViewRunContextSnapshot>(
+      'getRunContextSnapshot',
+      { strategyId },
+    );
   }
 
   async resetToChartSession(): Promise<void> {
@@ -145,11 +153,16 @@ export class TradingViewAdapter {
     config: CreateRun,
     originalParameters: Record<string, unknown> | null,
   ): Promise<void> {
-    const chart = await this.getChartContext();
+    const snapshot =
+      await this.getRunContextSnapshot(
+        strategyId,
+      );
 
     if (
-      config.chart.symbol !== chart.symbol ||
-      config.chart.timeframe !== chart.timeframe
+      config.chart.symbol !==
+        snapshot.symbol ||
+      config.chart.timeframe !==
+        snapshot.timeframe
     ) {
       throw new Error(
         'SAFETY: TradingView chart changed. Expected ' +
@@ -157,14 +170,11 @@ export class TradingViewAdapter {
           ' ' +
           config.chart.timeframe +
           ', got ' +
-          chart.symbol +
+          snapshot.symbol +
           ' ' +
-          chart.timeframe,
+          snapshot.timeframe,
       );
     }
-
-    const signature =
-      await this.getStrategySignature(strategyId);
 
     if (originalParameters) {
       const optimisedIds = new Set(
@@ -172,10 +182,8 @@ export class TradingViewAdapter {
           (parameter) => parameter.name,
         ),
       );
-      const liveInputs =
-        await this.readStrategyInputs(strategyId);
 
-      for (const input of liveInputs) {
+      for (const input of snapshot.inputs) {
         if (
           optimisedIds.has(input.id) ||
           !(input.id in originalParameters)
@@ -198,20 +206,22 @@ export class TradingViewAdapter {
       }
     }
 
-    const backtestMode =
-      await this.getBacktestMode();
     const expectedMode = config.backtest_range
       ? 'deep'
       : 'chart';
 
-    if (backtestMode !== expectedMode) {
+    if (
+      snapshot.backtestMode !==
+      expectedMode
+    ) {
+      this.#verifiedDeepRangeKey = null;
       throw new Error(
         'SAFETY: TradingView backtest mode changed during the optimisation.',
       );
     }
 
     if (
-      signature !==
+      snapshot.strategySignature !==
       config.chart.strategy_signature
     ) {
       throw new Error(
@@ -221,28 +231,38 @@ export class TradingViewAdapter {
 
     const expectedSettingsSignature =
       config.chart.strategy_settings_signature;
-    if (expectedSettingsSignature) {
-      const liveSettingsSignature =
-        await this.getStrategySettingsSignature(
-          strategyId,
-        );
 
-      if (
-        liveSettingsSignature !==
+    if (
+      expectedSettingsSignature &&
+      snapshot.settingsSignature !==
         expectedSettingsSignature
-      ) {
-        throw new Error(
-          'SAFETY: TradingView strategy properties changed during the optimisation.',
-        );
-      }
+    ) {
+      throw new Error(
+        'SAFETY: TradingView strategy properties changed during the optimisation.',
+      );
     }
 
     if (config.backtest_range) {
-      await this.assertDeepBacktestRange(
-        strategyId,
-        config.backtest_range.start_date,
-        config.backtest_range.end_date,
-      );
+      const verified =
+        this.#assertSnapshotDeepRange(
+          snapshot.backtestRange,
+          config.backtest_range.start_date,
+          config.backtest_range.end_date,
+        );
+
+      this.#verifiedDeepRangeKey =
+        verified
+          ? this.#rangeKey({
+              startDate:
+                config.backtest_range
+                  .start_date,
+              endDate:
+                config.backtest_range
+                  .end_date,
+            })
+          : null;
+    } else {
+      this.#verifiedDeepRangeKey = null;
     }
   }
 
@@ -253,12 +273,18 @@ export class TradingViewAdapter {
     await this.ensureStrategyTester();
 
     if (!range) {
+      this.#verifiedDeepRangeKey = null;
       await this.resetToChartSession();
       return;
     }
 
-    const before = await this.readReportSnapshot(strategyId);
-    await this.#applyDeepBacktestRange(range);
+    const before =
+      await this.readReportSnapshot(
+        strategyId,
+      );
+    await this.#applyDeepBacktestRange(
+      range,
+    );
 
     await this.waitForMetricsAfterChange(
       strategyId,
@@ -267,11 +293,17 @@ export class TradingViewAdapter {
       30_000,
     );
 
-    await this.assertDeepBacktestRange(
-      strategyId,
-      range.startDate,
-      range.endDate,
-    );
+    const verified =
+      await this.#verifyDeepBacktestRange(
+        strategyId,
+        range.startDate,
+        range.endDate,
+      );
+
+    this.#verifiedDeepRangeKey =
+      verified
+        ? this.#rangeKey(range)
+        : null;
   }
 
   async evaluateParameters(
@@ -280,11 +312,36 @@ export class TradingViewAdapter {
     range: TradingViewBacktestRange | null,
     signal?: AbortSignal,
   ): Promise<TradingViewMetrics> {
-    const before = await this.readReportSnapshot(strategyId);
-    await this.applyParameters(strategyId, parameters);
+    const before =
+      await this.readReportSnapshot(
+        strategyId,
+      );
+    await this.applyParameters(
+      strategyId,
+      parameters,
+    );
 
     if (range) {
-      await this.#applyDeepBacktestRange(range);
+      const rangeKey =
+        this.#rangeKey(range);
+
+      if (
+        this.#verifiedDeepRangeKey ===
+        rangeKey
+      ) {
+        try {
+          await this.#refreshDeepBacktest();
+        } catch {
+          this.#verifiedDeepRangeKey = null;
+          await this.#applyDeepBacktestRange(
+            range,
+          );
+        }
+      } else {
+        await this.#applyDeepBacktestRange(
+          range,
+        );
+      }
     }
 
     try {
@@ -302,11 +359,20 @@ export class TradingViewAdapter {
       }
 
       await this.ensureStrategyTester();
-      const retryBefore = await this.readReportSnapshot(strategyId);
-      await this.applyParameters(strategyId, parameters);
+      const retryBefore =
+        await this.readReportSnapshot(
+          strategyId,
+        );
+      await this.applyParameters(
+        strategyId,
+        parameters,
+      );
 
       if (range) {
-        await this.#applyDeepBacktestRange(range);
+        this.#verifiedDeepRangeKey = null;
+        await this.#applyDeepBacktestRange(
+          range,
+        );
       }
 
       return this.waitForMetricsAfterChange(
@@ -332,8 +398,9 @@ export class TradingViewAdapter {
     let sawReportChange = beforeToken === null && beforeObjectId === null;
     let lastMetrics: TradingViewMetrics | null = null;
 
-    // Allow TradingView to invalidate the previous report first.
-    await sleep(500, signal);
+    // Poll soon after the parameter write while still requiring several
+    // stable reads before accepting a new report revision.
+    await sleep(200, signal);
 
     while (Date.now() - startedAt < timeoutMs) {
       if (signal?.aborted) {
@@ -385,7 +452,7 @@ export class TradingViewAdapter {
       if (
         sawReportChange &&
         stableReads >= 3 &&
-        elapsed >= 1_000
+        elapsed >= 650
       ) {
         return snapshot.metrics;
       }
@@ -401,7 +468,7 @@ export class TradingViewAdapter {
         return snapshot.metrics;
       }
 
-      await sleep(300, signal);
+      await sleep(200, signal);
     }
 
     if (lastMetrics) {
@@ -417,29 +484,88 @@ export class TradingViewAdapter {
     );
   }
 
-  async assertDeepBacktestRange(
+  async #verifyDeepBacktestRange(
     strategyId: string,
     startDate: string,
     endDate: string,
-  ): Promise<void> {
-    const snapshot = await this.readReportSnapshot(strategyId);
-    const range = snapshot.backtestRange;
+  ): Promise<boolean> {
+    const snapshot =
+      await this.readReportSnapshot(
+        strategyId,
+      );
 
+    return this.#assertSnapshotDeepRange(
+      snapshot.backtestRange,
+      startDate,
+      endDate,
+    );
+  }
+
+  #assertSnapshotDeepRange(
+    range:
+      | {
+          from: number;
+          to: number;
+        }
+      | null,
+    startDate: string,
+    endDate: string,
+  ): boolean {
     // TradingView does not expose settings.dateRange on every account/build.
-    // When it does, validate it so a stale or wrong Deep report cannot be
-    // accepted as the current trial.
-    if (!range) return;
+    // When absent we preserve the conservative path and rewrite the date range
+    // on each trial instead of assuming the previous Deep configuration.
+    if (!range) return false;
 
-    const expectedFrom = Date.parse(startDate + 'T00:00:00Z');
-    const expectedTo = Date.parse(endDate + 'T00:00:00Z');
-    const toleranceMs = 36 * 60 * 60 * 1000;
+    const expectedFrom = Date.parse(
+      startDate + 'T00:00:00Z',
+    );
+    const expectedTo = Date.parse(
+      endDate + 'T00:00:00Z',
+    );
+    const toleranceMs =
+      36 * 60 * 60 * 1000;
 
     if (
-      Math.abs(range.from - expectedFrom) > toleranceMs ||
-      Math.abs(range.to - expectedTo) > toleranceMs
+      Math.abs(
+        range.from - expectedFrom,
+      ) > toleranceMs ||
+      Math.abs(
+        range.to - expectedTo,
+      ) > toleranceMs
     ) {
       throw new Error(
         'SAFETY: TradingView Deep Backtesting report date range does not match the optimisation configuration.',
+      );
+    }
+
+    return true;
+  }
+
+  #rangeKey(
+    range: TradingViewBacktestRange,
+  ): string {
+    return (
+      range.startDate +
+      '|' +
+      range.endDate
+    );
+  }
+
+  async #refreshDeepBacktest(): Promise<void> {
+    const result =
+      await this.bridge.request<DeepBacktestResult>(
+        'refreshDeepBacktestReport',
+        undefined,
+        5_000,
+      );
+
+    if (
+      !result.supported ||
+      !result.applied
+    ) {
+      throw new Error(
+        result.reason ??
+          'TradingView Deep Backtesting report could not be refreshed',
       );
     }
   }
