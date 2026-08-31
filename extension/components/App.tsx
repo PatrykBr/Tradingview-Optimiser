@@ -30,7 +30,8 @@ export default function App({ bridge }: AppProps) {
     [bridge],
   );
   const [error, setErrorState] = useState<string>();
-  const errorRef = useRef<string>();
+  const errorRef =
+    useRef<string | undefined>(undefined);
   const reloadRequestedRef = useRef(false);
 
   const setError = useCallback<
