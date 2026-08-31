@@ -367,41 +367,57 @@ class OptimisationManager:
                 if trial.value is not None
                 and self._is_feasible_trial(trial)
             ]
+            completed_count = len(completed)
+            direction = run.config.direction.value
 
-            if len(feasible) < 5:
-                return RunAnalysis(
-                    run_id=run_id,
-                    parameter_importance={},
-                    completed_trials=len(completed),
-                )
-
-            common_parameters = set(feasible[0].params)
-            for trial in feasible[1:]:
-                common_parameters.intersection_update(trial.params)
-
-            if not common_parameters:
-                importance: dict[str, float] = {}
-            else:
-                try:
-                    analysis_study = optuna.create_study(
-                        direction=run.config.direction.value,
-                    )
-                    analysis_study.add_trials(feasible)
-                    importance = get_param_importances(
-                        analysis_study,
-                        evaluator=PedAnovaImportanceEvaluator(
-                            target_quantile=0.2,
-                        ),
-                        params=sorted(common_parameters),
-                    )
-                except (ValueError, RuntimeError):
-                    importance = {}
-
+        if len(feasible) < 5:
             return RunAnalysis(
                 run_id=run_id,
-                parameter_importance=importance,
-                completed_trials=len(completed),
+                parameter_importance={},
+                completed_trials=completed_count,
             )
+
+        # PED-ANOVA can be noticeably CPU-heavy on large studies. Work from
+        # Optuna's immutable FrozenTrial snapshot outside the run lock and off
+        # the event loop so trial submission/other studies stay responsive.
+        importance = await asyncio.to_thread(
+            self._parameter_importance,
+            feasible,
+            direction,
+        )
+
+        return RunAnalysis(
+            run_id=run_id,
+            parameter_importance=importance,
+            completed_trials=completed_count,
+        )
+
+    @staticmethod
+    def _parameter_importance(
+        feasible: list[FrozenTrial],
+        direction: str,
+    ) -> dict[str, float]:
+        common_parameters = set(feasible[0].params)
+        for trial in feasible[1:]:
+            common_parameters.intersection_update(trial.params)
+
+        if not common_parameters:
+            return {}
+
+        try:
+            analysis_study = optuna.create_study(
+                direction=direction,
+            )
+            analysis_study.add_trials(feasible)
+            return get_param_importances(
+                analysis_study,
+                evaluator=PedAnovaImportanceEvaluator(
+                    target_quantile=0.2,
+                ),
+                params=sorted(common_parameters),
+            )
+        except (ValueError, RuntimeError):
+            return {}
 
     def _next_trial_locked(self, run: ActiveRun) -> NextTrial | None:
         if run.status != RunStatus.RUNNING:
