@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import BestSoFarChart from '../BestSoFarChart';
 import {
@@ -8,13 +13,18 @@ import {
 import {
   bestSoFar,
   estimateRemainingMs,
+  extendBestSoFar,
   filterTrials,
   isFeasibleTrial,
   sortTrials,
+  type BestSoFarPoint,
   type TrialFilter,
   type TrialSort,
 } from '../../lib/optimisation/results';
-import type { TrialSummary } from '../../lib/protocol/types';
+import type {
+  ObjectiveDirection,
+  TrialSummary,
+} from '../../lib/protocol/types';
 import type { OptimisationRunModel } from './useOptimisationRun';
 
 const TRIALS_PER_PAGE = 100;
@@ -128,11 +138,27 @@ export default function RunProgressSection({
   ] = useState<number | null>(null);
   const [trialPage, setTrialPage] =
     useState(0);
+  const graphCacheRef = useRef<{
+    runId: string | null;
+    direction: ObjectiveDirection;
+    processedTrials: number;
+    lastTrialNumber: number | null;
+    points: BestSoFarPoint[];
+  }>({
+    runId: null,
+    direction: 'maximize',
+    processedTrials: 0,
+    lastTrialNumber: null,
+    points: [],
+  });
 
   const objective = metricDefinition(
     run.runConfig?.objective_metric ??
       'profitFactor',
   );
+  const direction: ObjectiveDirection =
+    run.runConfig?.direction ??
+    'maximize';
   const best = run.progress?.best ?? null;
   const reusedTrials =
     run.progress?.reused_trials ?? 0;
@@ -171,13 +197,12 @@ export default function RunProgressSection({
               trialFilter,
             ),
             trialSort,
-            run.runConfig?.direction ??
-              'maximize',
+            direction,
           )
         : [],
     [
       run.progress,
-      run.runConfig?.direction,
+      direction,
       trialFilter,
       trialSort,
     ],
@@ -229,20 +254,65 @@ export default function RunProgressSection({
     visibleTrialPage,
   ]);
 
-  const graphPoints = useMemo(
-    () =>
-      run.progress
-        ? bestSoFar(
-            run.progress.trials,
-            run.runConfig?.direction ??
-              'maximize',
-          )
-        : [],
-    [
-      run.progress,
-      run.runConfig?.direction,
-    ],
-  );
+  const graphPoints = useMemo(() => {
+    const current = run.progress;
+    const cache =
+      graphCacheRef.current;
+
+    if (!current) {
+      graphCacheRef.current = {
+        runId: null,
+        direction,
+        processedTrials: 0,
+        lastTrialNumber: null,
+        points: [],
+      };
+      return [];
+    }
+
+    const cachedBoundary =
+      cache.processedTrials > 0
+        ? current.trials[
+            cache.processedTrials - 1
+          ]?.trial_number ?? null
+        : null;
+    const canExtend =
+      cache.runId === current.run_id &&
+      cache.direction === direction &&
+      cache.processedTrials <=
+        current.trials.length &&
+      cache.lastTrialNumber ===
+        cachedBoundary;
+
+    const points = canExtend
+      ? extendBestSoFar(
+          cache.points,
+          current.trials.slice(
+            cache.processedTrials,
+          ),
+          direction,
+        )
+      : bestSoFar(
+          current.trials,
+          direction,
+        );
+
+    graphCacheRef.current = {
+      runId: current.run_id,
+      direction,
+      processedTrials:
+        current.trials.length,
+      lastTrialNumber:
+        current.trials.at(-1)
+          ?.trial_number ?? null,
+      points,
+    };
+
+    return points;
+  }, [
+    direction,
+    run.progress,
+  ]);
 
   const eta = useMemo(
     () =>
