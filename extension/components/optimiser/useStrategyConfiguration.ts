@@ -82,6 +82,7 @@ const prepareTradingViewRun = async (
       null,
       undefined,
       12_000,
+      range !== null,
     );
   const requiredMetrics = [
     config.objective_metric,
