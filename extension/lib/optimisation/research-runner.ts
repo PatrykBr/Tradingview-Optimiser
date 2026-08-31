@@ -166,38 +166,49 @@ const runRobustnessValidation = async (
     );
   }
 
-  const candidateResults:
-    RobustnessCandidateResult[] = [];
+  const foldsByTrial = new Map<
+    number,
+    RobustnessFoldResult[]
+  >(
+    candidates.map(
+      (candidate) => [
+        candidate.trial_number,
+        [],
+      ],
+    ),
+  );
 
+  // Evaluate one validation window at a time. Consecutive candidates can then
+  // reuse the same positively verified Deep Backtesting range instead of
+  // repeatedly bouncing TradingView between fold date ranges.
   for (
     const [
-      candidateIndex,
-      candidate,
-    ] of candidates.entries()
+      foldIndex,
+      window,
+    ] of plan.validationWindows.entries()
   ) {
-    const folds: RobustnessFoldResult[] = [];
+    const range = deepRange(
+      window.startDate,
+      window.endDate,
+    );
 
     for (
       const [
-        foldIndex,
-        window,
-      ] of plan.validationWindows.entries()
+        candidateIndex,
+        candidate,
+      ] of candidates.entries()
     ) {
       request.onPhase?.(
-        'OOS candidate ' +
-          (candidateIndex + 1) +
-          '/' +
-          candidates.length +
-          ' · fold ' +
+        'OOS fold ' +
           (foldIndex + 1) +
           '/' +
-          plan.validationWindows.length,
+          plan.validationWindows.length +
+          ' · candidate ' +
+          (candidateIndex + 1) +
+          '/' +
+          candidates.length,
       );
 
-      const range = deepRange(
-        window.startDate,
-        window.endDate,
-      );
       const metrics = await evaluate(
         request,
         candidate.parameters,
@@ -208,24 +219,36 @@ const runRobustnessValidation = async (
         request.config.objective_metric,
       );
 
-      folds.push({
-        window,
-        metrics,
-        objectiveValue: objective,
-        passedFilters:
-          objective !== null &&
-          passesMetricFilters(
-            metrics,
-            request.config.filters,
-          ),
-      });
+      foldsByTrial
+        .get(candidate.trial_number)
+        ?.push({
+          window,
+          metrics,
+          objectiveValue: objective,
+          passedFilters:
+            objective !== null &&
+            passesMetricFilters(
+              metrics,
+              request.config.filters,
+            ),
+        });
     }
+  }
 
+  const candidateResults:
+    RobustnessCandidateResult[] = [];
+
+  for (const candidate of candidates) {
     if (
       candidate.objective_value === null
     ) {
       continue;
     }
+
+    const folds =
+      foldsByTrial.get(
+        candidate.trial_number,
+      ) ?? [];
 
     const validationObjective = median(
       folds
