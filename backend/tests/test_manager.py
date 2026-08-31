@@ -67,10 +67,14 @@ async def test_constraints_choose_best_feasible(tmp_path: Path) -> None:
     assert progress.best is not None
     assert progress.best.objective_value == pytest.approx(1.7)
     assert all(value <= 0 for value in progress.best.constraints.values())
-    assert len(progress.trials) == 2
-    assert progress.trials[0].state == "complete"
-    assert progress.trials[0].objective_value == pytest.approx(2.2)
-    assert progress.trials[1].objective_value == pytest.approx(1.7)
+    full_progress = await manager.progress("constraint-test")
+    assert len(full_progress.trials) == 2
+    assert full_progress.trials[0].state == "complete"
+    assert full_progress.trials[0].objective_value == pytest.approx(2.2)
+    assert full_progress.trials[1].objective_value == pytest.approx(1.7)
+    assert [trial.trial_number for trial in progress.trial_updates] == [
+        second.trial_number
+    ]
 
 
 @pytest.mark.asyncio
@@ -508,7 +512,7 @@ async def test_exact_duplicate_trials_reuse_completed_results(tmp_path: Path) ->
 
     reused = [
         trial
-        for trial in progress.trials
+        for trial in progress.trial_updates
         if trial.reused_from_trial is not None
     ]
     assert len(reused) == 3
@@ -516,7 +520,7 @@ async def test_exact_duplicate_trials_reuse_completed_results(tmp_path: Path) ->
     for trial in reused:
         source = next(
             item
-            for item in progress.trials
+            for item in progress.trial_updates
             if item.trial_number == trial.reused_from_trial
         )
         assert source.trial_number == 0
