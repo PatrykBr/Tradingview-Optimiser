@@ -143,6 +143,45 @@ export const bestSoFar = (
   return points;
 };
 
+export const extendBestSoFar = (
+  existing: BestSoFarPoint[],
+  newTrials: TrialSummary[],
+  direction: ObjectiveDirection,
+): BestSoFarPoint[] => {
+  if (newTrials.length === 0) {
+    return existing;
+  }
+
+  let best =
+    existing.at(-1)?.value ?? null;
+  const points = [...existing];
+
+  for (const trial of newTrials) {
+    if (
+      trial.objective_value === null ||
+      !isFeasibleTrial(trial)
+    ) {
+      continue;
+    }
+
+    if (
+      best === null ||
+      (direction === 'maximize'
+        ? trial.objective_value > best
+        : trial.objective_value < best)
+    ) {
+      best = trial.objective_value;
+    }
+
+    points.push({
+      trial: trial.trial_number,
+      value: best,
+    });
+  }
+
+  return points;
+};
+
 export const estimateRemainingMs = (
   trials: TrialSummary[],
   completed: number,
