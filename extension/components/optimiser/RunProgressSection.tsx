@@ -395,16 +395,19 @@ export default function RunProgressSection({
         metrics['tvopt.contextPostMs'];
 
       if (
+        typeof evaluation !== 'number' ||
         !Number.isFinite(evaluation) ||
+        typeof contextPre !== 'number' ||
         !Number.isFinite(contextPre) ||
+        typeof contextPost !== 'number' ||
         !Number.isFinite(contextPost)
       ) {
         continue;
       }
 
-      evaluationMs += evaluation!;
+      evaluationMs += evaluation;
       contextMs +=
-        contextPre! + contextPost!;
+        contextPre + contextPost;
       samples += 1;
     }
 
