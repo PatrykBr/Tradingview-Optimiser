@@ -80,40 +80,86 @@ const findClickableByText = (
   return null;
 };
 
-const findVisibleMetricValue = (
-  labels: RegExp[],
-  preferPercent = false,
+interface VisibleMetricSpec {
+  key: string;
+  labels: RegExp[];
+  preferPercent?: boolean;
+}
+
+const VISIBLE_METRIC_SPECS: VisibleMetricSpec[] = [
+  {
+    key: 'profitFactor',
+    labels: [/^profit factor$/i],
+  },
+  {
+    key: 'totalTrades',
+    labels: [/^total trades$/i],
+  },
+  {
+    key: 'percentProfitable',
+    labels: [
+      /^profitable trades$/i,
+      /^percent profitable$/i,
+    ],
+    preferPercent: true,
+  },
+  {
+    key: 'netProfitPercent',
+    labels: [/^total p&l$/i, /^net profit$/i],
+    preferPercent: true,
+  },
+  {
+    key: 'maxDrawdownPercent',
+    labels: [
+      /^max equity drawdown$/i,
+      /^max(?:imum)? drawdown$/i,
+    ],
+    preferPercent: true,
+  },
+  {
+    key: 'sharpeRatio',
+    labels: [/^sharpe ratio$/i],
+  },
+  {
+    key: 'sortinoRatio',
+    labels: [/^sortino ratio$/i],
+  },
+];
+
+const cachedMetricLabels = new Map<string, HTMLElement>();
+
+const readMetricFromLabel = (
+  element: HTMLElement,
+  spec: VisibleMetricSpec,
 ): number | undefined => {
-  const elements = document.querySelectorAll<HTMLElement>(
-    'span, div, td, th',
-  );
+  if (
+    !element.isConnected ||
+    element.offsetParent === null
+  ) {
+    cachedMetricLabels.delete(spec.key);
+    return undefined;
+  }
 
-  for (const element of elements) {
-    if (element.offsetParent === null) continue;
-
-    const ownText = normaliseText(element.textContent ?? '');
-    if (
-      ownText.length > 80 ||
-      !labels.some((pattern) => pattern.test(ownText))
-    ) {
-      continue;
-    }
-
-    let container: HTMLElement | null = element;
-    for (let depth = 0; depth < 4 && container; depth += 1) {
-      const text = normaliseText(container.textContent ?? '');
-      const withoutLabel = labels.reduce(
-        (current, pattern) =>
-          current.replace(pattern, ' '),
-        text,
-      );
-      const value = parseUiNumber(
-        withoutLabel,
-        preferPercent,
-      );
-      if (value !== undefined) return value;
-      container = container.parentElement;
-    }
+  let container: HTMLElement | null = element;
+  for (
+    let depth = 0;
+    depth < 4 && container;
+    depth += 1
+  ) {
+    const text = normaliseText(
+      container.textContent ?? '',
+    );
+    const withoutLabel = spec.labels.reduce(
+      (current, pattern) =>
+        current.replace(pattern, ' '),
+      text,
+    );
+    const value = parseUiNumber(
+      withoutLabel,
+      spec.preferPercent ?? false,
+    );
+    if (value !== undefined) return value;
+    container = container.parentElement;
   }
 
   return undefined;
@@ -122,59 +168,65 @@ const findVisibleMetricValue = (
 export const readVisibleStrategyReportMetrics =
   (): TradingViewMetrics | null => {
     const metrics: TradingViewMetrics = {};
-    const put = (
-      key: string,
-      value: number | undefined,
-    ) => {
-      if (value !== undefined) metrics[key] = value;
-    };
-
-    put(
-      'profitFactor',
-      findVisibleMetricValue([/^profit factor$/i]),
-    );
-    put(
-      'totalTrades',
-      findVisibleMetricValue([/^total trades$/i]),
-    );
-    put(
-      'percentProfitable',
-      findVisibleMetricValue(
-        [
-          /^profitable trades$/i,
-          /^percent profitable$/i,
-        ],
-        true,
+    const unresolved = new Map(
+      VISIBLE_METRIC_SPECS.map(
+        (spec) => [spec.key, spec] as const,
       ),
-    );
-    put(
-      'netProfitPercent',
-      findVisibleMetricValue(
-        [/^total p&l$/i, /^net profit$/i],
-        true,
-      ),
-    );
-    put(
-      'maxDrawdownPercent',
-      findVisibleMetricValue(
-        [
-          /^max equity drawdown$/i,
-          /^max(?:imum)? drawdown$/i,
-        ],
-        true,
-      ),
-    );
-    put(
-      'sharpeRatio',
-      findVisibleMetricValue([/^sharpe ratio$/i]),
-    );
-    put(
-      'sortinoRatio',
-      findVisibleMetricValue([/^sortino ratio$/i]),
     );
 
-    for (const [key, value] of Object.entries(metrics)) {
-      metrics['tv.visible.' + key] = value;
+    // TradingView normally keeps the label nodes mounted while only updating
+    // their values. Reuse those nodes across the frequent report polling loop
+    // and fall back to one DOM scan only when a cached node is missing/stale.
+    for (const spec of VISIBLE_METRIC_SPECS) {
+      const cached =
+        cachedMetricLabels.get(spec.key);
+      if (!cached) continue;
+
+      const value =
+        readMetricFromLabel(cached, spec);
+      if (value === undefined) continue;
+
+      metrics[spec.key] = value;
+      unresolved.delete(spec.key);
+    }
+
+    if (unresolved.size > 0) {
+      const elements =
+        document.querySelectorAll<HTMLElement>(
+          'span, div, td, th',
+        );
+
+      for (const element of elements) {
+        if (unresolved.size === 0) break;
+        if (element.offsetParent === null) continue;
+
+        const ownText = normaliseText(
+          element.textContent ?? '',
+        );
+        if (ownText.length > 80) continue;
+
+        for (const spec of unresolved.values()) {
+          if (
+            !spec.labels.some(
+              (pattern) => pattern.test(ownText),
+            )
+          ) {
+            continue;
+          }
+
+          const value =
+            readMetricFromLabel(element, spec);
+          if (value === undefined) continue;
+
+          cachedMetricLabels.set(
+            spec.key,
+            element,
+          );
+          metrics[spec.key] = value;
+          unresolved.delete(spec.key);
+          break;
+        }
+      }
     }
 
     return Object.keys(metrics).length > 0
