@@ -103,17 +103,22 @@ class OptimisationManager:
                 if persisted_config != config_json:
                     study.set_user_attr("config", config_json)
 
-            # Browser-evaluated RUNNING trials cannot survive a backend/browser
-            # process restart. Mark them failed so the sampler is never blocked by
-            # an orphaned external evaluation.
-            stale_running = study.get_trials(
-                deepcopy=False,
-                states=(TrialState.RUNNING,),
-            )
+            # Load the persisted study once. Browser-evaluated RUNNING trials
+            # cannot survive a backend/browser restart, so mark them failed and
+            # refresh the snapshot only when that recovery work was necessary.
+            study_trials = study.get_trials(deepcopy=False)
+            stale_running = [
+                trial
+                for trial in study_trials
+                if trial.state == TrialState.RUNNING
+            ]
             for stale_trial in stale_running:
                 study.tell(stale_trial.number, state=TrialState.FAIL)
 
-            if not study.trials and config.baseline_parameters:
+            if stale_running:
+                study_trials = study.get_trials(deepcopy=False)
+
+            if not study_trials and config.baseline_parameters:
                 study.enqueue_trial(
                     config.baseline_parameters,
                     skip_if_exists=True,
@@ -121,7 +126,16 @@ class OptimisationManager:
 
             persisted_status = study.user_attrs.get("run_status")
             persisted_reason = study.user_attrs.get("termination_reason")
-            completed_trials = self._complete_count_for_study(study)
+            completed_trials = sum(
+                trial.state == TrialState.COMPLETE
+                for trial in study_trials
+            )
+            unique_evaluated = {
+                self._parameter_signature(trial.params)
+                for trial in study_trials
+                if trial.state == TrialState.COMPLETE
+                and isinstance(trial.user_attrs.get("metrics"), dict)
+            }
             search_space_cardinality = self._finite_search_space_cardinality(
                 config.parameters,
                 config.target_trials,
@@ -138,8 +152,7 @@ class OptimisationManager:
                 termination_reason = str(persisted_reason)
             elif (
                 search_space_cardinality is not None
-                and self._unique_evaluated_count_for_study(study)
-                >= search_space_cardinality
+                and len(unique_evaluated) >= search_space_cardinality
             ):
                 status = RunStatus.COMPLETED
                 termination_reason = "search_space_exhausted"
@@ -159,6 +172,7 @@ class OptimisationManager:
                 termination_reason=termination_reason,
                 search_space_cardinality=search_space_cardinality,
             )
+            self._rebuild_cache(run, study_trials)
             self._runs[config.run_id] = run
             self._persist_status(run)
             return self._progress(run)
