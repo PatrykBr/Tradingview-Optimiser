@@ -472,6 +472,28 @@ const readStrategyClosedTrades = (
   }
 };
 
+const REPORT_REVISION_METRIC_KEYS = [
+  'netProfit',
+  'netProfitPercent',
+  'grossProfit',
+  'grossLoss',
+  'profitFactor',
+  'totalTrades',
+  'winningTrades',
+  'losingTrades',
+  'percentProfitable',
+  'averageTrade',
+  'averageWinningTrade',
+  'averageLosingTrade',
+  'largestWinningTrade',
+  'largestLosingTrade',
+  'maxDrawdown',
+  'maxDrawdownPercent',
+  'sharpeRatio',
+  'sortinoRatio',
+  'buyAndHoldReturn',
+] as const;
+
 interface ReportCoreSnapshot {
   report: UnknownRecord;
   metrics: Record<string, number> | null;
@@ -540,10 +562,22 @@ const readStrategyReportCore = (
     }
   }
 
+  const revisionMetrics =
+    metrics === null
+      ? null
+      : Object.fromEntries(
+          REPORT_REVISION_METRIC_KEYS.flatMap(
+            (key) =>
+              typeof metrics[key] === 'number'
+                ? [[key, metrics[key]]]
+                : [],
+          ),
+        );
+
   const token = hashString(
     stableStringify({
       revisionFields,
-      metrics,
+      revisionMetrics,
       objectId,
       deepBacktesting,
     }),
