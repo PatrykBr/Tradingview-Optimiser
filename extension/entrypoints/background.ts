@@ -153,13 +153,6 @@ export default defineBackground(() => {
             await backend.createRun(msg.payload);
             return { ok: true };
 
-          case 'REGISTER_RUN_OWNER':
-            if (sender.tab?.id !== undefined) {
-              runOwners.set(msg.payload.runId, sender.tab.id);
-              await persistRunOwners();
-            }
-            return { ok: true };
-
           case 'CLEAR_RUN_OWNER':
             runOwners.delete(msg.payload.runId);
             await persistRunOwners();
