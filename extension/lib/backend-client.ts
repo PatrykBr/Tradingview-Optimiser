@@ -5,12 +5,14 @@ import type {
   NextTrial,
   RunAnalysis,
   RunProgress,
+  RunUpdate,
   TrialResult,
 } from './protocol/types';
 
 type BackendEvent =
   | ({ type: 'connection' } & BackendState)
   | { type: 'progress'; progress: RunProgress }
+  | { type: 'update'; update: RunUpdate }
   | { type: 'trial'; trial: NextTrial }
   | { type: 'error'; message: string };
 
@@ -310,6 +312,13 @@ export class BackendClient {
         this.#emit({
           type: 'progress',
           progress: message.payload as RunProgress,
+        });
+        break;
+
+      case 'RUN_UPDATE':
+        this.#emit({
+          type: 'update',
+          update: message.payload as RunUpdate,
         });
         break;
 
