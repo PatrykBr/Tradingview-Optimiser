@@ -186,13 +186,18 @@ class OptimisationManager:
             next_trial = self._next_trial_locked(run)
             return self._progress(run), next_trial
 
-    async def submit_result(self, result: TrialResult) -> tuple[RunProgress, NextTrial | None]:
+    async def submit_result(
+        self,
+        result: TrialResult,
+    ) -> tuple[RunUpdate, NextTrial | None]:
         async with self._lock:
             run = self._require(result.run_id)
             trial = self._require_outstanding(run, result.trial_number)
+            update_start = len(run.summaries)
 
             total_trades = result.metrics.get("totalTrades")
             objective_value = result.metrics.get(run.config.objective_metric)
+            objective_fallback: str | None = None
 
             if objective_value is None:
                 if total_trades == 0:
@@ -204,7 +209,8 @@ class OptimisationManager:
                         if run.config.direction == ObjectiveDirection.MAXIMIZE
                         else 1.0e12
                     )
-                    trial.set_user_attr("objective_fallback", "no_trades")
+                    objective_fallback = "no_trades"
+                    trial.set_user_attr("objective_fallback", objective_fallback)
                 else:
                     raise ValueError(
                         f"objective metric {run.config.objective_metric!r} "
@@ -237,14 +243,22 @@ class OptimisationManager:
 
             run.study.tell(trial, objective)
             run.outstanding_trial = None
+            self._record_completed_trial(
+                run,
+                trial,
+                objective=objective,
+                metrics=result.metrics,
+                duration_ms=result.duration_ms,
+                objective_fallback=objective_fallback,
+            )
 
-            if self._complete_count(run) >= run.config.target_trials:
+            if run.completed_count >= run.config.target_trials:
                 self._set_status(
                     run,
                     RunStatus.COMPLETED,
                     termination_reason="target_trials",
                 )
-                return self._progress(run), None
+                return self._update(run, update_start), None
 
             if run.status == RunStatus.STOP_REQUESTED:
                 self._set_status(
@@ -252,7 +266,7 @@ class OptimisationManager:
                     RunStatus.STOPPED,
                     termination_reason="user",
                 )
-                return self._progress(run), None
+                return self._update(run, update_start), None
 
             if self._should_converge(run):
                 self._set_status(
@@ -260,18 +274,24 @@ class OptimisationManager:
                     RunStatus.COMPLETED,
                     termination_reason="converged",
                 )
-                return self._progress(run), None
+                return self._update(run, update_start), None
 
             next_trial = self._next_trial_locked(run)
-            return self._progress(run), next_trial
+            return self._update(run, update_start), next_trial
 
-    async def submit_failure(self, failure: TrialFailure) -> tuple[RunProgress, NextTrial | None]:
+    async def submit_failure(
+        self,
+        failure: TrialFailure,
+    ) -> tuple[RunUpdate, NextTrial | None]:
         async with self._lock:
             run = self._require(failure.run_id)
             trial = self._require_outstanding(run, failure.trial_number)
+            update_start = len(run.summaries)
+
             trial.set_user_attr("failure_reason", failure.reason)
             run.study.tell(trial, state=TrialState.FAIL)
             run.outstanding_trial = None
+            self._record_failed_trial(run, trial, failure.reason)
 
             if run.status == RunStatus.STOP_REQUESTED:
                 self._set_status(
@@ -279,10 +299,10 @@ class OptimisationManager:
                     RunStatus.STOPPED,
                     termination_reason="user",
                 )
-                return self._progress(run), None
+                return self._update(run, update_start), None
 
             next_trial = self._next_trial_locked(run)
-            return self._progress(run), next_trial
+            return self._update(run, update_start), next_trial
 
     async def stop(self, run_id: str) -> RunProgress:
         async with self._lock:
