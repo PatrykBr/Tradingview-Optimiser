@@ -37,10 +37,12 @@ export const sortTrials = (
   sort: TrialSort,
   direction: ObjectiveDirection,
 ): TrialSummary[] => {
-  const copy = [...trials];
-
-  const objective = (trial: TrialSummary): number => {
-    if (trial.objective_value === null) {
+  const objective = (
+    trial: TrialSummary,
+  ): number => {
+    if (
+      trial.objective_value === null
+    ) {
       return direction === 'maximize'
         ? Number.NEGATIVE_INFINITY
         : Number.POSITIVE_INFINITY;
@@ -48,15 +50,22 @@ export const sortTrials = (
     return trial.objective_value;
   };
 
+  if (sort === 'trial-asc') {
+    return [...trials];
+  }
+
+  if (sort === 'trial-desc') {
+    return [...trials].reverse();
+  }
+
+  const copy = [...trials];
+
   switch (sort) {
-    case 'trial-asc':
-      return copy.sort((a, b) => a.trial_number - b.trial_number);
-    case 'trial-desc':
-      return copy.sort((a, b) => b.trial_number - a.trial_number);
     case 'duration':
       return copy.sort(
         (a, b) =>
-          (b.duration_ms ?? -1) - (a.duration_ms ?? -1),
+          (b.duration_ms ?? -1) -
+          (a.duration_ms ?? -1),
       );
     case 'objective-worst':
       return copy.sort((a, b) =>
@@ -85,9 +94,30 @@ export const bestSoFar = (
   let best: number | null = null;
   const points: BestSoFarPoint[] = [];
 
-  for (const trial of [...trials].sort(
-    (a, b) => a.trial_number - b.trial_number,
-  )) {
+  let ordered = true;
+  for (
+    let index = 1;
+    index < trials.length;
+    index += 1
+  ) {
+    if (
+      trials[index - 1]!.trial_number >
+      trials[index]!.trial_number
+    ) {
+      ordered = false;
+      break;
+    }
+  }
+
+  const source = ordered
+    ? trials
+    : [...trials].sort(
+        (a, b) =>
+          a.trial_number -
+          b.trial_number,
+      );
+
+  for (const trial of source) {
     if (
       trial.objective_value === null ||
       !isFeasibleTrial(trial)
@@ -104,7 +134,10 @@ export const bestSoFar = (
       best = trial.objective_value;
     }
 
-    points.push({ trial: trial.trial_number, value: best });
+    points.push({
+      trial: trial.trial_number,
+      value: best,
+    });
   }
 
   return points;
@@ -115,19 +148,44 @@ export const estimateRemainingMs = (
   completed: number,
   target: number,
 ): number | null => {
-  const durations = trials
-    .map((trial) => trial.duration_ms)
-    .filter(
-      (duration): duration is number =>
-        typeof duration === 'number' && duration >= 0,
-    );
+  if (completed >= target) {
+    return null;
+  }
 
-  if (durations.length === 0 || completed >= target) return null;
+  const recent: number[] = [];
 
-  const recent = durations.slice(-20);
+  for (
+    let index = trials.length - 1;
+    index >= 0 &&
+    recent.length < 20;
+    index -= 1
+  ) {
+    const duration =
+      trials[index]?.duration_ms;
+
+    if (
+      typeof duration === 'number' &&
+      duration >= 0
+    ) {
+      recent.push(duration);
+    }
+  }
+
+  if (recent.length === 0) {
+    return null;
+  }
+
   const average =
-    recent.reduce((sum, value) => sum + value, 0) /
-    recent.length;
+    recent.reduce(
+      (sum, value) => sum + value,
+      0,
+    ) / recent.length;
 
-  return average * Math.max(0, target - completed);
+  return (
+    average *
+    Math.max(
+      0,
+      target - completed,
+    )
+  );
 };
