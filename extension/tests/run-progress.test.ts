@@ -42,6 +42,18 @@ const progress: RunProgress = {
   ],
 };
 
+const nextTrial = {
+  trial_number: 1,
+  state: 'complete' as const,
+  objective_value: 1.8,
+  parameters: { length: 12 },
+  metrics: { profitFactor: 1.8 },
+  constraints: {},
+  failure_reason: null,
+  duration_ms: 900,
+  reused_from_trial: null,
+};
+
 describe('incremental run progress', () => {
   it('merges trial deltas without duplicating existing history', () => {
     const update: RunUpdate = {
@@ -59,19 +71,7 @@ describe('incremental run progress', () => {
         constraints: {},
       },
       termination_reason: null,
-      trial_updates: [
-        {
-          trial_number: 1,
-          state: 'complete',
-          objective_value: 1.8,
-          parameters: { length: 12 },
-          metrics: { profitFactor: 1.8 },
-          constraints: {},
-          failure_reason: null,
-          duration_ms: 900,
-          reused_from_trial: null,
-        },
-      ],
+      trial_updates: [nextTrial],
     };
 
     const merged =
@@ -97,6 +97,32 @@ describe('incremental run progress', () => {
     expect(
       repeated.trials,
     ).toHaveLength(2);
+  });
+
+  it('uses the append-only path for normal ordered trial updates', () => {
+    const merged =
+      mergeRunUpdate(
+        progress,
+        {
+          run_id: 'run-1',
+          status: 'running',
+          completed_trials: 2,
+          target_trials: 3,
+          failed_trials: 0,
+          reused_trials: 0,
+          best: progress.best,
+          termination_reason: null,
+          trial_updates: [nextTrial],
+        },
+      );
+
+    expect(merged.trials).toEqual([
+      progress.trials[0],
+      nextTrial,
+    ]);
+    expect(merged.trials[0]).toBe(
+      progress.trials[0],
+    );
   });
 
   it('can recover a usable snapshot from an update alone', () => {
