@@ -3,7 +3,11 @@ import type {
   BackgroundMessage,
   ExtensionRequest,
 } from '../lib/messages';
-import type { NextTrial, RunProgress } from '../lib/protocol/types';
+import type {
+  NextTrial,
+  RunProgress,
+  RunUpdate,
+} from '../lib/protocol/types';
 
 const RUN_OWNERS_KEY = 'runOwners';
 
@@ -87,6 +91,15 @@ export default defineBackground(() => {
         routeRunMessage(progress.run_id, {
           type: 'RUN_PROGRESS',
           progress,
+        });
+        break;
+      }
+
+      case 'update': {
+        const update: RunUpdate = event.update;
+        routeRunMessage(update.run_id, {
+          type: 'RUN_UPDATE',
+          update,
         });
         break;
       }
