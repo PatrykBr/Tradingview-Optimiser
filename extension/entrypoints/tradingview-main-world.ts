@@ -347,25 +347,29 @@ const unwrapValue = (value: unknown): unknown => {
   return value;
 };
 
-const readStrategyMetrics = (strategyId: string) => {
-  const chart = getChart();
-  const source = getStrategySource(chart, strategyId);
-
+const readMetricsFromRawReport = (
+  rawReport: unknown,
+  deepBacktesting: boolean,
+): Record<string, number> | null => {
   let internalMetrics: Record<string, number> | null = null;
-  if (source && typeof source.reportData === 'function') {
-    try {
-      internalMetrics = extractTradingViewMetrics(
-        unwrapValue(source.reportData()),
-      );
-    } catch {
-      internalMetrics = null;
-    }
+
+  try {
+    internalMetrics =
+      extractTradingViewMetrics(rawReport);
+  } catch {
+    internalMetrics = null;
+  }
+
+  // In regular chart-session mode reportData() is authoritative. Avoid
+  // touching TradingView's large rendered DOM on every polling iteration.
+  if (!deepBacktesting && internalMetrics) {
+    return internalMetrics;
   }
 
   const visibleMetrics =
     readVisibleStrategyReportMetrics();
 
-  if (isDeepBacktestingActive() && visibleMetrics) {
+  if (deepBacktesting && visibleMetrics) {
     if (internalMetrics) {
       const comparableKeys = [
         'profitFactor',
@@ -407,6 +411,30 @@ const readStrategyMetrics = (strategyId: string) => {
   return internalMetrics ?? visibleMetrics;
 };
 
+const readStrategyMetrics = (strategyId: string) => {
+  const chart = getChart();
+  const source = getStrategySource(chart, strategyId);
+
+  if (
+    !source ||
+    typeof source.reportData !== 'function'
+  ) {
+    return readVisibleStrategyReportMetrics();
+  }
+
+  let rawReport: unknown;
+  try {
+    rawReport = unwrapValue(source.reportData());
+  } catch {
+    rawReport = null;
+  }
+
+  return readMetricsFromRawReport(
+    rawReport,
+    isDeepBacktestingActive(),
+  );
+};
+
 const readStrategyClosedTrades = (
   strategyId: string,
 ) => {
@@ -444,54 +472,157 @@ const readStrategyClosedTrades = (
   }
 };
 
-const readStrategyReportSnapshot = (strategyId: string) => {
+interface ReportCoreSnapshot {
+  report: UnknownRecord;
+  metrics: Record<string, number> | null;
+  token: string;
+  objectId: number | null;
+  deepBacktesting: boolean;
+  error: string | null;
+}
+
+const readStrategyReportCore = (
+  strategyId: string,
+): ReportCoreSnapshot | null => {
   const chart = getChart();
   const source = getStrategySource(chart, strategyId);
-  if (!source || typeof source.reportData !== 'function') {
-    return {
-      metrics: null,
-      token: null,
-      objectId: null,
-      backtestRange: null,
-      settingsSignature: null,
-      error: 'TradingView strategy report source is unavailable',
-    };
+
+  if (
+    !source ||
+    typeof source.reportData !== 'function'
+  ) {
+    return null;
   }
 
   let rawReport: unknown;
   try {
+    // One reportData() read is shared by metrics, revision detection and the
+    // full context snapshot. This avoids both duplicated work and mixed-state
+    // snapshots while TradingView is recalculating.
     rawReport = unwrapValue(source.reportData());
-  } catch (error) {
-    return {
-      metrics: null,
-      token: null,
-      objectId: null,
-      backtestRange: null,
-      settingsSignature: null,
-      error: error instanceof Error ? error.message : String(error),
-    };
+  } catch {
+    return null;
   }
 
   const objectId = reportObjectId(rawReport);
   const report = asRecord(rawReport);
+  const deepBacktesting =
+    isDeepBacktestingActive();
+  const metrics = readMetricsFromRawReport(
+    rawReport,
+    deepBacktesting,
+  );
   const runtimeError =
     report.error ??
     report.runtimeError ??
     report.errorMessage ??
     report.message;
 
-  const metrics = readStrategyMetrics(strategyId);
-  const performance = asRecord(report.performance);
-  const settings = asRecord(report.settings);
-  const dateRange = asRecord(settings.dateRange);
-  const backtest = asRecord(dateRange.backtest);
+  const revisionFields: UnknownRecord = {};
+  for (const key of [
+    'calculationId',
+    'calculation_id',
+    'reportId',
+    'report_id',
+    'updatedAt',
+    'lastUpdate',
+    'status',
+    'state',
+    'from',
+    'to',
+    'startTime',
+    'endTime',
+  ]) {
+    if (key in report) {
+      revisionFields[key] = report[key];
+    }
+  }
+
+  const token = hashString(
+    stableStringify({
+      revisionFields,
+      metrics,
+      objectId,
+      deepBacktesting,
+    }),
+  );
+
+  return {
+    report,
+    metrics,
+    token,
+    objectId,
+    deepBacktesting,
+    error:
+      typeof runtimeError === 'string' &&
+      runtimeError.trim()
+        ? runtimeError.trim()
+        : null,
+  };
+};
+
+const unavailableReportSnapshot = () => ({
+  metrics: null,
+  token: null,
+  objectId: null,
+  backtestRange: null,
+  settingsSignature: null,
+  error:
+    'TradingView strategy report source is unavailable',
+});
+
+const readStrategyReportPollSnapshot = (
+  strategyId: string,
+) => {
+  const core =
+    readStrategyReportCore(strategyId);
+
+  if (!core) {
+    return {
+      metrics: null,
+      token: null,
+      objectId: null,
+      error:
+        'TradingView strategy report source is unavailable',
+    };
+  }
+
+  return {
+    metrics: core.metrics,
+    token: core.token,
+    objectId: core.objectId,
+    error: core.error,
+  };
+};
+
+const readStrategyReportSnapshot = (
+  strategyId: string,
+) => {
+  const core =
+    readStrategyReportCore(strategyId);
+
+  if (!core) {
+    return unavailableReportSnapshot();
+  }
+
+  const settings = asRecord(
+    core.report.settings,
+  );
+  const dateRange = asRecord(
+    settings.dateRange,
+  );
+  const backtest = asRecord(
+    dateRange.backtest,
+  );
 
   const from =
-    typeof backtest.from === 'number' && Number.isFinite(backtest.from)
+    typeof backtest.from === 'number' &&
+    Number.isFinite(backtest.from)
       ? backtest.from
       : null;
   const to =
-    typeof backtest.to === 'number' && Number.isFinite(backtest.to)
+    typeof backtest.to === 'number' &&
+    Number.isFinite(backtest.to)
       ? backtest.to
       : null;
 
@@ -509,52 +640,21 @@ const readStrategyReportSnapshot = (strategyId: string) => {
   );
   const settingsSignature =
     Object.keys(stableSettings).length > 0
-      ? hashString(stableStringify(stableSettings))
+      ? hashString(
+          stableStringify(stableSettings),
+        )
       : null;
 
-  const revisionFields: UnknownRecord = {};
-  for (const key of [
-    'calculationId',
-    'calculation_id',
-    'reportId',
-    'report_id',
-    'updatedAt',
-    'lastUpdate',
-    'status',
-    'state',
-    'from',
-    'to',
-    'startTime',
-    'endTime',
-  ]) {
-    if (key in report) revisionFields[key] = report[key];
-  }
-
-  const token = hashString(
-    stableStringify({
-      revisionFields,
-      performance,
-      metrics,
-      objectId,
-      backtestRange: { from, to },
-      settingsSignature,
-      deepBacktesting: isDeepBacktestingActive(),
-    }),
-  );
-
   return {
-    metrics,
-    token,
-    objectId,
+    metrics: core.metrics,
+    token: core.token,
+    objectId: core.objectId,
     backtestRange:
       from !== null && to !== null
         ? { from, to }
         : null,
     settingsSignature,
-    error:
-      typeof runtimeError === 'string' && runtimeError.trim()
-        ? runtimeError.trim()
-        : null,
+    error: core.error,
   };
 };
 
@@ -787,12 +887,26 @@ export default defineUnlistedScript(() => {
           result = readStrategyMetrics(payload.strategyId);
           break;
         }
+        case 'readReportPollSnapshot': {
+          const payload = asRecord(request.payload);
+          if (typeof payload.strategyId !== 'string') {
+            throw new Error('strategyId is required');
+          }
+          result =
+            readStrategyReportPollSnapshot(
+              payload.strategyId,
+            );
+          break;
+        }
         case 'readReportSnapshot': {
           const payload = asRecord(request.payload);
           if (typeof payload.strategyId !== 'string') {
             throw new Error('strategyId is required');
           }
-          result = readStrategyReportSnapshot(payload.strategyId);
+          result =
+            readStrategyReportSnapshot(
+              payload.strategyId,
+            );
           break;
         }
         case 'readClosedTrades': {
