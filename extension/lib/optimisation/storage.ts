@@ -72,7 +72,13 @@ export const updateActiveRunProgress = async (
 
   await saveActiveRun({
     ...run,
-    lastProgress: progress,
+    lastProgress: {
+      ...progress,
+      // Optuna/SQLite is authoritative for trial history. Persist only the
+      // lightweight recovery checkpoint while a run is active; a complete
+      // history is written once when the run finishes.
+      trials: [],
+    },
   });
 };
 
