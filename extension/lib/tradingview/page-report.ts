@@ -186,14 +186,16 @@ export const isDeepBacktestingActive = (): boolean =>
   findClickableByText(/reset to chart session/i) !== null;
 
 export const deepBacktestingCapability = () => {
+  const active = isDeepBacktestingActive();
   const button = findClickableByText(/deep backtesting/i);
+  const available = active || button !== null;
 
   return {
-    available: button !== null,
+    available,
     reason:
-      button === null
-        ? 'Deep Backtesting control was not found. It may be unavailable on this TradingView plan or build.'
-        : null,
+      available
+        ? null
+        : 'Deep Backtesting control was not found. It may be unavailable on this TradingView plan or build.',
   };
 };
 
@@ -273,9 +275,19 @@ export const resetToChartSession = async () => {
   }
 
   resetButton.click();
-  // The following report wait is authoritative; this short yield only lets the
-  // backtesting UI process the click before callers inspect mode immediately.
-  await sleep(50);
+  // Wait on the actual mode transition rather than sleeping for a fixed
+  // duration. Fast TradingView builds continue immediately; slower builds get
+  // the same bounded safety window before the adapter validates run context.
+  await waitForValue(
+    () =>
+      findClickableByText(
+        /reset to chart session/i,
+      ) === null
+        ? true
+        : null,
+    700,
+  );
+
   return { reset: true, changed: true };
 };
 
