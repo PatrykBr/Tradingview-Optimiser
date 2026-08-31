@@ -323,7 +323,7 @@ export class TradingViewAdapter {
     signal?: AbortSignal,
   ): Promise<TradingViewMetrics> {
     const before =
-      await this.readReportSnapshot(
+      await this.readReportPollSnapshot(
         strategyId,
       );
     await this.applyParameters(
@@ -417,7 +417,10 @@ export class TradingViewAdapter {
         throw new DOMException('Operation aborted', 'AbortError');
       }
 
-      const snapshot = await this.readReportSnapshot(strategyId);
+      const snapshot =
+        await this.readReportPollSnapshot(
+          strategyId,
+        );
 
       if (snapshot.error) {
         throw new Error(
@@ -429,7 +432,7 @@ export class TradingViewAdapter {
         sawReportChange = true;
         stableReads = 0;
         lastRevision = null;
-        await sleep(250, signal);
+        await sleep(150, signal);
         continue;
       }
 
