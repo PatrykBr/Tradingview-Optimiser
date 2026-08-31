@@ -350,6 +350,23 @@ class RunProgress(BaseModel):
     trials: list[TrialSummary] = Field(default_factory=list)
 
 
+class RunUpdate(BaseModel):
+    run_id: str
+    status: RunStatus
+    completed_trials: int
+    target_trials: int
+    failed_trials: int
+    reused_trials: int = 0
+    best: BestTrial | None
+    termination_reason: Literal[
+        "target_trials",
+        "converged",
+        "search_space_exhausted",
+        "user",
+    ] | None = None
+    trial_updates: list[TrialSummary] = Field(default_factory=list)
+
+
 class RunAnalysis(BaseModel):
     run_id: str
     parameter_importance: dict[str, float] = Field(default_factory=dict)
