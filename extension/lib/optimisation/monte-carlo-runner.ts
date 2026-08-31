@@ -152,6 +152,7 @@ export const runMonteCarloValidation =
             request.config
               .backtest_range ?? null,
         },
+        request.signal,
       );
     }
 
@@ -207,6 +208,7 @@ export const runMonteCarloValidation =
         settings.simulations,
         settings.confidence,
         context,
+        request.signal,
       );
     } catch (cause) {
       primaryFailure = cause;
