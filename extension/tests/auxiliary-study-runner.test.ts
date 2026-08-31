@@ -14,7 +14,6 @@ import type {
 } from '../lib/messages';
 import type {
   CreateRun,
-  RunProgress,
 } from '../lib/protocol/types';
 import type {
   OptimisationTrialAdapter,
@@ -76,30 +75,48 @@ class FakeTransport
     }
 
     if (request.type === 'TRIAL_RESULT') {
-      const progress: RunProgress = {
-        run_id: config.run_id,
-        status: 'completed',
-        completed_trials: 1,
-        target_trials: 1,
-        failed_trials: 0,
-        best: {
-          trial_number: 0,
-          objective_value: 1.7,
-          parameters: {
-            length: 14,
-          },
-          metrics: {
-            profitFactor: 1.7,
-          },
-          constraints: {},
-        },
-        trials: [],
-      };
-
       queueMicrotask(() => {
         this.emit({
-          type: 'RUN_PROGRESS',
-          progress,
+          type: 'RUN_UPDATE',
+          update: {
+            run_id: config.run_id,
+            status: 'completed',
+            completed_trials: 1,
+            target_trials: 1,
+            failed_trials: 0,
+            reused_trials: 0,
+            best: {
+              trial_number: 0,
+              objective_value: 1.7,
+              parameters: {
+                length: 14,
+              },
+              metrics: {
+                profitFactor: 1.7,
+              },
+              constraints: {},
+            },
+            termination_reason:
+              'target_trials',
+            trial_updates: [
+              {
+                trial_number: 0,
+                state: 'complete',
+                objective_value: 1.7,
+                parameters: {
+                  length: 14,
+                },
+                metrics: {
+                  profitFactor: 1.7,
+                  totalTrades: 100,
+                },
+                constraints: {},
+                failure_reason: null,
+                duration_ms: 1,
+                reused_from_trial: null,
+              },
+            ],
+          },
         });
       });
     }
