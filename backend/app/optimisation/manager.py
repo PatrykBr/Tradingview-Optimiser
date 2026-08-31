@@ -345,12 +345,11 @@ class OptimisationManager:
             ):
                 raise ValueError("cannot delete an active optimisation run")
 
-            optuna.delete_study(
-                study_name=run_id,
-                storage=self._storage_url,
-            )
-
             async with self._registry_lock:
+                optuna.delete_study(
+                    study_name=run_id,
+                    storage=self._storage_url,
+                )
                 self._runs.pop(run_id, None)
                 self._run_locks.pop(run_id, None)
 
