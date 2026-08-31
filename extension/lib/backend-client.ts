@@ -24,6 +24,7 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+const PROTOCOL_VERSION = 2;
 const BACKEND_WS_URL = 'ws://127.0.0.1:8765/ws';
 const BACKEND_HTTP_URL = 'http://127.0.0.1:8765';
 const HEARTBEAT_MS = 20_000;
@@ -294,9 +295,24 @@ export class BackendClient {
     switch (message.type) {
       case 'CONNECTED': {
         const payload = message.payload as {
+          protocol_version?: number;
           backend_version?: string;
           optuna_version?: string;
         };
+
+        if (
+          payload.protocol_version !==
+          PROTOCOL_VERSION
+        ) {
+          this.#emit({
+            type: 'error',
+            message:
+              'Backend protocol mismatch. Update the TradeCopy Companion and extension together.',
+          });
+          this.#disconnect();
+          return;
+        }
+
         this.#backendVersion =
           payload.backend_version;
         this.#optunaVersion =
