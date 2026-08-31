@@ -219,6 +219,7 @@ class OptimisationManager:
             else:
                 objective = float(objective_value)
 
+            constraints: dict[str, float] = {}
             for metric_filter in run.config.filters:
                 actual = result.metrics.get(metric_filter.metric)
 
@@ -232,8 +233,14 @@ class OptimisationManager:
                 else:
                     violation = metric_filter.value - actual
 
+                constraint_name = (
+                    f"{metric_filter.metric}:"
+                    f"{metric_filter.operator}:"
+                    f"{metric_filter.value}"
+                )
+                constraints[constraint_name] = violation
                 trial.set_constraint(
-                    f"{metric_filter.metric}:{metric_filter.operator}:{metric_filter.value}",
+                    constraint_name,
                     violation,
                 )
 
@@ -249,6 +256,7 @@ class OptimisationManager:
                 objective=objective,
                 metrics=result.metrics,
                 duration_ms=result.duration_ms,
+                constraints=constraints,
                 objective_fallback=objective_fallback,
             )
 
@@ -657,10 +665,10 @@ class OptimisationManager:
         objective: float,
         metrics: dict[str, float],
         duration_ms: int | None,
+        constraints: dict[str, float],
         objective_fallback: str | None = None,
         reused_from_trial: int | None = None,
     ) -> None:
-        constraints = dict(trial.constraints)
         parameters = dict(trial.params)
         summary = TrialSummary(
             trial_number=trial.number,
@@ -725,7 +733,7 @@ class OptimisationManager:
                 objective_value=None,
                 parameters=dict(trial.params),
                 metrics={},
-                constraints=dict(trial.constraints),
+                constraints={},
                 failure_reason=reason,
                 duration_ms=None,
                 reused_from_trial=None,
@@ -799,6 +807,7 @@ class OptimisationManager:
             objective=duplicate.value,
             metrics=duplicate.metrics,
             duration_ms=None,
+            constraints=duplicate.constraints,
             objective_fallback=duplicate.objective_fallback,
             reused_from_trial=duplicate.number,
         )
