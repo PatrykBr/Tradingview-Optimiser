@@ -50,6 +50,38 @@ const ACTIVE_RUN_KEY = 'activeOptimisationRun';
 const LAST_RUN_KEY = 'lastOptimisationRun';
 const EXPERIMENTS_KEY = 'optimisationExperimentsV1';
 const MAX_EXPERIMENTS = 50;
+const CHECKPOINT_INTERVAL_MS = 5_000;
+const CHECKPOINT_TRIAL_INTERVAL = 10;
+
+interface ActiveProgressCheckpoint {
+  runId: string | null;
+  settledTrials: number;
+  savedAt: number;
+}
+
+let activeProgressCheckpoint: ActiveProgressCheckpoint = {
+  runId: null,
+  settledTrials: 0,
+  savedAt: 0,
+};
+
+const resetActiveProgressCheckpoint = (): void => {
+  activeProgressCheckpoint = {
+    runId: null,
+    settledTrials: 0,
+    savedAt: 0,
+  };
+};
+
+const lightweightProgress = (
+  progress: RunProgress,
+): RunProgress => ({
+  ...progress,
+  // Optuna/SQLite is authoritative for trial history. Persist only the
+  // lightweight recovery checkpoint while a run is active; a complete
+  // history is written once when the run finishes.
+  trials: [],
+});
 
 export const saveActiveRun = async (
   run: PersistedOptimisationRun,
@@ -57,29 +89,76 @@ export const saveActiveRun = async (
   await browser.storage.local.set({
     [ACTIVE_RUN_KEY]: run,
   });
+
+  if (
+    activeProgressCheckpoint.runId !==
+    run.config.run_id
+  ) {
+    activeProgressCheckpoint = {
+      runId: run.config.run_id,
+      settledTrials:
+        (run.lastProgress?.completed_trials ?? 0) +
+        (run.lastProgress?.failed_trials ?? 0),
+      savedAt: Date.now(),
+    };
+  }
 };
 
 export const updateActiveRunProgress = async (
   progress: RunProgress,
 ): Promise<void> => {
-  const run = await loadActiveRun();
+  const now = Date.now();
+  const settledTrials =
+    progress.completed_trials +
+    progress.failed_trials;
+  const previous = activeProgressCheckpoint;
+  const sameRun =
+    previous.runId === progress.run_id;
+
   if (
-    !run ||
-    run.config.run_id !== progress.run_id
+    sameRun &&
+    settledTrials - previous.settledTrials <
+      CHECKPOINT_TRIAL_INTERVAL &&
+    now - previous.savedAt <
+      CHECKPOINT_INTERVAL_MS
   ) {
     return;
   }
 
-  await saveActiveRun({
-    ...run,
-    lastProgress: {
-      ...progress,
-      // Optuna/SQLite is authoritative for trial history. Persist only the
-      // lightweight recovery checkpoint while a run is active; a complete
-      // history is written once when the run finishes.
-      trials: [],
-    },
-  });
+  // Reserve this checkpoint before asynchronous storage work so a burst of
+  // incremental updates cannot schedule several equivalent writes at once.
+  activeProgressCheckpoint = {
+    runId: progress.run_id,
+    settledTrials,
+    savedAt: now,
+  };
+
+  try {
+    const run = await loadActiveRun();
+    if (
+      !run ||
+      run.config.run_id !== progress.run_id
+    ) {
+      return;
+    }
+
+    await browser.storage.local.set({
+      [ACTIVE_RUN_KEY]: {
+        ...run,
+        lastProgress:
+          lightweightProgress(progress),
+      },
+    });
+  } catch (cause) {
+    if (
+      activeProgressCheckpoint.runId ===
+        progress.run_id &&
+      activeProgressCheckpoint.savedAt === now
+    ) {
+      activeProgressCheckpoint = previous;
+    }
+    throw cause;
+  }
 };
 
 export const loadActiveRun =
@@ -192,6 +271,7 @@ export const finishActiveRun = async (
   await browser.storage.local.remove(
     ACTIVE_RUN_KEY,
   );
+  resetActiveProgressCheckpoint();
 };
 
 export const clearActiveRun =
@@ -199,6 +279,7 @@ export const clearActiveRun =
     await browser.storage.local.remove(
       ACTIVE_RUN_KEY,
     );
+    resetActiveProgressCheckpoint();
   };
 
 export const loadLastRun =
