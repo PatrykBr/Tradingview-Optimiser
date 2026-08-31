@@ -503,14 +503,13 @@ const compactReportMetrics = (
 ): Record<string, number> | null => {
   if (metrics === null) return null;
 
-  const compact = Object.fromEntries(
-    REPORT_REVISION_METRIC_KEYS.flatMap(
-      (key) =>
-        typeof metrics[key] === 'number'
-          ? [[key, metrics[key]]]
-          : [],
-    ),
-  );
+  const compact: Record<string, number> = {};
+  for (const key of REPORT_REVISION_METRIC_KEYS) {
+    const value = metrics[key];
+    if (typeof value === 'number') {
+      compact[key] = value;
+    }
+  }
 
   return Object.keys(compact).length > 0
     ? compact
