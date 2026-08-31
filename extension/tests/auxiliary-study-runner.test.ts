@@ -197,7 +197,6 @@ describe('auxiliary study runner', () => {
         (request) => request.type,
       ),
     ).toEqual([
-      'REGISTER_RUN_OWNER',
       'CREATE_RUN',
       'START_RUN',
       'TRIAL_RESULT',
