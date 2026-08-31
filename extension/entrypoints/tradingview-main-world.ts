@@ -483,6 +483,7 @@ interface ReportCoreSnapshot {
 
 const readStrategyReportCore = (
   strategyId: string,
+  expectedDeepBacktesting?: boolean,
 ): ReportCoreSnapshot | null => {
   const chart = getChart();
   const source = getStrategySource(chart, strategyId);
@@ -507,6 +508,7 @@ const readStrategyReportCore = (
   const objectId = reportObjectId(rawReport);
   const report = asRecord(rawReport);
   const deepBacktesting =
+    expectedDeepBacktesting ??
     isDeepBacktestingActive();
   const metrics = readMetricsFromRawReport(
     rawReport,
@@ -573,9 +575,13 @@ const unavailableReportSnapshot = () => ({
 
 const readStrategyReportPollSnapshot = (
   strategyId: string,
+  expectedDeepBacktesting?: boolean,
 ) => {
   const core =
-    readStrategyReportCore(strategyId);
+    readStrategyReportCore(
+      strategyId,
+      expectedDeepBacktesting,
+    );
 
   if (!core) {
     return {
@@ -895,6 +901,10 @@ export default defineUnlistedScript(() => {
           result =
             readStrategyReportPollSnapshot(
               payload.strategyId,
+              typeof payload.expectedDeepBacktesting ===
+                'boolean'
+                ? payload.expectedDeepBacktesting
+                : undefined,
             );
           break;
         }
