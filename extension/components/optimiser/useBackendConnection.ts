@@ -150,14 +150,29 @@ export function useBackendConnection(
       }
     };
 
-    browser.runtime.onMessage.addListener(
-      listener,
-    );
-
-    return () =>
-      browser.runtime.onMessage.removeListener(
+    try {
+      browser.runtime.onMessage.addListener(
         listener,
       );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : String(cause),
+      );
+      return;
+    }
+
+    return () => {
+      try {
+        browser.runtime.onMessage.removeListener(
+          listener,
+        );
+      } catch {
+        // The old content-script context may already be invalid while the
+        // TradingView tab is reloading into the new extension version.
+      }
+    };
   }, [setError]);
 
   return {
