@@ -258,14 +258,6 @@ export default defineContentScript({
         removeInputIsolation = undefined;
         removeContextRecovery?.();
         removeContextRecovery = undefined;
-        window.removeEventListener(
-          'unhandledrejection',
-          onUnhandledRejection,
-        );
-        window.removeEventListener(
-          'error',
-          onWindowError,
-        );
         root?.unmount();
       },
     });
