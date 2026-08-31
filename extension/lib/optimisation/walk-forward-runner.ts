@@ -342,6 +342,12 @@ export const runWalkForwardValidation =
         if (primaryFailure === undefined) {
           throw restoreFailure;
         }
+
+        throw combineFailures(
+          primaryFailure,
+          restoreFailure,
+          'Walk-forward validation failed and TradingView state could not be restored',
+        );
       }
     }
   };

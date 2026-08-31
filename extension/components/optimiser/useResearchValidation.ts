@@ -78,6 +78,10 @@ export function useResearchValidation({
       null,
     );
 
+  useEffect(() => {
+    setAnalysisError(undefined);
+  }, [run.runConfig?.run_id]);
+
   const refreshHistory =
     useCallback(async () => {
       setExperiments(

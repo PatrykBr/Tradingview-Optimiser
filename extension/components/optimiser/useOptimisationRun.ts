@@ -473,20 +473,43 @@ export function useOptimisationRun({
                   'UNKNOWN_RUN',
                 )
               ) {
-                await persistLifecycle({
-                  intent: 'stopped',
-                  phase: 'stopping',
-                });
-                throw combineFailures(
-                  error,
-                  rollbackFailure,
-                  'Optimisation start failed and backend rollback also failed',
-                );
+                const rollbackError =
+                  combineFailures(
+                    error,
+                    rollbackFailure,
+                    'Optimisation start failed and backend rollback also failed',
+                  );
+
+                try {
+                  await persistLifecycle({
+                    intent: 'stopped',
+                    phase: 'stopping',
+                  });
+                } catch (
+                  persistenceFailure
+                ) {
+                  throw combineFailures(
+                    rollbackError,
+                    persistenceFailure,
+                    'Optimisation rollback failed and its recovery state could not be persisted',
+                  );
+                }
+
+                throw rollbackError;
               }
             }
           }
 
-          await clearActiveState();
+          try {
+            await clearActiveState();
+          } catch (cleanupFailure) {
+            throw combineFailures(
+              error,
+              cleanupFailure,
+              'Optimisation start failed and local cleanup also failed',
+            );
+          }
+
           throw error;
         }
       },
@@ -690,6 +713,23 @@ export function useOptimisationRun({
           candidate.config,
         );
 
+        const persisted: PersistedOptimisationRun = {
+          ...candidate,
+          version: 2,
+          strategyId,
+          intent: 'running',
+          phase: 'starting',
+        };
+
+        // Write the intended lifecycle transition before switching the UI into
+        // active-run mode. If this write fails the resumable candidate remains
+        // untouched and no backend request is sent.
+        await saveActiveRun(
+          persisted,
+        );
+        activePersistenceRef.current =
+          persisted;
+
         activeRunIdRef.current =
           candidate.config.run_id;
         activeStrategyIdRef.current =
@@ -716,19 +756,6 @@ export function useOptimisationRun({
           candidate.config.run_id,
         );
         setResumeCandidate(null);
-
-        const persisted: PersistedOptimisationRun = {
-          ...candidate,
-          version: 2,
-          strategyId,
-          intent: 'running',
-          phase: 'starting',
-        };
-        await saveActiveRun(
-          persisted,
-        );
-        activePersistenceRef.current =
-          persisted;
 
         await startBackendRun(
           persisted,
@@ -1045,6 +1072,18 @@ export function useOptimisationRun({
       if (saved) {
         activePersistenceRef.current =
           saved;
+
+        if (
+          saved.intent === 'stopped'
+        ) {
+          activeRunIdRef.current =
+            saved.config.run_id;
+          activeStrategyIdRef.current =
+            saved.strategyId;
+          activeConfigRef.current =
+            saved.config;
+        }
+
         setResumeCandidate(saved);
         progressRef.current =
           saved.lastProgress ?? null;
@@ -1084,67 +1123,6 @@ export function useOptimisationRun({
   }, [setError]);
 
   useEffect(() => {
-    const saved =
-      resumeCandidate;
-
-    if (
-      !connected ||
-      !saved ||
-      saved.intent !== 'stopped'
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-
-    void sendRequest({
-      type: 'ABORT_RUN',
-      payload: {
-        runId:
-          saved.config.run_id,
-        reason:
-          'Retrying a persisted user stop after reload',
-      },
-    })
-      .catch((cause) => {
-        if (
-          isOptimiserErrorCode(
-            cause,
-            'UNKNOWN_RUN',
-          )
-        ) {
-          return;
-        }
-        throw cause;
-      })
-      .then(async () => {
-        if (cancelled) return;
-        await clearActiveRun();
-        activePersistenceRef.current =
-          null;
-        setResumeCandidate(null);
-      })
-      .catch((cause) => {
-        if (!cancelled) {
-          setError(
-            'Could not complete the saved stop request: ' +
-              toOptimiserError(cause)
-                .message,
-          );
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    connected,
-    resumeCandidate,
-    sendRequest,
-    setError,
-  ]);
-
-  useEffect(() => {
     if (!connected || !activeRunIdRef.current) {
       return;
     }
@@ -1152,7 +1130,11 @@ export function useOptimisationRun({
     queueMicrotask(() => {
       void recoverBackendRun();
     });
-  }, [connected, recoverBackendRun]);
+  }, [
+    connected,
+    recoverBackendRun,
+    resumeCandidate,
+  ]);
 
   const acceptProgress = useCallback(
     (nextProgress: RunProgress) => {

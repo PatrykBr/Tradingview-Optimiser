@@ -240,6 +240,12 @@ export const runMonteCarloValidation =
         if (primaryFailure === undefined) {
           throw restoreFailure;
         }
+
+        throw combineFailures(
+          primaryFailure,
+          restoreFailure,
+          'Monte Carlo validation failed and TradingView state could not be restored',
+        );
       }
     }
   };

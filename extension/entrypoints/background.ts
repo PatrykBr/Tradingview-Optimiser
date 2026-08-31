@@ -64,6 +64,15 @@ export default defineBackground(() => {
     );
   };
 
+  const runTask = (
+    task: Promise<unknown>,
+    label: string,
+  ): void => {
+    void task.catch((cause) => {
+      console.error(label, cause);
+    });
+  };
+
   const broadcast = async (
     message: BackgroundMessage,
   ): Promise<void> => {
@@ -71,16 +80,29 @@ export default defineBackground(() => {
       url: ['https://*.tradingview.com/*'],
     });
 
-    await Promise.allSettled(
-      tabs
-        .filter(
-          (tab): tab is typeof tab & { id: number } =>
-            tab.id !== undefined,
-        )
-        .map((tab) =>
-          sendToTab(tab.id, message),
-        ),
-    );
+    const results =
+      await Promise.allSettled(
+        tabs
+          .filter(
+            (tab): tab is typeof tab & { id: number } =>
+              tab.id !== undefined,
+          )
+          .map((tab) =>
+            sendToTab(
+              tab.id,
+              message,
+            ),
+          ),
+      );
+
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        console.warn(
+          'Could not broadcast optimiser message to a TradingView tab',
+          result.reason,
+        );
+      }
+    }
   };
 
   const clearRunOwner = async (
@@ -182,7 +204,7 @@ export default defineBackground(() => {
   backend.subscribe((event) => {
     switch (event.type) {
       case 'connection':
-        void broadcast({
+        runTask(broadcast({
           type: 'BACKEND_STATE',
           connected: event.connected,
           ...(event.backendVersion
@@ -199,42 +221,48 @@ export default defineBackground(() => {
             : {}),
           pairingRequired:
             event.pairingRequired ?? false,
-        });
+        }), 'Could not broadcast backend connection state');
         break;
 
       case 'progress': {
         const progress: RunProgress = event.progress;
-        void routeRunMessage(progress.run_id, {
+        runTask(routeRunMessage(progress.run_id, {
           type: 'RUN_PROGRESS',
           progress,
-        });
+        }), 'Could not route optimiser progress');
         break;
       }
 
       case 'update': {
         const update: RunUpdate = event.update;
-        void routeRunMessage(update.run_id, {
+        runTask(routeRunMessage(update.run_id, {
           type: 'RUN_UPDATE',
           update,
-        });
+        }), 'Could not route optimiser update');
         break;
       }
 
       case 'trial': {
         const trial: NextTrial = event.trial;
-        void routeRunMessage(
+        runTask(routeRunMessage(
           trial.run_id,
           {
             type: 'NEXT_TRIAL',
             trial,
           },
           true,
-        );
+        ), 'Could not route optimiser trial');
         break;
       }
 
       case 'error':
-        void broadcast({ type: 'BACKEND_ERROR', message: event.message });
+        runTask(
+          broadcast({
+            type: 'BACKEND_ERROR',
+            message: event.message,
+          }),
+          'Could not broadcast backend error',
+        );
         break;
     }
   });
@@ -293,13 +321,25 @@ export default defineBackground(() => {
                   msg.payload.run_id,
                 );
 
-                // CREATE_RUN is idempotent and may have reopened an existing
-                // study. Never delete durable optimisation history just because
-                // extension owner metadata could not be persisted.
+                // A study without durable owner metadata must never be allowed
+                // to start. Stop it while preserving its history.
+                try {
+                  await backend.abortRun(
+                    msg.payload.run_id,
+                    'Run ownership could not be persisted',
+                  );
+                } catch (abortFailure) {
+                  throw combineFailures(
+                    cause,
+                    abortFailure,
+                    'Could not persist run ownership and could not stop the unowned backend run',
+                  );
+                }
+
                 throw toOptimiserError(
                   cause,
                   'RUN_OWNER_PERSIST_FAILED',
-                  true,
+                  false,
                 );
               }
             }
@@ -396,12 +436,15 @@ export default defineBackground(() => {
         'Could not restore optimiser run ownership',
         cause,
       );
-      void broadcast({
-        type: 'BACKEND_ERROR',
-        message:
-          'Could not restore optimiser run ownership: ' +
-          toOptimiserError(cause).message,
-      });
+      runTask(
+        broadcast({
+          type: 'BACKEND_ERROR',
+          message:
+            'Could not restore optimiser run ownership: ' +
+            toOptimiserError(cause).message,
+        }),
+        'Could not broadcast run-owner restore failure',
+      );
     },
   );
 
@@ -411,15 +454,18 @@ export default defineBackground(() => {
         'Initial optimiser backend connection failed',
         cause,
       );
-      void broadcast({
-        type: 'BACKEND_ERROR',
-        message:
-          toOptimiserError(
-            cause,
-            'BACKEND_DISCONNECTED',
-            true,
-          ).message,
-      });
+      runTask(
+        broadcast({
+          type: 'BACKEND_ERROR',
+          message:
+            toOptimiserError(
+              cause,
+              'BACKEND_DISCONNECTED',
+              true,
+            ).message,
+        }),
+        'Could not broadcast initial backend connection failure',
+      );
     },
   );
 });

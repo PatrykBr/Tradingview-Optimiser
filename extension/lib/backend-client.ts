@@ -264,6 +264,11 @@ export class BackendClient {
             true,
           ),
         );
+
+        // A timed-out request has an unknown outcome. Force the transport
+        // through its reconnect path so run reconciliation is guaranteed to
+        // happen instead of continuing on a potentially desynchronised socket.
+        this.#socket?.close();
       }, REQUEST_TIMEOUT_MS);
 
       this.#pendingRequests.set(requestId, {
