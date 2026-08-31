@@ -33,7 +33,6 @@ export type ExtensionRequest =
       type: 'GET_RUN_ANALYSIS';
       payload: { runId: string; config: CreateRun };
     }
-  | { type: 'REGISTER_RUN_OWNER'; payload: { runId: string } }
   | { type: 'CLEAR_RUN_OWNER'; payload: { runId: string } }
   | { type: 'TRIAL_RESULT'; payload: TrialResult }
   | {
