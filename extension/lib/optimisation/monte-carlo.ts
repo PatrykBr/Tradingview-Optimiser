@@ -199,12 +199,18 @@ const finiteTrades = (
       Number.isFinite(trade.pnl),
   );
 
-export const runTradeMonteCarlo = (
+const yieldToBrowser = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+export const runTradeMonteCarlo = async (
   snapshot: ClosedTradeSnapshot,
   requestedSimulations: number,
   requestedConfidence: number,
   context: MonteCarloContext,
-): MonteCarloResult => {
+  signal?: AbortSignal,
+): Promise<MonteCarloResult> => {
   const simulations = Math.max(
     1,
     Math.floor(
@@ -262,6 +268,13 @@ export const runTradeMonteCarlo = (
     simulation < simulations;
     simulation += 1
   ) {
+    if (signal?.aborted) {
+      throw new DOMException(
+        'Operation aborted',
+        'AbortError',
+      );
+    }
+
     let cumulativePnl = 0;
     let peakPnl = 0;
     let maxDrawdown = 0;
@@ -314,6 +327,13 @@ export const runTradeMonteCarlo = (
       profitFactors.push(
         grossProfit / grossLoss,
       );
+    }
+
+    if (
+      simulation > 0 &&
+      simulation % 250 === 0
+    ) {
+      await yieldToBrowser();
     }
   }
 
