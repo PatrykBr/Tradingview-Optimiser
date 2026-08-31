@@ -188,9 +188,13 @@ export default function RunProgressSection({
             selectedTrialNumber,
         ) ?? null;
 
+  const newestFastPath =
+    trialFilter === 'all' &&
+    trialSort === 'trial-desc';
+
   const displayedTrials = useMemo(
     () =>
-      run.progress
+      run.progress && !newestFastPath
         ? sortTrials(
             filterTrials(
               run.progress.trials,
@@ -203,16 +207,22 @@ export default function RunProgressSection({
     [
       run.progress,
       direction,
+      newestFastPath,
       trialFilter,
       trialSort,
     ],
   );
 
+  const displayedTrialCount =
+    newestFastPath
+      ? run.progress?.trials.length ?? 0
+      : displayedTrials.length;
+
   const totalTrialPages =
     Math.max(
       1,
       Math.ceil(
-        displayedTrials.length /
+        displayedTrialCount /
           TRIALS_PER_PAGE,
       ),
     );
@@ -222,19 +232,44 @@ export default function RunProgressSection({
       totalTrialPages - 1,
     );
 
-  const visibleTrials = useMemo(
-    () =>
-      displayedTrials.slice(
-        visibleTrialPage *
-          TRIALS_PER_PAGE,
-        (visibleTrialPage + 1) *
-          TRIALS_PER_PAGE,
-      ),
-    [
-      displayedTrials,
-      visibleTrialPage,
-    ],
-  );
+  const visibleTrials = useMemo(() => {
+    if (
+      newestFastPath &&
+      run.progress
+    ) {
+      const trials =
+        run.progress.trials;
+      const end = Math.max(
+        0,
+        trials.length -
+          visibleTrialPage *
+            TRIALS_PER_PAGE,
+      );
+      const start = Math.max(
+        0,
+        end - TRIALS_PER_PAGE,
+      );
+
+      // The common newest/all view only needs one page. Slice that window
+      // directly instead of copying and reversing the entire trial history on
+      // every completed trial.
+      return trials
+        .slice(start, end)
+        .reverse();
+    }
+
+    return displayedTrials.slice(
+      visibleTrialPage *
+        TRIALS_PER_PAGE,
+      (visibleTrialPage + 1) *
+        TRIALS_PER_PAGE,
+    );
+  }, [
+    displayedTrials,
+    newestFastPath,
+    run.progress,
+    visibleTrialPage,
+  ]);
 
   useEffect(() => {
     setTrialPage(0);
@@ -610,7 +645,7 @@ export default function RunProgressSection({
                       {visibleTrialPage + 1}
                       /{totalTrialPages}
                       {' · '}
-                      {displayedTrials.length}{' '}
+                      {displayedTrialCount}{' '}
                       trials
                     </span>
                     <button
