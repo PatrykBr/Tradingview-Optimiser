@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import BestSoFarChart from '../BestSoFarChart';
 import {
@@ -16,6 +16,8 @@ import {
 } from '../../lib/optimisation/results';
 import type { TrialSummary } from '../../lib/protocol/types';
 import type { OptimisationRunModel } from './useOptimisationRun';
+
+const TRIALS_PER_PAGE = 100;
 
 interface RunProgressSectionProps {
   run: OptimisationRunModel;
@@ -124,6 +126,8 @@ export default function RunProgressSection({
     selectedTrialNumber,
     setSelectedTrialNumber,
   ] = useState<number | null>(null);
+  const [trialPage, setTrialPage] =
+    useState(0);
 
   const objective = metricDefinition(
     run.runConfig?.objective_metric ??
@@ -178,6 +182,52 @@ export default function RunProgressSection({
       trialSort,
     ],
   );
+
+  const totalTrialPages =
+    Math.max(
+      1,
+      Math.ceil(
+        displayedTrials.length /
+          TRIALS_PER_PAGE,
+      ),
+    );
+  const visibleTrialPage =
+    Math.min(
+      trialPage,
+      totalTrialPages - 1,
+    );
+
+  const visibleTrials = useMemo(
+    () =>
+      displayedTrials.slice(
+        visibleTrialPage *
+          TRIALS_PER_PAGE,
+        (visibleTrialPage + 1) *
+          TRIALS_PER_PAGE,
+      ),
+    [
+      displayedTrials,
+      visibleTrialPage,
+    ],
+  );
+
+  useEffect(() => {
+    setTrialPage(0);
+  }, [trialFilter, trialSort]);
+
+  useEffect(() => {
+    if (
+      trialPage !==
+      visibleTrialPage
+    ) {
+      setTrialPage(
+        visibleTrialPage,
+      );
+    }
+  }, [
+    trialPage,
+    visibleTrialPage,
+  ]);
 
   const graphPoints = useMemo(
     () =>
@@ -405,7 +455,7 @@ export default function RunProgressSection({
                 </div>
 
                 <div className="trialList">
-                  {displayedTrials.map(
+                  {visibleTrials.map(
                     (trial) => {
                       const feasible =
                         isFeasibleTrial(trial);
@@ -465,6 +515,54 @@ export default function RunProgressSection({
                     },
                   )}
                 </div>
+
+                {totalTrialPages > 1 && (
+                  <div className="trialPagination">
+                    <button
+                      className="textButton"
+                      disabled={
+                        visibleTrialPage === 0
+                      }
+                      onClick={() =>
+                        setTrialPage(
+                          (page) =>
+                            Math.max(
+                              0,
+                              page - 1,
+                            ),
+                        )
+                      }
+                    >
+                      Previous
+                    </button>
+                    <span className="muted">
+                      Page{' '}
+                      {visibleTrialPage + 1}
+                      /{totalTrialPages}
+                      {' · '}
+                      {displayedTrials.length}{' '}
+                      trials
+                    </span>
+                    <button
+                      className="textButton"
+                      disabled={
+                        visibleTrialPage >=
+                        totalTrialPages - 1
+                      }
+                      onClick={() =>
+                        setTrialPage(
+                          (page) =>
+                            Math.min(
+                              totalTrialPages - 1,
+                              page + 1,
+                            ),
+                        )
+                      }
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
               </>
             )}
 
