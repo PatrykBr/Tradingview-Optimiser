@@ -234,19 +234,48 @@ export const ensureStrategyTester = (): boolean => {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+const waitForValue = async <T>(
+  read: () => T | null,
+  timeoutMs: number,
+  pollMs = 50,
+): Promise<T | null> => {
+  const immediate = read();
+  if (immediate !== null) return immediate;
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    const value = read();
+    if (value !== null) return value;
+  }
+
+  return null;
+};
+
+const waitForClickable = (
+  pattern: RegExp,
+  timeoutMs: number,
+): Promise<HTMLElement | null> =>
+  waitForValue(
+    () => findClickableByText(pattern),
+    timeoutMs,
+  );
+
 export const resetToChartSession = async () => {
   ensureStrategyTester();
-  await sleep(150);
 
-  const resetButton = findClickableByText(
+  const resetButton = await waitForClickable(
     /reset to chart session/i,
+    300,
   );
   if (!resetButton) {
     return { reset: true, changed: false };
   }
 
   resetButton.click();
-  await sleep(250);
+  // The following report wait is authoritative; this short yield only lets the
+  // backtesting UI process the click before callers inspect mode immediately.
+  await sleep(50);
   return { reset: true, changed: true };
 };
 
@@ -307,18 +336,35 @@ const visibleDateInputs = (): HTMLInputElement[] => {
     .map(({ input }) => input);
 };
 
+const waitForDateInputs = async (
+  timeoutMs: number,
+): Promise<HTMLInputElement[] | null> =>
+  waitForValue(
+    () => {
+      const inputs = visibleDateInputs();
+      return inputs.length >= 2
+        ? inputs
+        : null;
+    },
+    timeoutMs,
+  );
+
+const REPORT_BUTTON_PATTERN =
+  /generate report|update report|apply|calculate/i;
+
 export const refreshDeepBacktestReport =
   async (): Promise<DeepBacktestResult> => {
     ensureStrategyTester();
-    await sleep(100);
 
-    let updateButton = findClickableByText(
-      /generate report|update report|apply|calculate/i,
+    let updateButton = await waitForClickable(
+      REPORT_BUTTON_PATTERN,
+      120,
     );
 
     if (!updateButton) {
-      const deepButton = findClickableByText(
+      const deepButton = await waitForClickable(
         /deep backtesting/i,
+        300,
       );
       if (!deepButton) {
         return {
@@ -330,9 +376,9 @@ export const refreshDeepBacktestReport =
       }
 
       deepButton.click();
-      await sleep(180);
-      updateButton = findClickableByText(
-        /generate report|update report|apply|calculate/i,
+      updateButton = await waitForClickable(
+        REPORT_BUTTON_PATTERN,
+        600,
       );
     }
 
@@ -374,10 +420,10 @@ export const configureDeepBacktestRange = async (
   }
 
   ensureStrategyTester();
-  await sleep(250);
 
-  const deepButton = findClickableByText(
+  const deepButton = await waitForClickable(
     /deep backtesting/i,
+    500,
   );
   if (!deepButton) {
     return {
@@ -389,10 +435,9 @@ export const configureDeepBacktestRange = async (
   }
 
   deepButton.click();
-  await sleep(350);
 
-  const inputs = visibleDateInputs();
-  if (inputs.length < 2) {
+  const inputs = await waitForDateInputs(800);
+  if (!inputs) {
     return {
       supported: true,
       applied: false,
@@ -403,10 +448,10 @@ export const configureDeepBacktestRange = async (
 
   setNativeInputValue(inputs[0]!, startDate);
   setNativeInputValue(inputs[1]!, endDate);
-  await sleep(100);
 
-  const updateButton = findClickableByText(
-    /generate report|update report|apply|calculate/i,
+  const updateButton = await waitForClickable(
+    REPORT_BUTTON_PATTERN,
+    500,
   );
   if (!updateButton) {
     return {
