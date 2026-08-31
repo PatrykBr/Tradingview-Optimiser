@@ -134,6 +134,7 @@ export default defineContentScript({
     let mounted = true;
     let removeDragListeners: (() => void) | undefined;
     let removeInputIsolation: (() => void) | undefined;
+    let removeContextRecovery: (() => void) | undefined;
 
     const ui = await createShadowRootUi(ctx, {
       name: 'tradingview-optuna-optimiser',
@@ -161,6 +162,39 @@ export default defineContentScript({
         removeDragListeners = makeDraggable(app);
         removeInputIsolation = isolateTextInputEvents(app);
 
+        const recoverInvalidContext = (
+          event: Event,
+        ) => {
+          if (!ctx.isInvalid) return;
+
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          window.location.reload();
+        };
+
+        app.addEventListener(
+          'pointerdown',
+          recoverInvalidContext,
+          true,
+        );
+        app.addEventListener(
+          'keydown',
+          recoverInvalidContext,
+          true,
+        );
+        removeContextRecovery = () => {
+          app.removeEventListener(
+            'pointerdown',
+            recoverInvalidContext,
+            true,
+          );
+          app.removeEventListener(
+            'keydown',
+            recoverInvalidContext,
+            true,
+          );
+        };
+
         const root = ReactDOM.createRoot(app);
         root.render(<App bridge={bridge} />);
         return root;
@@ -170,6 +204,8 @@ export default defineContentScript({
         removeDragListeners = undefined;
         removeInputIsolation?.();
         removeInputIsolation = undefined;
+        removeContextRecovery?.();
+        removeContextRecovery = undefined;
         root?.unmount();
       },
     });
