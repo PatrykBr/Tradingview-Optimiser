@@ -411,7 +411,10 @@ const readMetricsFromRawReport = (
   return internalMetrics ?? visibleMetrics;
 };
 
-const readStrategyMetrics = (strategyId: string) => {
+const readStrategyMetrics = (
+  strategyId: string,
+  expectedDeepBacktesting?: boolean,
+) => {
   const chart = getChart();
   const source = getStrategySource(chart, strategyId);
 
@@ -431,7 +434,8 @@ const readStrategyMetrics = (strategyId: string) => {
 
   return readMetricsFromRawReport(
     rawReport,
-    isDeepBacktestingActive(),
+    expectedDeepBacktesting ??
+      isDeepBacktestingActive(),
   );
 };
 
@@ -493,6 +497,25 @@ const REPORT_REVISION_METRIC_KEYS = [
   'sortinoRatio',
   'buyAndHoldReturn',
 ] as const;
+
+const compactReportMetrics = (
+  metrics: Record<string, number> | null,
+): Record<string, number> | null => {
+  if (metrics === null) return null;
+
+  const compact = Object.fromEntries(
+    REPORT_REVISION_METRIC_KEYS.flatMap(
+      (key) =>
+        typeof metrics[key] === 'number'
+          ? [[key, metrics[key]]]
+          : [],
+    ),
+  );
+
+  return Object.keys(compact).length > 0
+    ? compact
+    : null;
+};
 
 interface ReportCoreSnapshot {
   report: UnknownRecord;
@@ -563,16 +586,7 @@ const readStrategyReportCore = (
   }
 
   const revisionMetrics =
-    metrics === null
-      ? null
-      : Object.fromEntries(
-          REPORT_REVISION_METRIC_KEYS.flatMap(
-            (key) =>
-              typeof metrics[key] === 'number'
-                ? [[key, metrics[key]]]
-                : [],
-          ),
-        );
+    compactReportMetrics(metrics);
 
   const token = hashString(
     stableStringify({
@@ -628,7 +642,8 @@ const readStrategyReportPollSnapshot = (
   }
 
   return {
-    metrics: core.metrics,
+    metrics:
+      compactReportMetrics(core.metrics),
     token: core.token,
     objectId: core.objectId,
     error: core.error,
@@ -924,7 +939,13 @@ export default defineUnlistedScript(() => {
           if (typeof payload.strategyId !== 'string') {
             throw new Error('strategyId is required');
           }
-          result = readStrategyMetrics(payload.strategyId);
+          result = readStrategyMetrics(
+            payload.strategyId,
+            typeof payload.expectedDeepBacktesting ===
+              'boolean'
+              ? payload.expectedDeepBacktesting
+              : undefined,
+          );
           break;
         }
         case 'readReportPollSnapshot': {
