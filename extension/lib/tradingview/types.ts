@@ -49,6 +49,19 @@ export interface DiagnosticCheck {
   detail?: string;
 }
 
+export interface TradingViewRunContextSnapshot {
+  symbol: string;
+  timeframe: string;
+  strategySignature: string;
+  inputs: StrategyInput[];
+  backtestMode: 'chart' | 'deep';
+  backtestRange: {
+    from: number;
+    to: number;
+  } | null;
+  settingsSignature: string | null;
+}
+
 export interface TradingViewDiagnostics {
   checks: DiagnosticCheck[];
   deepBacktesting: {
