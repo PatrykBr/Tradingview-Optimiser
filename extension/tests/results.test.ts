@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bestSoFar,
   estimateRemainingMs,
+  extendBestSoFar,
   filterTrials,
   sortTrials,
 } from '../lib/optimisation/results';
@@ -61,6 +62,26 @@ describe('result utilities', () => {
       { trial: 0, value: 1.2 },
       { trial: 2, value: 1.8 },
     ]);
+  });
+
+  it('extends best-so-far history without recomputing prior trials', () => {
+    const initial = bestSoFar(
+      trials.slice(0, 2),
+      'maximize',
+    );
+    const extended =
+      extendBestSoFar(
+        initial,
+        trials.slice(2),
+        'maximize',
+      );
+
+    expect(extended).toEqual(
+      bestSoFar(
+        trials,
+        'maximize',
+      ),
+    );
   });
 
   it('estimates remaining time from recent durations', () => {
