@@ -6,7 +6,7 @@ import optuna
 from fastapi import WebSocket, WebSocketDisconnect, status
 from pydantic import ValidationError
 
-from app.models import CreateRun, TrialFailure, TrialResult
+from app.models import CreateRun, RunUpdate, TrialFailure, TrialResult
 from app.optimisation.manager import OptimisationManager
 from app.pairing import PairingManager
 from app.protocol import ConnectedPayload, Envelope, ErrorPayload, encode
@@ -87,6 +87,20 @@ async def _authenticate(
     return True
 
 
+def _status_update(progress) -> RunUpdate:
+    return RunUpdate(
+        run_id=progress.run_id,
+        status=progress.status,
+        completed_trials=progress.completed_trials,
+        target_trials=progress.target_trials,
+        failed_trials=progress.failed_trials,
+        reused_trials=progress.reused_trials,
+        best=progress.best,
+        termination_reason=progress.termination_reason,
+        trial_updates=[],
+    )
+
+
 async def _dispatch(
     websocket: WebSocket,
     manager: OptimisationManager,
@@ -98,8 +112,18 @@ async def _dispatch(
         case "CREATE_RUN":
             config = CreateRun.model_validate(envelope.payload)
             progress = await manager.create_run(config)
+            # CREATE_RUN only establishes/reloads study state. START_RUN is the
+            # recovery boundary that sends the one full history snapshot, so do
+            # not serialise the same potentially-large trial list twice.
             await websocket.send_json(
-                encode("RUN_PROGRESS", progress, envelope.request_id)
+                encode(
+                    "RUN_CREATED",
+                    {
+                        "run_id": progress.run_id,
+                        "status": progress.status.value,
+                    },
+                    envelope.request_id,
+                )
             )
         case "START_RUN":
             run_id = str(envelope.payload["run_id"])
@@ -128,7 +152,11 @@ async def _dispatch(
         case "STOP_RUN":
             progress = await manager.stop(str(envelope.payload["run_id"]))
             await websocket.send_json(
-                encode("RUN_PROGRESS", progress, envelope.request_id)
+                encode(
+                    "RUN_UPDATE",
+                    _status_update(progress),
+                    envelope.request_id,
+                )
             )
         case "DELETE_RUN":
             await manager.delete_run(str(envelope.payload["run_id"]))
