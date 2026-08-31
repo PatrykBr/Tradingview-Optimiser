@@ -45,6 +45,9 @@ import type {
 import type { TradingViewAdapter } from '../../lib/tradingview/adapter';
 import { useBackendConnection } from './useBackendConnection';
 import type { PreparedOptimisationRun } from './useStrategyConfiguration';
+import {
+  isExtensionContextInvalidated,
+} from '../../lib/extension-context';
 
 type TrialExecution = TrialExecutionUpdate;
 
@@ -398,7 +401,17 @@ export function useOptimisationRun({
 
   const resetFailedStart =
     useCallback(async () => {
-      await clearActiveRun();
+      try {
+        await clearActiveRun();
+      } catch (cause) {
+        // A stale content-script context cannot access extension storage.
+        // Preserve the original start failure so App can refresh the tab
+        // instead of turning cleanup into an unhandled rejection.
+        if (!isExtensionContextInvalidated(cause)) {
+          throw cause;
+        }
+      }
+
       activeRunIdRef.current = null;
       activeStrategyIdRef.current = null;
       activeConfigRef.current = null;
