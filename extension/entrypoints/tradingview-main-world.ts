@@ -332,8 +332,15 @@ const getStrategySource = (
         typeof candidate.id === 'function' ? candidate.id() : candidate.id;
       if (rawId === strategyId) return candidate;
     }
-  } catch {
-    return null;
+  } catch (cause) {
+    throw new OptimiserError(
+      'TV_REPORT_SOURCE_UNAVAILABLE',
+      'TradingView strategy source lookup failed: ' +
+        (cause instanceof Error
+          ? cause.message
+          : String(cause)),
+      true,
+    );
   }
 
   return null;
@@ -342,11 +349,9 @@ const getStrategySource = (
 const unwrapValue = (value: unknown): unknown => {
   const record = asRecord(value);
   if (typeof record.value === 'function') {
-    try {
-      return (record.value as () => unknown)();
-    } catch {
-      return null;
-    }
+    return (
+      record.value as () => unknown
+    )();
   }
   return value;
 };

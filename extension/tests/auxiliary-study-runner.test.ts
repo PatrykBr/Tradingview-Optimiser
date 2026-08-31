@@ -200,7 +200,9 @@ describe('auxiliary study runner', () => {
       'CREATE_RUN',
       'START_RUN',
       'TRIAL_RESULT',
+      'ABORT_RUN',
       'DELETE_RUN',
+      'CLEAR_RUN_OWNER',
     ]);
     expect(
       transport.listeners.size,

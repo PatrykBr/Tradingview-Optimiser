@@ -94,7 +94,6 @@ const prepareTradingViewRun = async (
   if ((initialMetrics.totalTrades ?? 0) > 0) {
     for (const requiredMetric of requiredMetrics) {
       if (
-        requiredMetric !== 'profitFactor' &&
         !Number.isFinite(
           initialMetrics[requiredMetric],
         )

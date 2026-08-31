@@ -1,3 +1,4 @@
+import { OptimiserError } from '../errors';
 import type {
   DeepBacktestResult,
   TradingViewMetrics,
@@ -262,27 +263,53 @@ export const ensureStrategyTester = (): boolean => {
     }
   ).TradingView;
 
-  try {
-    if (
-      typeof tradingView?.bottomWidgetBar?.showWidget ===
-      'function'
-    ) {
-      tradingView.bottomWidgetBar.showWidget('backtesting');
-      return true;
-    }
+  let apiFailure:
+    | unknown
+    | undefined;
 
-    const button = findClickableByText(
-      /strategy (?:tester|report)/i,
-    );
-    if (button) {
+  if (
+    typeof tradingView?.bottomWidgetBar?.showWidget ===
+    'function'
+  ) {
+    try {
+      tradingView.bottomWidgetBar.showWidget(
+        'backtesting',
+      );
+      return true;
+    } catch (cause) {
+      apiFailure = cause;
+    }
+  }
+
+  const button = findClickableByText(
+    /strategy (?:tester|report)/i,
+  );
+  if (button) {
+    try {
       button.click();
       return true;
+    } catch (cause) {
+      throw new OptimiserError(
+        'TV_STRATEGY_TESTER_UNAVAILABLE',
+        'TradingView Strategy Tester button could not be activated: ' +
+          (cause instanceof Error
+            ? cause.message
+            : String(cause)),
+      );
     }
-
-    return false;
-  } catch {
-    return false;
   }
+
+  if (apiFailure !== undefined) {
+    throw new OptimiserError(
+      'TV_STRATEGY_TESTER_UNAVAILABLE',
+      'TradingView Strategy Tester API failed and no safe UI fallback was available: ' +
+        (apiFailure instanceof Error
+          ? apiFailure.message
+          : String(apiFailure)),
+    );
+  }
+
+  return false;
 };
 
 const sleep = (ms: number): Promise<void> =>
