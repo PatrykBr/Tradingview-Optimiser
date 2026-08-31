@@ -275,14 +275,6 @@ export const runAuxiliaryStudy =
 
     try {
       await request.transport.request({
-        type: 'REGISTER_RUN_OWNER',
-        payload: {
-          runId:
-            request.config.run_id,
-        },
-      });
-
-      await request.transport.request({
         type: 'CREATE_RUN',
         payload:
           request.config,
