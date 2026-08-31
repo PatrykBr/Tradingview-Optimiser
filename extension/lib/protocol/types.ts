@@ -165,6 +165,23 @@ export interface RunProgress {
   trials: TrialSummary[];
 }
 
+export interface RunUpdate {
+  run_id: string;
+  status: RunStatus;
+  completed_trials: number;
+  target_trials: number;
+  failed_trials: number;
+  reused_trials?: number;
+  best: BestTrial | null;
+  termination_reason?:
+    | 'target_trials'
+    | 'converged'
+    | 'search_space_exhausted'
+    | 'user'
+    | null;
+  trial_updates: TrialSummary[];
+}
+
 export interface RunAnalysis {
   run_id: string;
   parameter_importance: Record<string, number>;
