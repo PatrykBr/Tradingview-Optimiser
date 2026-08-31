@@ -179,10 +179,6 @@ export function useOptimisationRun({
 
       try {
         await sendRequest({
-          type: 'REGISTER_RUN_OWNER',
-          payload: { runId },
-        });
-        await sendRequest({
           type: 'CREATE_RUN',
           payload: config,
         });
@@ -557,12 +553,6 @@ export function useOptimisationRun({
           strategyId,
         });
 
-        await sendRequest({
-          type: 'REGISTER_RUN_OWNER',
-          payload: {
-            runId: candidate.config.run_id,
-          },
-        });
         await sendRequest({
           type: 'CREATE_RUN',
           payload: candidate.config,
