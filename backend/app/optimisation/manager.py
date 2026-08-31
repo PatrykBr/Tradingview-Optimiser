@@ -55,7 +55,7 @@ class ActiveRun:
         default_factory=dict
     )
     evaluated_signatures: set[ParameterSignature] = field(default_factory=set)
-    convergence_values: list[float | None] = field(default_factory=list)
+    convergence_best_values: list[float | None] = field(default_factory=list)
     best: BestTrial | None = None
 
 
@@ -63,10 +63,11 @@ class OptimisationManager:
     def __init__(self, storage_url: str) -> None:
         self._storage_url = storage_url
         self._runs: dict[str, ActiveRun] = {}
-        self._lock = asyncio.Lock()
+        self._registry_lock = asyncio.Lock()
+        self._run_locks: dict[str, asyncio.Lock] = {}
 
     async def create_run(self, config: CreateRun) -> RunProgress:
-        async with self._lock:
+        async with self._registry_lock:
             if config.run_id in self._runs:
                 existing = self._runs[config.run_id]
                 if existing.config != config:
@@ -173,11 +174,12 @@ class OptimisationManager:
             )
             self._rebuild_cache(run, study_trials)
             self._runs[config.run_id] = run
+            self._run_locks.setdefault(config.run_id, asyncio.Lock())
             self._persist_status(run)
             return self._progress(run)
 
     async def start(self, run_id: str) -> tuple[RunProgress, NextTrial | None]:
-        async with self._lock:
+        async with self._run_lock(run_id):
             run = self._require(run_id)
             if run.status in {RunStatus.COMPLETED, RunStatus.STOPPED}:
                 return self._progress(run), None
@@ -189,7 +191,7 @@ class OptimisationManager:
         self,
         result: TrialResult,
     ) -> tuple[RunUpdate, NextTrial | None]:
-        async with self._lock:
+        async with self._run_lock(result.run_id):
             run = self._require(result.run_id)
             trial = self._require_outstanding(run, result.trial_number)
             update_start = len(run.summaries)
@@ -290,7 +292,7 @@ class OptimisationManager:
         self,
         failure: TrialFailure,
     ) -> tuple[RunUpdate, NextTrial | None]:
-        async with self._lock:
+        async with self._run_lock(failure.run_id):
             run = self._require(failure.run_id)
             trial = self._require_outstanding(run, failure.trial_number)
             update_start = len(run.summaries)
@@ -312,7 +314,7 @@ class OptimisationManager:
             return self._update(run, update_start), next_trial
 
     async def stop(self, run_id: str) -> RunProgress:
-        async with self._lock:
+        async with self._run_lock(run_id):
             run = self._require(run_id)
             if run.status not in {RunStatus.RUNNING, RunStatus.STOP_REQUESTED}:
                 return self._progress(run)
@@ -329,11 +331,12 @@ class OptimisationManager:
             return self._progress(run)
 
     async def progress(self, run_id: str) -> RunProgress:
-        async with self._lock:
+        async with self._run_lock(run_id):
             return self._progress(self._require(run_id))
 
     async def delete_run(self, run_id: str) -> None:
-        async with self._lock:
+        lock = self._run_lock(run_id)
+        async with lock:
             run = self._require(run_id)
 
             if (
@@ -342,14 +345,17 @@ class OptimisationManager:
             ):
                 raise ValueError("cannot delete an active optimisation run")
 
-            self._runs.pop(run_id, None)
             optuna.delete_study(
                 study_name=run_id,
                 storage=self._storage_url,
             )
 
+            async with self._registry_lock:
+                self._runs.pop(run_id, None)
+                self._run_locks.pop(run_id, None)
+
     async def analysis(self, run_id: str) -> RunAnalysis:
-        async with self._lock:
+        async with self._run_lock(run_id):
             run = self._require(run_id)
             completed = run.study.get_trials(
                 deepcopy=False,
@@ -607,7 +613,7 @@ class OptimisationManager:
                 and cls._is_feasible_trial(trial)
                 else None
             )
-            run.convergence_values.append(feasible_value)
+            cls._append_convergence_value(run, feasible_value)
 
             if feasible_value is not None and isinstance(metrics, dict):
                 cls._consider_best(
@@ -702,8 +708,9 @@ class OptimisationManager:
             value <= 0
             for value in constraints.values()
         )
-        run.convergence_values.append(
-            objective if feasible else None
+        cls._append_convergence_value(
+            run,
+            objective if feasible else None,
         )
 
         if feasible:
@@ -857,12 +864,34 @@ class OptimisationManager:
             trial_updates=run.summaries[from_summary_index:],
         )
 
+    @staticmethod
+    def _append_convergence_value(
+        run: ActiveRun,
+        value: float | None,
+    ) -> None:
+        previous = (
+            run.convergence_best_values[-1]
+            if run.convergence_best_values
+            else None
+        )
+
+        if value is None:
+            current = previous
+        elif previous is None:
+            current = value
+        elif run.config.direction == ObjectiveDirection.MAXIMIZE:
+            current = max(previous, value)
+        else:
+            current = min(previous, value)
+
+        run.convergence_best_values.append(current)
+
     def _should_converge(self, run: ActiveRun) -> bool:
         config = run.config.research.convergence
         if not config.enabled:
             return False
 
-        completed = run.convergence_values
+        completed = run.convergence_best_values
         required = max(
             config.min_trials,
             config.patience + 1,
@@ -870,27 +899,20 @@ class OptimisationManager:
         if len(completed) < required:
             return False
 
-        baseline_values = [
-            value
-            for value in completed[: -config.patience]
-            if value is not None
-        ]
-        current_values = [
-            value
-            for value in completed
-            if value is not None
-        ]
+        baseline_index = (
+            len(completed) -
+            config.patience -
+            1
+        )
+        baseline_best = completed[baseline_index]
+        current_best = completed[-1]
 
-        if not baseline_values or not current_values:
+        if baseline_best is None or current_best is None:
             return False
 
         if run.config.direction == ObjectiveDirection.MAXIMIZE:
-            baseline_best = max(baseline_values)
-            current_best = max(current_values)
             improvement = current_best - baseline_best
         else:
-            baseline_best = min(baseline_values)
-            current_best = min(current_values)
             improvement = baseline_best - current_best
 
         scale = max(abs(baseline_best), 1.0)
@@ -921,6 +943,12 @@ class OptimisationManager:
                 "termination_reason",
                 run.termination_reason,
             )
+
+    def _run_lock(self, run_id: str) -> asyncio.Lock:
+        return self._run_locks.setdefault(
+            run_id,
+            asyncio.Lock(),
+        )
 
     def _require(self, run_id: str) -> ActiveRun:
         try:
