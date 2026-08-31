@@ -6,7 +6,13 @@ import optuna
 from fastapi import WebSocket, WebSocketDisconnect, status
 from pydantic import ValidationError
 
-from app.models import CreateRun, RunUpdate, TrialFailure, TrialResult
+from app.models import (
+    CreateRun,
+    RunProgress,
+    RunUpdate,
+    TrialFailure,
+    TrialResult,
+)
 from app.optimisation.manager import OptimisationManager
 from app.pairing import PairingManager
 from app.protocol import ConnectedPayload, Envelope, ErrorPayload, encode
@@ -87,7 +93,7 @@ async def _authenticate(
     return True
 
 
-def _status_update(progress) -> RunUpdate:
+def _status_update(progress: RunProgress) -> RunUpdate:
     return RunUpdate(
         run_id=progress.run_id,
         status=progress.status,
@@ -159,9 +165,14 @@ async def _dispatch(
                 )
             )
         case "DELETE_RUN":
-            await manager.delete_run(str(envelope.payload["run_id"]))
+            run_id = str(envelope.payload["run_id"])
+            await manager.delete_run(run_id)
             await websocket.send_json(
-                encode("RUN_DELETED", {"run_id": envelope.payload["run_id"]}, envelope.request_id)
+                encode(
+                    "RUN_DELETED",
+                    {"run_id": run_id},
+                    envelope.request_id,
+                )
             )
         case "GET_RUN_ANALYSIS":
             if "config" in envelope.payload:
