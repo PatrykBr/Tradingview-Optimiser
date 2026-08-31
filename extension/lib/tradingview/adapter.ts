@@ -68,10 +68,19 @@ export class TradingViewAdapter {
     return result.confirmed;
   }
 
-  readMetrics(strategyId: string): Promise<TradingViewMetrics | null> {
-    return this.bridge.request<TradingViewMetrics | null>('readMetrics', {
-      strategyId,
-    });
+  readMetrics(
+    strategyId: string,
+    expectedDeepBacktesting?: boolean,
+  ): Promise<TradingViewMetrics | null> {
+    return this.bridge.request<TradingViewMetrics | null>(
+      'readMetrics',
+      {
+        strategyId,
+        ...(expectedDeepBacktesting === undefined
+          ? {}
+          : { expectedDeepBacktesting }),
+      },
+    );
   }
 
   readReportPollSnapshot(
@@ -482,7 +491,12 @@ export class TradingViewAdapter {
         stableReads >= 3 &&
         elapsed >= 500
       ) {
-        return snapshot.metrics;
+        return (
+          await this.readMetrics(
+            strategyId,
+            expectedDeepBacktesting,
+          )
+        ) ?? snapshot.metrics;
       }
 
       // A parameter change may legitimately produce a byte-identical report.
@@ -493,7 +507,12 @@ export class TradingViewAdapter {
         stableReads >= 6 &&
         elapsed >= 5_000
       ) {
-        return snapshot.metrics;
+        return (
+          await this.readMetrics(
+            strategyId,
+            expectedDeepBacktesting,
+          )
+        ) ?? snapshot.metrics;
       }
 
       await sleep(
