@@ -17,6 +17,7 @@ import {
   ensureStrategyTester,
   isDeepBacktestingActive,
   readVisibleStrategyReportMetrics,
+  refreshDeepBacktestReport,
   resetToChartSession,
 } from '../lib/tradingview/page-report';
 
@@ -557,17 +558,68 @@ const readStrategyReportSnapshot = (strategyId: string) => {
   };
 };
 
+const strategySignatureFromInputs = (
+  chart: ChartLike,
+  study: StudyLike,
+  strategyId: string,
+  inputs: ReturnType<typeof readStrategyInputs>,
+): string =>
+  buildStrategySignature(
+    readMeta(study),
+    getInternalStudyMeta(chart, strategyId),
+    study.name ?? study.title ?? null,
+    inputs,
+  );
+
 const getStrategySignature = (strategyId: string): string => {
   const chart = getChart();
   const study = chart.getStudyById?.(strategyId);
   if (!study) throw new Error('TradingView strategy is no longer on the chart');
 
-  return buildStrategySignature(
-    readMeta(study),
-    getInternalStudyMeta(chart, strategyId),
-    study.name ?? study.title ?? null,
+  return strategySignatureFromInputs(
+    chart,
+    study,
+    strategyId,
     readStrategyInputs(strategyId),
   );
+};
+
+const getRunContextSnapshot = (
+  strategyId: string,
+) => {
+  const chart = getChart();
+  const study = chart.getStudyById?.(strategyId);
+  if (!study) {
+    throw new Error(
+      'TradingView strategy is no longer on the chart',
+    );
+  }
+
+  const inputs = readStrategyInputs(strategyId);
+  const report =
+    readStrategyReportSnapshot(strategyId);
+
+  return {
+    symbol: chart.symbol?.() ?? 'UNKNOWN',
+    timeframe:
+      chart.resolution?.() ?? 'UNKNOWN',
+    strategySignature:
+      strategySignatureFromInputs(
+        chart,
+        study,
+        strategyId,
+        inputs,
+      ),
+    inputs,
+    backtestMode:
+      isDeepBacktestingActive()
+        ? 'deep'
+        : 'chart',
+    backtestRange:
+      report.backtestRange,
+    settingsSignature:
+      report.settingsSignature,
+  };
 };
 
 const runDiagnostics = (strategyId: string | null) => {
@@ -761,6 +813,16 @@ export default defineUnlistedScript(() => {
           result = getStrategySignature(payload.strategyId);
           break;
         }
+        case 'getRunContextSnapshot': {
+          const payload = asRecord(request.payload);
+          if (typeof payload.strategyId !== 'string') {
+            throw new Error('strategyId is required');
+          }
+          result = getRunContextSnapshot(
+            payload.strategyId,
+          );
+          break;
+        }
         case 'getBacktestMode':
           result = isDeepBacktestingActive() ? 'deep' : 'chart';
           break;
@@ -781,6 +843,10 @@ export default defineUnlistedScript(() => {
           );
           break;
         }
+        case 'refreshDeepBacktestReport':
+          result =
+            await refreshDeepBacktestReport();
+          break;
         case 'diagnostics': {
           const payload = asRecord(request.payload);
           result = runDiagnostics(
