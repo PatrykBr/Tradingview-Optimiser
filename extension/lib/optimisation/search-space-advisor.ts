@@ -178,7 +178,7 @@ export const analyseSearchSpace = (
           input.label +
           ' needs a valid range',
         detail:
-          'Set a sensible minimum and maximum before starting the study.',
+          'Set numeric limits with the minimum below the maximum.',
       });
       fullyDiscrete = false;
       continue;
@@ -196,7 +196,7 @@ export const analyseSearchSpace = (
           input.label +
           ' excludes the current value',
         detail:
-          'The current TradingView value is outside the selected search range, so it cannot be used as the baseline for this parameter.',
+          'The current value is outside the search range. It cannot be the baseline for this parameter.',
       });
     }
 
@@ -209,9 +209,9 @@ export const analyseSearchSpace = (
         severity: 'info',
         title:
           input.label +
-          ' spans a very wide positive scale',
+          ' has a maximum at least 100 times its minimum',
         detail:
-          'The maximum is at least 100× the minimum. Consider logarithmic search if multiplicative differences are meaningful for this parameter.',
+          'Consider logarithmic search if ratios matter more than fixed increments for this parameter.',
       });
     }
 
@@ -234,7 +234,7 @@ export const analyseSearchSpace = (
           input.label +
           ' has an unusually broad range',
         detail:
-          'The range is more than 1,000× the scale of the current value. Check that the limits are intentional rather than TradingView metadata or placeholder values.',
+          'The range width exceeds 1,000 times the larger of 1 and the current value\'s magnitude. Check the limits before starting.',
       });
     }
 
@@ -308,23 +308,23 @@ export const analyseSearchSpace = (
     items.unshift({
       severity: 'warning',
       title:
-        'Trial budget looks thin for this search space',
+        'Trial budget is below the estimate for this search space',
       detail:
         'The current budget is ' +
         targetTrials +
-        ' trials. A heuristic starting range is about ' +
+        ' trials. The estimated range is ' +
         recommendedMinimum +
-        '–' +
+        ' to ' +
         comfortable +
-        '. This is guidance, not a statistical guarantee.',
+        '. This estimate does not guarantee enough trials.',
     });
   } else if (selectedParameters > 0) {
     items.unshift({
       severity: 'good',
       title:
-        'Trial budget is reasonable for a first pass',
+        'Trial budget meets the estimate',
       detail:
-        'The configured budget is within or above the heuristic range for the selected search-space complexity.',
+        'The budget is at or above the estimated minimum for the selected parameters.',
     });
   }
 

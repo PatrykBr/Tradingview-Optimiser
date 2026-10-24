@@ -61,7 +61,7 @@ const enable = (
 };
 
 describe('search-space advisor', () => {
-  it('flags a thin budget and suggests log search for very wide positive ranges', () => {
+  it('flags a budget below the estimate and suggests log search for wide positive ranges', () => {
     const configs =
       createParameterConfigs(inputs);
 
@@ -77,14 +77,14 @@ describe('search-space advisor', () => {
 
     expect(
       advice.items.some((item) =>
-        /Trial budget looks thin/i.test(
+        /Trial budget is below the estimate/i.test(
           item.title,
         ),
       ),
     ).toBe(true);
     expect(
       advice.items.some((item) =>
-        /spans a very wide positive scale/i.test(
+        /has a maximum at least 100 times its minimum/i.test(
           item.title,
         ),
       ),

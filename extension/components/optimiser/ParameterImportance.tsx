@@ -56,7 +56,7 @@ export default function ParameterImportance({
         Parameter importance
       </div>
       <div className="muted researchImportanceHint">
-        Conditional parameters appear when they were sampled consistently.
+        Conditional parameters appear only if every feasible trial included them.
       </div>
       <div className="importanceList">
         {entries.map(
