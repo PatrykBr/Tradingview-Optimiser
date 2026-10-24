@@ -197,7 +197,7 @@ describe('walk-forward runner', () => {
     ).toBe(true);
     expect(adapter.tested).toHaveLength(3);
 
-    // Three fold training preparations + final parent restoration.
+    // Prepare training for each of the three folds, then restore the parent run.
     expect(adapter.prepared).toHaveLength(4);
     expect(result.passedFolds).toBe(3);
     expect(result.medianTestObjective).toBe(1.6);

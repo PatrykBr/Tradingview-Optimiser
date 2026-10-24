@@ -540,8 +540,7 @@ export class TradingViewAdapter {
 
       const elapsed = Date.now() - startedAt;
 
-      // Primary path: TradingView produced a new report revision and it has
-      // remained stable across several reads.
+      // Accept a new report revision after several reads confirm it is stable.
       if (
         sawReportChange &&
         stableReads >= 3 &&
@@ -613,9 +612,8 @@ export class TradingViewAdapter {
     startDate: string,
     endDate: string,
   ): boolean {
-    // TradingView does not expose settings.dateRange on every account/build.
-    // When absent we preserve the conservative path and rewrite the date range
-    // on each trial instead of assuming the previous Deep configuration.
+    // Some TradingView accounts or builds omit settings.dateRange. If it is
+    // missing, rewrite the date range on each trial because we cannot verify it.
     if (!range) return false;
 
     const expectedFrom = Date.parse(

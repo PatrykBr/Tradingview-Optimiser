@@ -125,9 +125,8 @@ async def _dispatch(
         case "CREATE_RUN":
             config = CreateRun.model_validate(envelope.payload)
             progress = await manager.create_run(config)
-            # CREATE_RUN only establishes/reloads study state. START_RUN is the
-            # recovery boundary that sends the one full history snapshot, so do
-            # not serialise the same potentially-large trial list twice.
+            # START_RUN sends the full trial history for recovery. Skip it here
+            # to avoid serialising and sending the same history twice.
             await websocket.send_json(
                 encode(
                     "RUN_CREATED",

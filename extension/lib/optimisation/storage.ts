@@ -208,9 +208,8 @@ const lightweightProgress = (
   progress: RunProgress,
 ): RunProgress => ({
   ...progress,
-  // Optuna/SQLite is authoritative for trial history. Persist only the
-  // lightweight recovery checkpoint while a run is active; a complete
-  // history is written once when the run finishes.
+  // Optuna stores trial history in SQLite. Save only a recovery checkpoint in
+  // browser storage during the run. Write the full history when the run finishes.
   trials: [],
 });
 
@@ -256,8 +255,8 @@ export const updateActiveRunProgress = async (
     return;
   }
 
-  // Reserve this checkpoint before asynchronous storage work so a burst of
-  // incremental updates cannot schedule several equivalent writes at once.
+  // Reserve the checkpoint before awaiting storage so concurrent updates do
+  // not schedule equivalent writes.
   activeProgressCheckpoint = {
     runId: progress.run_id,
     settledTrials,

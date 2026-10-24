@@ -321,8 +321,8 @@ export default defineBackground(() => {
                   msg.payload.run_id,
                 );
 
-                // A study without durable owner metadata must never be allowed
-                // to start. Stop it while preserving its history.
+                // Stop the study if its owner metadata could not be saved.
+                // Preserve its history for recovery.
                 try {
                   await backend.abortRun(
                     msg.payload.run_id,

@@ -40,9 +40,8 @@ export const toOptimiserError = (
 
   const message = messageFor(cause);
 
-  // Browser extension APIs do not expose a structured error code when an
-  // installed extension version is replaced. Keep this browser-specific
-  // string classification at one boundary and convert it immediately.
+  // Browsers report extension replacement as an error message without a code.
+  // Convert that message to a typed error here.
   if (isExtensionContextInvalidated(message)) {
     return new OptimiserError(
       'EXTENSION_CONTEXT_INVALIDATED',

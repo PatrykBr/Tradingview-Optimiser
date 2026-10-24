@@ -194,7 +194,7 @@ def test_websocket_deletes_completed_run(monkeypatch, tmp_path) -> None:
         )
         stopped = websocket.receive_json()
         assert stopped["type"] == "RUN_UPDATE"
-        # Stopping a run that has never been started is intentionally a no-op.
+        # Stopping a run before it starts leaves its state unchanged.
         assert stopped["payload"]["status"] == "created"
         assert stopped["payload"]["trial_updates"] == []
 

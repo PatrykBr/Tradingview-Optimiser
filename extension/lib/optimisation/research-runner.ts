@@ -179,9 +179,8 @@ const runRobustnessValidation = async (
     ),
   );
 
-  // Evaluate one validation window at a time. Consecutive candidates can then
-  // reuse the same positively verified Deep Backtesting range instead of
-  // repeatedly bouncing TradingView between fold date ranges.
+  // Test all candidates in one window before moving to the next. They can
+  // reuse the verified Deep Backtesting range without changing dates each time.
   for (
     const [
       foldIndex,

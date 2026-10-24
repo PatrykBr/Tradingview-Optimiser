@@ -13,9 +13,8 @@ interface DragState {
 }
 
 const isolateTextInputEvents = (element: HTMLElement): (() => void) => {
-  // TradingView installs page-wide keyboard/clipboard handlers. Events from
-  // controls inside our Shadow DOM must still reach React and retain their
-  // browser default behaviour, but must not bubble out to TradingView.
+  // Keep keyboard and clipboard events inside the panel so TradingView's page
+  // handlers do not receive them. Preserve React and browser default handling.
   const eventTypes = [
     'keydown',
     'keyup',
@@ -149,8 +148,8 @@ export default defineContentScript({
       anchor: 'body',
       append: 'last',
       onMount(container) {
-        // The WXT overlay can span the page. It must never intercept TradingView
-        // input outside the visible optimiser panel.
+        // The WXT overlay can span the page. Only the visible panel should
+        // intercept input.
         Object.assign(container.style, {
           pointerEvents: 'none',
           zIndex: '2147483647',
