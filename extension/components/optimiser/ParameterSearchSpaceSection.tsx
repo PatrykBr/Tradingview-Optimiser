@@ -144,15 +144,15 @@ export default function ParameterSearchSpaceSection({
                       title={
                         input.type === 'integer'
                           ? input.step !== undefined
-                            ? 'Optional. Leave blank for Auto, which uses Pine\'s declared step of ' +
+                            ? 'Leave blank to use Pine\'s declared step of ' +
                               input.step +
-                              '. Enter a value only to override that granularity.'
-                            : 'Optional. Leave blank for Auto, which uses step 1 for integer parameters. Enter a value only to override it.'
+                              '. Enter a value to use a different step.'
+                            : 'Leave blank to use step 1. Enter a value to use a different step.'
                           : input.step !== undefined
-                            ? 'Optional. Leave blank for Auto, which uses Pine\'s declared step of ' +
+                            ? 'Leave blank to use Pine\'s declared step of ' +
                               input.step +
-                              '. If Pine declares no step, Auto lets Optuna search continuously.'
-                            : 'Optional. Leave blank for Auto, which lets Optuna search this float continuously. Enter a value only when you deliberately want a fixed grid.'
+                              '. Enter a value to use a different step.'
+                            : 'Leave blank for continuous sampling. Enter a step to use fixed increments.'
                       }
                     >
                       <span>Step (optional)</span>
@@ -190,7 +190,7 @@ export default function ParameterSearchSpaceSection({
 
                   <label
                     className="advancedToggle"
-                    title="Sample this positive range by ratio rather than by equal linear distance. Use this when plausible values span a large scale, such as 0.001–1 or 1–1000. Avoid it for narrow ranges, values that can be zero/negative, or parameters such as ordinary lookback periods where equal numeric steps make more sense. Fixed Step is disabled while logarithmic search is on."
+                    title="Sample positive values by ratio, such as a range of 0.001 to 1. Use linear sampling for narrow ranges or values that include zero or negatives. Logarithmic search disables the custom Step field."
                   >
                     <input
                       type="checkbox"

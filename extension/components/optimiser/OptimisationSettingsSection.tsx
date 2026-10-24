@@ -27,7 +27,7 @@ export default function OptimisationSettingsSection({
       <strong>Optimisation</strong>
 
       <div className="fieldGrid">
-        <label title="The TradingView performance metric Optuna will optimise. Choose the metric that best represents your actual goal; filters can constrain the other metrics.">
+        <label title="Choose the TradingView metric to optimise. Use filters to set limits on other metrics.">
           <span>Metric</span>
           <select
             value={form.objectiveMetric}
@@ -49,7 +49,7 @@ export default function OptimisationSettingsSection({
           </select>
         </label>
 
-        <label title="Maximum number of Optuna trials. More trials explore the search space more thoroughly but take longer. Convergence stopping can end the study earlier.">
+        <label title="Limit the number of Optuna trials. More trials take longer. Convergence stopping can end the study early.">
           <span>Max trials</span>
           <input
             type="number"
@@ -69,7 +69,7 @@ export default function OptimisationSettingsSection({
       <div className="subsection">
         <label
           className="toggleRow"
-          title="Use TradingView Deep Backtesting over a fixed date range. Required for out-of-sample robustness. Use this when you want reproducible historical periods rather than the current chart session."
+          title="Run Deep Backtesting over a fixed date range. Required for out-of-sample validation, walk-forward and Monte Carlo."
         >
           <input
             type="checkbox"
@@ -125,7 +125,7 @@ export default function OptimisationSettingsSection({
 
         <label
           className="toggleRow"
-          title="Stop the Optuna study early when the best feasible objective has not improved enough for the configured patience window. Useful for large trial budgets where the study may converge well before the maximum."
+          title="Stop when the best feasible objective has not improved enough within the patience window."
         >
           <input
             type="checkbox"
@@ -144,10 +144,10 @@ export default function OptimisationSettingsSection({
         {form.convergenceEnabled && (
           <>
             <p className="helpText researchHint">
-              Saves time on large studies by stopping after sustained lack of meaningful improvement.
+              Stops after the best feasible result has stopped improving by the required amount.
             </p>
             <div className="researchGrid">
-            <label title="The study cannot stop for convergence before this many completed trials. Keep this high enough for Optuna to explore the search space first.">
+            <label title="Complete at least this many trials before convergence can stop the study.">
               <span>Min trials</span>
               <input
                 type="number"
@@ -162,7 +162,7 @@ export default function OptimisationSettingsSection({
                 }
               />
             </label>
-            <label title="Number of recent completed trials allowed without enough improvement before the study is considered converged. Larger values are more conservative.">
+            <label title="Allow this many trials without sufficient improvement before stopping. Increase it to allow more exploration.">
               <span>Patience</span>
               <input
                 type="number"
@@ -177,7 +177,7 @@ export default function OptimisationSettingsSection({
                 }
               />
             </label>
-            <label title="Minimum percentage improvement in the best feasible objective needed to reset the convergence window. Lower values demand smaller improvements and therefore tend to run longer.">
+            <label title="Percentage improvement required to reset the convergence window. Lower values count smaller gains as progress.">
               <span>Min improve %</span>
               <input
                 type="number"
@@ -201,7 +201,7 @@ export default function OptimisationSettingsSection({
 
         <label
           className="toggleRow"
-          title="Reserve the final part of the Deep Backtesting range as unseen data. After optimisation, re-test the top feasible candidates across sequential out-of-sample windows and rank them by robustness."
+          title="Reserve the final part of the date range for validation. After optimisation, test the top feasible candidates on those unseen windows."
         >
           <input
             type="checkbox"
@@ -224,7 +224,7 @@ export default function OptimisationSettingsSection({
               Backtesting range for unseen validation.
             </p>
             <div className="researchGrid">
-              <label title="Percentage of the full Deep Backtesting range kept completely unseen during optimisation. 20–30% is a good default; higher values strengthen validation but leave less data for training.">
+              <label title="Percentage of the date range reserved for validation. A larger share leaves less training history.">
                 <span>OOS %</span>
                 <input
                   type="number"
@@ -242,7 +242,7 @@ export default function OptimisationSettingsSection({
                   }
                 />
               </label>
-              <label title="Number of sequential validation windows in the unseen period. Three folds is a good default for checking performance across different market regimes.">
+              <label title="Split the unseen period into this many sequential validation windows. More folds add backtests and shorten each window.">
                 <span>Folds</span>
                 <input
                   type="number"
@@ -258,7 +258,7 @@ export default function OptimisationSettingsSection({
                   }
                 />
               </label>
-              <label title="How many of the best feasible Optuna trials to re-test out of sample. More candidates reduce the chance of choosing one lucky in-sample winner but add candidates × folds extra TradingView backtests.">
+              <label title="Number of top feasible trials to validate. Expect about one extra backtest per candidate per fold.">
                 <span>Candidates</span>
                 <input
                   type="number"
@@ -282,7 +282,7 @@ export default function OptimisationSettingsSection({
 
         <label
           className="toggleRow"
-          title="After optimisation, perturb each numeric parameter around the selected winner and re-test it. Use this to detect sharp peaks where tiny parameter changes destroy performance."
+          title="Change each numeric parameter near the selected winner and repeat the backtest to check its sensitivity."
         >
           <input
             type="checkbox"
@@ -301,10 +301,10 @@ export default function OptimisationSettingsSection({
         {form.stabilityEnabled && (
           <>
             <p className="helpText researchHint">
-              Checks whether the winner sits on a broad stable plateau instead of a fragile parameter spike.
+              Checks how small parameter changes affect the selected result.
             </p>
             <div className="researchGrid singleResearchField">
-            <label title="How far to move each numeric parameter, expressed as a percentage of that parameter's full search range. Around 5% is a sensible default.">
+            <label title="Distance to move each numeric parameter, as a percentage of its full search range.">
               <span>Perturbation %</span>
               <input
                 type="number"
@@ -329,7 +329,7 @@ export default function OptimisationSettingsSection({
 
         <label
           className="toggleRow"
-          title="Run a fresh Optuna study for each chronological walk-forward fold, then test that fold's winner on the next unseen period. This is stronger than validating one fixed parameter set, but it can require many extra TradingView backtests."
+          title="Run a fresh study for each chronological fold. Test each winner on the next unseen period. Each fold adds optimisation trials and a validation backtest."
         >
           <input
             type="checkbox"
@@ -348,10 +348,10 @@ export default function OptimisationSettingsSection({
         {form.walkForwardEnabled && (
           <>
             <p className="helpText researchHint">
-              Fresh Optuna study per fold. Expensive, but checks whether the optimisation process itself generalises through time.
+              Tests whether repeated optimisation produces useful results on later unseen periods.
             </p>
             <div className="researchGrid">
-              <label title="Number of chronological train → test folds. More folds test more regimes but multiply the number of optimisation trials.">
+              <label title="Number of training and unseen-test cycles. More folds add optimisation trials.">
                 <span>Folds</span>
                 <input
                   type="number"
@@ -367,7 +367,7 @@ export default function OptimisationSettingsSection({
                   }
                 />
               </label>
-              <label title="Maximum Optuna trials in each fresh walk-forward study. Total optimisation work is roughly folds × trials/fold.">
+              <label title="Trial budget for each fold. Total extra optimisation work is roughly folds multiplied by trials per fold.">
                 <span>Trials/fold</span>
                 <input
                   type="number"
@@ -385,7 +385,7 @@ export default function OptimisationSettingsSection({
                   }
                 />
               </label>
-              <label title="Percentage of the full date range used for the first training window. Later folds expand the training history forward. 50% is a balanced default.">
+              <label title="Percentage of the date range used for the first training window. Later folds include more history.">
                 <span>Initial train %</span>
                 <input
                   type="number"
@@ -409,7 +409,7 @@ export default function OptimisationSettingsSection({
 
         <label
           className="toggleRow"
-          title="Bootstrap the closed-trade sequence thousands of times to estimate the distribution of profit factor, cumulative PnL and drawdown. It only runs when the current TradingView build exposes a trustworthy closed-trade list."
+          title="Resample observed closed trades to estimate profit factor, cumulative PnL and drawdown distributions. Requires a recognised TradingView trade list."
         >
           <input
             type="checkbox"
@@ -428,10 +428,10 @@ export default function OptimisationSettingsSection({
         {form.monteCarloEnabled && (
           <>
             <p className="helpText researchHint">
-              Uses bootstrap resampling of individual closed trades. If TradingView does not expose trade-level data, validation reports that limitation rather than guessing.
+              Resamples closed trades. Reports unavailable if TradingView does not expose a recognised trade list.
             </p>
             <div className="researchGrid">
-              <label title="Number of bootstrap simulations. 5,000 is a good default; more simulations make percentile estimates smoother but add CPU time, not TradingView backtests.">
+              <label title="Number of bootstrap paths. More paths make percentile estimates smoother and use more CPU time.">
                 <span>Simulations</span>
                 <input
                   type="number"
@@ -449,7 +449,7 @@ export default function OptimisationSettingsSection({
                   }
                 />
               </label>
-              <label title="Central confidence interval shown for Monte Carlo outcomes. 90% is a useful default; 95% is more conservative.">
+              <label title="Central interval reported for simulated outcomes. A higher percentage gives a wider interval.">
                 <span>Confidence %</span>
                 <input
                   type="number"
@@ -475,7 +475,7 @@ export default function OptimisationSettingsSection({
       <div className="filterList">
         <label
           className="filterRow"
-          title="Constraint only: trials above this TradingView maximum drawdown percentage are considered infeasible. This does not become the optimisation objective."
+          title="Reject trials above this maximum drawdown percentage."
         >
           <input
             type="checkbox"
@@ -509,7 +509,7 @@ export default function OptimisationSettingsSection({
 
         <label
           className="filterRow"
-          title="Constraint only: trials below this Profit Factor are considered infeasible. Useful when optimising another metric while enforcing a minimum strategy quality."
+          title="Reject trials below this profit factor."
         >
           <input
             type="checkbox"
@@ -548,7 +548,7 @@ export default function OptimisationSettingsSection({
 
         <label
           className="filterRow"
-          title="Constraint only: trials with fewer trades are considered infeasible. Use it to avoid selecting impressive metrics produced by an unrealistically small sample."
+          title="Reject trials with fewer than this many trades."
         >
           <input
             type="checkbox"

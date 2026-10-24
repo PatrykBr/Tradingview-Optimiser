@@ -60,11 +60,11 @@ class ActiveRun:
 
 
 class UnknownRunError(KeyError):
-    """Raised when a requested optimisation run does not exist."""
+    """The requested optimisation run does not exist."""
 
 
 class StaleTrialError(ValueError):
-    """Raised when a browser submits a result for a non-outstanding trial."""
+    """The browser submitted a result for a trial that is not awaiting a result."""
 
 
 class OptimisationManager:
@@ -82,8 +82,8 @@ class OptimisationManager:
                     raise ValueError("run_id already exists with a different configuration")
                 return self._progress(existing)
 
-            # Optuna v5's default sampler is intentional. Single-objective studies
-            # use the enhanced multivariate TPE sampler with constant liar.
+            # Use Optuna v5's default multivariate TPE sampler with constant liar
+            # for single-objective studies.
             study = optuna.create_study(
                 study_name=config.run_id,
                 storage=self._storage_url,
@@ -111,9 +111,8 @@ class OptimisationManager:
                 if persisted_config != config_json:
                     study.set_user_attr("config", config_json)
 
-            # Load the persisted study once. Browser-evaluated RUNNING trials
-            # cannot survive a backend/browser restart, so mark them failed and
-            # refresh the snapshot only when that recovery work was necessary.
+            # Load the persisted study once. Mark interrupted browser trials as
+            # failed after a restart, then refresh the snapshot if any changed.
             study_trials = study.get_trials(deepcopy=False)
             stale_running = [
                 trial
@@ -168,8 +167,7 @@ class OptimisationManager:
                 status = RunStatus.STOPPED
                 termination_reason = "user"
             else:
-                # A previously RUNNING/STOP_REQUESTED study is resumable after a
-                # restart. Expose it as CREATED until the browser explicitly resumes.
+                # Return interrupted studies as CREATED until the browser resumes them.
                 status = RunStatus.CREATED
                 termination_reason = None
 
@@ -210,9 +208,8 @@ class OptimisationManager:
 
             if objective_value is None:
                 if total_trades == 0:
-                    # No-trade parameter combinations are valid strategy outcomes,
-                    # not browser failures. Give them a deliberately poor finite
-                    # objective so TPE learns away from that region.
+                    # Assign no-trade results a poor finite objective so TPE
+                    # avoids them. Keep them as completed strategy outcomes.
                     objective = (
                         -1.0e12
                         if run.config.direction == ObjectiveDirection.MAXIMIZE
@@ -234,7 +231,7 @@ class OptimisationManager:
 
                 if actual is None:
                     if total_trades == 0:
-                        # Undefined ratios are a legitimate no-trade outcome.
+                        # Ratios can be undefined when the strategy makes no trades.
                         violation = 1.0e12
                     else:
                         raise ValueError(
@@ -410,9 +407,8 @@ class OptimisationManager:
                 completed_trials=completed_count,
             )
 
-        # PED-ANOVA can be noticeably CPU-heavy on large studies. Work from
-        # Optuna's immutable FrozenTrial snapshot outside the run lock and off
-        # the event loop so trial submission/other studies stay responsive.
+        # Calculate PED-ANOVA from a FrozenTrial snapshot outside the run lock
+        # and event loop so large studies do not block trial submissions.
         importance, importance_status, importance_error = await asyncio.to_thread(
             self._parameter_importance,
             feasible,

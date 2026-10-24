@@ -85,10 +85,8 @@ export const mergeRunUpdate = (
     );
   }
 
-  // Normal trial updates are strictly append-only. Keep that hot path to one
-  // array copy instead of rebuilding a Map and sorting the entire history on
-  // every completed trial. The fallback still handles repeated/out-of-order
-  // updates safely during recovery or duplicate delivery.
+  // Append normal trial updates with one array copy. Rebuild and sort only
+  // when recovery or duplicate delivery produces repeated or out-of-order updates.
   if (
     canAppendUpdates(
       current.trials,

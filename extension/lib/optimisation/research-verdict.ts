@@ -50,7 +50,7 @@ const tradeSampleArea = (
       rating: 'strong',
       detail:
         Math.round(totalTrades) +
-        ' trades gives a comparatively broad historical sample.',
+        ' trades form a broad historical sample.',
     };
   }
 
@@ -61,7 +61,7 @@ const tradeSampleArea = (
       rating: 'moderate',
       detail:
         Math.round(totalTrades) +
-        ' trades is usable but still leaves meaningful sampling uncertainty.',
+        ' trades leave sampling uncertainty.',
     };
   }
 
@@ -71,7 +71,7 @@ const tradeSampleArea = (
     rating: 'weak',
     detail:
       Math.round(totalTrades) +
-      ' trades is a small sample; headline metrics can move materially with only a few outcomes.',
+      ' trades form a small sample. A few outcomes can change the metrics substantially.',
   };
 };
 
@@ -148,7 +148,7 @@ const stabilityArea = (
         ? 'Nearby numeric parameter values retained similar performance.'
         : result.overallRating ===
             'moderate'
-          ? 'Some nearby parameter values weakened the result noticeably.'
+          ? 'Some nearby parameter values reduced performance.'
           : 'Small parameter changes caused large degradation or filter failures.',
   };
 };
@@ -241,7 +241,7 @@ const monteCarloArea = (
       '% of bootstrap simulations finished with negative cumulative PnL' +
       (result.source === 'oos'
         ? ' on the unseen OOS trade sample.'
-        : ' on the optimisation-period trade sample; in-sample Monte Carlo is capped at moderate evidence.'),
+        : ' on the optimisation-period trade sample. In-sample Monte Carlo contributes at most moderate evidence.'),
   };
 };
 

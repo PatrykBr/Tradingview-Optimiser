@@ -175,9 +175,8 @@ export const readVisibleStrategyReportMetrics =
       ),
     );
 
-    // TradingView normally keeps the label nodes mounted while only updating
-    // their values. Reuse those nodes across the frequent report polling loop
-    // and fall back to one DOM scan only when a cached node is missing/stale.
+    // TradingView usually updates values without replacing their label nodes.
+    // Reuse the nodes while polling. Scan again if a cached node is missing or stale.
     for (const spec of VISIBLE_METRIC_SPECS) {
       const cached =
         cachedMetricLabels.get(spec.key);
@@ -354,9 +353,8 @@ export const resetToChartSession = async () => {
   }
 
   resetButton.click();
-  // Wait on the actual mode transition rather than sleeping for a fixed
-  // duration. Fast TradingView builds continue immediately; slower builds get
-  // the same bounded safety window before the adapter validates run context.
+  // Wait for the mode change within the timeout, then let the adapter validate
+  // the run context. Continue as soon as TradingView changes mode.
   await waitForValue(
     () =>
       findClickableByText(
@@ -446,8 +444,8 @@ const findReportButton = (): HTMLElement | null => {
   );
   if (specific) return specific;
 
-  // "Apply" is too generic to trust globally. It is only a valid fallback
-  // while the Deep Backtesting date controls are actually visible.
+  // Match "Apply" only while the Deep Backtesting date controls are visible.
+  // Other page controls use the same label.
   return visibleDateInputs().length >= 2
     ? findClickableByText(/^apply$/i)
     : null;

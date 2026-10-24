@@ -38,7 +38,7 @@ export default function SearchSpaceAdvisor({
               item.severity === 'warning',
           )
             ? 'review'
-            : 'looks reasonable'}
+            : 'no warnings'}
         </span>
       </summary>
 
@@ -63,15 +63,15 @@ export default function SearchSpaceAdvisor({
           <span>
             ~
             {advice.discreteCombinations.toLocaleString()}{' '}
-            discrete combos
+            discrete combinations
           </span>
         )}
       </div>
 
       <div className="advisorBudget">
-        Heuristic trial range:{' '}
+        Estimated trial range:{' '}
         <strong>
-          {advice.recommendedTrials.minimum}–
+          {advice.recommendedTrials.minimum} to{' '}
           {
             advice.recommendedTrials
               .comfortable

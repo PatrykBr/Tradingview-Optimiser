@@ -126,8 +126,8 @@ export const defaultParameterConfig = (
     input.type === 'integer' || input.type === 'float'
       ? input.max?.toString() ?? ''
       : '',
-  // Blank means Auto. Search-space construction resolves Pine's declared
-  // granularity when available, otherwise integer=1 and float=continuous.
+  // Blank selects Auto. Use Pine's declared step when available.
+  // Otherwise, use step 1 for integers and continuous sampling for floats.
   step: '',
   log: false,
   choices:

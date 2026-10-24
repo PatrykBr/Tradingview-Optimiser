@@ -181,7 +181,7 @@ export default function ResearchValidationResults({
                 {robustWinner
                   .validationObjective ===
                 null
-                  ? '—'
+                  ? 'Unavailable'
                   : formatMetric(
                       objectiveMetric,
                       robustWinner
@@ -195,7 +195,7 @@ export default function ResearchValidationResults({
                 {robustWinner
                   .degradationPercent ===
                 null
-                  ? '—'
+                  ? 'Unavailable'
                   : robustWinner
                       .degradationPercent
                       .toFixed(1) + '%'}
@@ -314,7 +314,7 @@ export default function ResearchValidationResults({
                 {walkForward
                   .medianTestObjective ===
                 null
-                  ? '—'
+                  ? 'Unavailable'
                   : formatMetric(
                       objectiveMetric,
                       walkForward
@@ -328,7 +328,7 @@ export default function ResearchValidationResults({
                 {walkForward
                   .worstTestObjective ===
                 null
-                  ? '—'
+                  ? 'Unavailable'
                   : formatMetric(
                       objectiveMetric,
                       walkForward
@@ -413,7 +413,7 @@ export default function ResearchValidationResults({
                     {monteCarlo
                       .probabilityOfLoss ===
                     null
-                      ? '—'
+                      ? 'Unavailable'
                       : (
                           monteCarlo
                             .probabilityOfLoss *
@@ -424,7 +424,7 @@ export default function ResearchValidationResults({
                 </div>
                 <div>
                   <span>
-                    Median max DD
+                    Median max drawdown
                   </span>
                   <strong>
                     {monteCarlo
@@ -435,12 +435,12 @@ export default function ResearchValidationResults({
                             .median,
                           monteCarlo.unit,
                         )
-                      : '—'}
+                      : 'Unavailable'}
                   </strong>
                 </div>
                 <div>
                   <span>
-                    95% max DD
+                    95th percentile drawdown
                   </span>
                   <strong>
                     {monteCarlo
@@ -451,12 +451,12 @@ export default function ResearchValidationResults({
                             .p95,
                           monteCarlo.unit,
                         )
-                      : '—'}
+                      : 'Unavailable'}
                   </strong>
                 </div>
                 <div>
                   <span>
-                    PF median
+                    Median profit factor
                   </span>
                   <strong>
                     {monteCarlo
@@ -466,7 +466,7 @@ export default function ResearchValidationResults({
                           .median.toFixed(
                             2,
                           )
-                      : '—'}
+                      : 'Unavailable'}
                   </strong>
                 </div>
               </div>
@@ -483,7 +483,7 @@ export default function ResearchValidationResults({
                       monteCarlo.total.low,
                       monteCarlo.unit,
                     )}
-                    {' – '}
+                    {' to '}
                     {formatMonteCarloValue(
                       monteCarlo.total.high,
                       monteCarlo.unit,

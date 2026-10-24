@@ -95,7 +95,7 @@ const formatDuration = (
     milliseconds === null ||
     !Number.isFinite(milliseconds)
   ) {
-    return '—';
+    return 'Unavailable';
   }
 
   const seconds = Math.max(
@@ -257,9 +257,8 @@ export default function RunProgressSection({
         end - TRIALS_PER_PAGE,
       );
 
-      // The common newest/all view only needs one page. Slice that window
-      // directly instead of copying and reversing the entire trial history on
-      // every completed trial.
+      // Slice the visible page for the newest/all view without copying and
+      // reversing the entire history after each trial.
       return trials
         .slice(start, end)
         .reverse();
@@ -467,14 +466,14 @@ export default function RunProgressSection({
               {formatDuration(run.elapsedMs)}
             </span>
             <span>
-              ETA {formatDuration(eta)}
+              Time remaining {formatDuration(eta)}
             </span>
           </div>
 
           {phaseTimings && (
             <div className="runTiming">
               <span>
-                Avg TradingView{' '}
+                Average backtest{' '}
                 {formatPhaseDuration(
                   phaseTimings.evaluationMs,
                 )}
@@ -815,7 +814,7 @@ export default function RunProgressSection({
                     <span>
                       No constraints
                     </span>
-                    <code>—</code>
+                    <code>None</code>
                   </div>
                 ) : (
                   Object.entries(

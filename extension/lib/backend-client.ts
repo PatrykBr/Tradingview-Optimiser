@@ -144,7 +144,7 @@ export class BackendClient {
         const body = (await response.json()) as { detail?: string };
         if (body.detail) detail = body.detail;
       } catch {
-        // Keep generic message.
+        // Use the default pairing error if the response body is unreadable.
       }
       throw new Error(detail);
     }
@@ -265,9 +265,8 @@ export class BackendClient {
           ),
         );
 
-        // A timed-out request has an unknown outcome. Force the transport
-        // through its reconnect path so run reconciliation is guaranteed to
-        // happen instead of continuing on a potentially desynchronised socket.
+        // A timeout leaves the request outcome unknown. Reconnect to reconcile
+        // the run state before sending more requests.
         this.#socket?.close();
       }, REQUEST_TIMEOUT_MS);
 

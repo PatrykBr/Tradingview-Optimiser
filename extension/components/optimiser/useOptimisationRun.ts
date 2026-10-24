@@ -383,7 +383,7 @@ export function useOptimisationRun({
             },
             onTransportError: () => {
               setError(
-                'Backend connection was interrupted. The run is saved and will recover when the backend reconnects.',
+                'The backend disconnected. The optimiser saved the run and will recover it when the backend reconnects.',
               );
             },
             onReportError: (
@@ -439,7 +439,7 @@ export function useOptimisationRun({
             throw new OptimiserError(
               error.code,
               error.message +
-                '. The run state is saved and will be recovered when the connection is restored.',
+                '. The optimiser saved the run and will recover it when the backend reconnects.',
               true,
             );
           }
@@ -611,7 +611,7 @@ export function useOptimisationRun({
       throw new Error(
         pairingRequired
           ? 'Pair the extension with the backend first'
-          : 'Start the local FastAPI backend before optimising',
+          : 'Start the local backend before optimising',
       );
     }, [
       connected,
@@ -721,9 +721,8 @@ export function useOptimisationRun({
           phase: 'starting',
         };
 
-        // Write the intended lifecycle transition before switching the UI into
-        // active-run mode. If this write fails the resumable candidate remains
-        // untouched and no backend request is sent.
+        // Save the lifecycle change before showing the run as active. If saving
+        // fails, keep the resume candidate and send no backend request.
         await saveActiveRun(
           persisted,
         );

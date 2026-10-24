@@ -80,9 +80,8 @@ const normaliseInputBound = (
     return undefined;
   }
 
-  // TradingView uses extremely large finite values for some effectively
-  // unbounded Pine inputs. They are implementation sentinels, not useful
-  // optimisation limits.
+  // TradingView uses large finite sentinel values for unbounded Pine inputs.
+  // Exclude them from optimisation limits.
   if (Math.abs(value) >= 1.0e12) {
     return undefined;
   }

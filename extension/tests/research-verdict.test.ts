@@ -24,7 +24,7 @@ const progress: RunProgress = {
 };
 
 describe('research verdict', () => {
-  it('builds transparent strong evidence without a numeric black-box score', () => {
+  it('rates strong evidence and lists its contributing areas', () => {
     const verdict = buildResearchVerdict(
       progress,
       {
@@ -70,7 +70,7 @@ describe('research verdict', () => {
     expect(verdict.concerns).toEqual([]);
   });
 
-  it('surfaces weak and unavailable evidence as explicit concerns', () => {
+  it('lists weak and unavailable evidence as concerns', () => {
     const verdict = buildResearchVerdict(
       {
         ...progress,

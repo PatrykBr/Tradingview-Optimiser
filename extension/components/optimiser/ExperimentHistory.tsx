@@ -71,7 +71,7 @@ const comparisonResearchValue = (
     | 'walk-forward'
     | 'monte-carlo',
 ): string => {
-  if (!experiment?.research) return '—';
+  if (!experiment?.research) return 'Unavailable';
 
   if (key === 'oos') {
     const winner =
@@ -82,7 +82,7 @@ const comparisonResearchValue = (
       !winner ||
       winner.validationObjective === null
     ) {
-      return '—';
+      return 'Unavailable';
     }
 
     return formatMetric(
@@ -94,7 +94,7 @@ const comparisonResearchValue = (
   if (key === 'stability') {
     return (
       experiment.research.stability
-        ?.overallRating ?? '—'
+        ?.overallRating ?? 'Unavailable'
     );
   }
 
@@ -109,7 +109,7 @@ const comparisonResearchValue = (
             .objective_metric,
           value,
         )
-      : '—';
+      : 'Unavailable';
   }
 
   const lossProbability =
@@ -121,14 +121,14 @@ const comparisonResearchValue = (
     ? (
         lossProbability * 100
       ).toFixed(1) + '% loss'
-    : '—';
+    : 'Unavailable';
 };
 
 const comparisonValue = (
   experiment: ExperimentRecord | undefined,
   key: string,
 ): string => {
-  if (!experiment?.best) return '—';
+  if (!experiment?.best) return 'Unavailable';
 
   if (key === 'objective') {
     return formatMetric(
@@ -143,7 +143,7 @@ const comparisonValue = (
   return typeof value === 'number' &&
     Number.isFinite(value)
     ? formatMetric(key, value)
-    : '—';
+    : 'Unavailable';
 };
 
 const comparisonRows = [
@@ -331,7 +331,7 @@ export default function ExperimentHistory({
           </div>
 
           <div className="comparisonRow">
-            <span>WF median OOS</span>
+            <span>Walk-forward OOS median</span>
             <code>
               {comparisonResearchValue(
                 left,
@@ -347,7 +347,7 @@ export default function ExperimentHistory({
           </div>
 
           <div className="comparisonRow">
-            <span>MC probability</span>
+            <span>Monte Carlo loss rate</span>
             <code>
               {comparisonResearchValue(
                 left,
@@ -415,14 +415,14 @@ export default function ExperimentHistory({
                   {String(
                     left.best?.parameters[
                       parameter
-                    ] ?? '—',
+                    ] ?? 'Unavailable',
                   )}
                 </code>
                 <code>
                   {String(
                     right.best?.parameters[
                       parameter
-                    ] ?? '—',
+                    ] ?? 'Unavailable',
                   )}
                 </code>
               </div>
@@ -472,7 +472,7 @@ export default function ExperimentHistory({
                   ? left.config
                       .backtest_range
                       .start_date +
-                    ' → ' +
+                    ' to ' +
                     left.config
                       .backtest_range
                       .end_date

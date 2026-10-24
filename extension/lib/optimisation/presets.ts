@@ -105,8 +105,8 @@ const parsePreset = (
         value.draft,
       );
   } else if (value.version === 1) {
-    // v1 stored draft fields on the record itself. This is an explicit,
-    // one-way migration. Current-version corruption is never defaulted.
+    // v1 stored draft fields on the record itself. Migrate those records once.
+    // Reject corrupt current-version records instead of filling in defaults.
     draft =
       normaliseOptimisationDraft(
         value,

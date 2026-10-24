@@ -204,7 +204,7 @@ describe('research runner', () => {
     ]);
   });
 
-  it('surfaces restoration failure after otherwise successful validation', async () => {
+  it('reports restoration failure after otherwise successful validation', async () => {
     const adapter =
       new FakeResearchAdapter();
     adapter.failRestore = true;

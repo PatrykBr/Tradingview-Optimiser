@@ -117,9 +117,8 @@ const detectStrategies = () => {
     { id: string; name: string; shortTitle?: string }
   >();
 
-  // Primary path: TradingView's chart model exposes the actual strategy data
-  // sources. This is more reliable than inferring strategy-ness from legend DOM
-  // or from the public study wrapper.
+  // Read strategy data sources from the chart model. Legend nodes and public
+  // study wrappers do not always identify strategies reliably.
   try {
     const sources = chart._chartWidget?.model?.()?.model?.()?.dataSources?.() ?? [];
 
@@ -205,7 +204,7 @@ const getInternalStudyMeta = (
       }
     }
   } catch {
-    // The public study metadata below remains a fallback.
+    // Try the public study metadata below if this lookup fails.
   }
 
   return {};
@@ -296,9 +295,8 @@ const getStrategySource = (
     const model = chart._chartWidget?.model?.()?.model?.();
     if (!model) return null;
 
-    // Current TradingView builds expose the selected strategy through a watched
-    // activeStrategySource value. Prefer it because dataSources() can retain a
-    // stale strategy/report object after removal or replacement.
+    // Prefer activeStrategySource. dataSources() can retain a stale strategy
+    // or report after the user removes or replaces it.
     if (typeof model.activeStrategySource === 'function') {
       const watched = model.activeStrategySource();
       const active = unwrapValue(watched) as
@@ -315,8 +313,7 @@ const getStrategySource = (
 
         if (activeId === strategyId) return active;
 
-        // When TradingView explicitly reports a different active strategy, do
-        // not fall back to a cached data source belonging to the old one.
+        // A different active strategy invalidates the old cached data source.
         if (typeof activeId === 'string' && activeId) return null;
       }
     }
@@ -615,9 +612,8 @@ const readStrategyReportCore = (
 
   let rawReport: unknown;
   try {
-    // One reportData() read is shared by metrics, revision detection and the
-    // full context snapshot. This avoids both duplicated work and mixed-state
-    // snapshots while TradingView is recalculating.
+    // Read reportData() once so metrics, revision detection and chart context
+    // use the same report while TradingView recalculates.
     rawReport = unwrapValue(source.reportData());
   } catch (cause) {
     throw new OptimiserError(
