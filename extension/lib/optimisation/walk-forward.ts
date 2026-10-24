@@ -4,6 +4,7 @@ import type {
   SearchParameter,
 } from '../protocol/types';
 import { median } from './research';
+import { DAY_MS, formatDate, parseDate } from './dates';
 
 export interface WalkForwardFold {
   index: number;
@@ -39,33 +40,6 @@ export interface WalkForwardResult {
   >;
 }
 
-const DAY_MS =
-  24 * 60 * 60 * 1000;
-
-const parseDate = (
-  value: string,
-): number => {
-  const timestamp = Date.parse(
-    value + 'T00:00:00Z',
-  );
-
-  if (!Number.isFinite(timestamp)) {
-    throw new Error(
-      'Invalid walk-forward date: ' +
-        value,
-    );
-  }
-
-  return timestamp;
-};
-
-const formatDate = (
-  timestamp: number,
-): string =>
-  new Date(timestamp)
-    .toISOString()
-    .slice(0, 10);
-
 export const buildWalkForwardPlan = (
   fullRange: BacktestRange,
   folds: number,
@@ -100,7 +74,7 @@ export const buildWalkForwardPlan = (
     totalDays -
     initialTrainingDays;
 
-  if (remainingDays < folds) {
+  if (remainingDays < folds * 2) {
     throw new Error(
       'Walk-forward initial training window leaves too little unseen data',
     );

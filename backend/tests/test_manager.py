@@ -1,9 +1,31 @@
 from pathlib import Path
+from unittest.mock import patch
 
+import optuna
 import pytest
 
 from app.models import ChartContext, CreateRun, MetricFilter, ObjectiveDirection, TrialResult
 from app.optimisation.manager import OptimisationManager
+
+
+@pytest.mark.asyncio
+async def test_studies_reuse_storage_and_close_connections(tmp_path: Path) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'shared.db'}")
+    with patch(
+        "app.optimisation.manager.optuna.create_study", wraps=optuna.create_study
+    ) as create:
+        await manager.create_run(make_config("first-storage-run"))
+        await manager.create_run(make_config("second-storage-run"))
+    first_storage = create.call_args_list[0].kwargs["storage"]
+    assert first_storage is create.call_args_list[1].kwargs["storage"]
+    with (
+        patch.object(first_storage, "remove_session") as remove_session,
+        patch.object(first_storage.engine, "dispose") as dispose,
+    ):
+        manager.close()
+        remove_session.assert_called_once()
+        dispose.assert_called_once()
+    manager.close()
 
 
 def make_config(run_id: str, target_trials: int = 2) -> CreateRun:
@@ -29,6 +51,15 @@ def make_config(run_id: str, target_trials: int = 2) -> CreateRun:
             ).model_dump(),
         }
     )
+
+
+@pytest.mark.parametrize("baseline", [4, 21, 8, 8.5, True, "10"])
+def test_invalid_baseline_is_rejected(baseline) -> None:
+    config = make_config("invalid-baseline").model_dump()
+    config["parameters"][0]["step"] = 6
+    config["baseline_parameters"] = {"length": baseline}
+    with pytest.raises(ValueError, match="outside the search space"):
+        CreateRun.model_validate(config)
 
 
 @pytest.mark.asyncio

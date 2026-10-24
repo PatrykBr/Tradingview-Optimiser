@@ -184,6 +184,15 @@ const MAX_EXPERIMENTS = 50;
 const CHECKPOINT_INTERVAL_MS = 5_000;
 const CHECKPOINT_TRIAL_INTERVAL = 10;
 
+// Keep read/modify/write operations in order, including after a failed write.
+// A checkpoint must not resurrect an active run after finishActiveRun removes it.
+let mutationQueue: Promise<unknown> = Promise.resolve();
+const mutateStorage = (operation: () => Promise<void>): Promise<void> => {
+  const result = mutationQueue.then(operation);
+  mutationQueue = result.catch(() => {});
+  return result;
+};
+
 interface ActiveProgressCheckpoint {
   runId: string | null;
   settledTrials: number;
@@ -215,7 +224,7 @@ const lightweightProgress = (
 
 export const saveActiveRun = async (
   run: PersistedOptimisationRun,
-): Promise<void> => {
+): Promise<void> => mutateStorage(async () => {
   await browser.storage.local.set({
     [ACTIVE_RUN_KEY]: run,
   });
@@ -232,11 +241,11 @@ export const saveActiveRun = async (
       savedAt: Date.now(),
     };
   }
-};
+});
 
 export const updateActiveRunProgress = async (
   progress: RunProgress,
-): Promise<void> => {
+): Promise<void> => mutateStorage(async () => {
   const now = Date.now();
   const settledTrials =
     progress.completed_trials +
@@ -255,52 +264,35 @@ export const updateActiveRunProgress = async (
     return;
   }
 
-  // Reserve the checkpoint before awaiting storage so concurrent updates do
-  // not schedule equivalent writes.
+  const run = await loadActiveRun();
+  if (!run) {
+    throw new Error(
+      'Active optimisation state disappeared while checkpointing ' +
+        progress.run_id,
+    );
+  }
+
+  if (run.config.run_id !== progress.run_id) {
+    throw new Error(
+      'Active optimisation checkpoint belongs to ' +
+        run.config.run_id +
+        ', not ' +
+        progress.run_id,
+    );
+  }
+
+  await browser.storage.local.set({
+    [ACTIVE_RUN_KEY]: {
+      ...run,
+      lastProgress: lightweightProgress(progress),
+    },
+  });
   activeProgressCheckpoint = {
     runId: progress.run_id,
     settledTrials,
     savedAt: now,
   };
-
-  try {
-    const run = await loadActiveRun();
-    if (!run) {
-      throw new Error(
-        'Active optimisation state disappeared while checkpointing ' +
-          progress.run_id,
-      );
-    }
-
-    if (
-      run.config.run_id !== progress.run_id
-    ) {
-      throw new Error(
-        'Active optimisation checkpoint belongs to ' +
-          run.config.run_id +
-          ', not ' +
-          progress.run_id,
-      );
-    }
-
-    await browser.storage.local.set({
-      [ACTIVE_RUN_KEY]: {
-        ...run,
-        lastProgress:
-          lightweightProgress(progress),
-      },
-    });
-  } catch (cause) {
-    if (
-      activeProgressCheckpoint.runId ===
-        progress.run_id &&
-      activeProgressCheckpoint.savedAt === now
-    ) {
-      activeProgressCheckpoint = previous;
-    }
-    throw cause;
-  }
-};
+});
 
 export const loadActiveRun =
   async (): Promise<PersistedOptimisationRun | null> => {
@@ -371,7 +363,7 @@ const saveExperiment = async (
 
 export const finishActiveRun = async (
   progress: RunProgress,
-): Promise<void> => {
+): Promise<void> => mutateStorage(async () => {
   const run = await loadActiveRun();
 
   if (!run) {
@@ -416,15 +408,15 @@ export const finishActiveRun = async (
     ACTIVE_RUN_KEY,
   );
   resetActiveProgressCheckpoint();
-};
+});
 
 export const clearActiveRun =
-  async (): Promise<void> => {
+  async (): Promise<void> => mutateStorage(async () => {
     await browser.storage.local.remove(
       ACTIVE_RUN_KEY,
     );
     resetActiveProgressCheckpoint();
-  };
+  });
 
 export const loadLastRun =
   async (): Promise<PersistedOptimisationRun | null> => {
@@ -485,7 +477,7 @@ const updateExperiment = async (
       'analysis' | 'research'
     >
   >,
-): Promise<void> => {
+): Promise<void> => mutateStorage(async () => {
   const experiments =
     await loadExperimentHistory();
   const index = experiments.findIndex(
@@ -516,7 +508,7 @@ const updateExperiment = async (
   await browser.storage.local.set({
     [EXPERIMENTS_KEY]: experiments,
   });
-};
+});
 
 export const updateExperimentAnalysis = (
   runId: string,
@@ -532,7 +524,7 @@ export const updateExperimentResearch = (
 
 export const deleteExperiment = async (
   runId: string,
-): Promise<void> => {
+): Promise<void> => mutateStorage(async () => {
   const experiments =
     await loadExperimentHistory();
 
@@ -542,4 +534,4 @@ export const deleteExperiment = async (
         experiment.runId !== runId,
     ),
   });
-};
+});

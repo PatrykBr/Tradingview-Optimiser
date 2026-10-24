@@ -24,6 +24,7 @@ import {
   compatibilityFailureReason,
 } from '../../lib/optimisation/run-compatibility';
 import {
+  isTerminalStatus,
   mergeRunUpdate,
 } from '../../lib/optimisation/run-progress';
 import {
@@ -53,13 +54,6 @@ import { useBackendConnection } from './useBackendConnection';
 import type { PreparedOptimisationRun } from './useStrategyConfiguration';
 
 type TrialExecution = TrialExecutionUpdate;
-
-const isTerminalStatus = (
-  status: RunProgress['status'],
-): boolean =>
-  status === 'completed' ||
-  status === 'stopped' ||
-  status === 'failed';
 
 export interface CompatibilityWatchdog {
   status: 'idle' | 'healthy' | 'failed';
@@ -134,6 +128,10 @@ export function useOptimisationRun({
     useRef<PersistedOptimisationRun | null>(
       null,
     );
+
+  useEffect(() => () => {
+    trialRunnerRef.current?.dispose();
+  }, []);
 
   const persistLifecycle =
     useCallback(

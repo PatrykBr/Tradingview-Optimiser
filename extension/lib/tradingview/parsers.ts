@@ -259,28 +259,24 @@ export const extractTradingViewMetrics = (
 export const stableStringify = (
   value: unknown,
 ): string => {
-  const seen = new WeakSet<object>();
+  const ancestors = new WeakSet<object>();
 
   const normalise = (item: unknown): unknown => {
-    if (Array.isArray(item)) {
-      return item.map(normalise);
-    }
     if (item === null || typeof item !== 'object') {
       return item;
     }
-    if (seen.has(item as object)) return '[Circular]';
-    seen.add(item as object);
+    if (ancestors.has(item)) return '[Circular]';
+    ancestors.add(item);
 
-    return Object.fromEntries(
-      Object.entries(item as UnknownRecord)
-        .sort(([left], [right]) =>
-          left.localeCompare(right),
-        )
-        .map(([key, child]) => [
-          key,
-          normalise(child),
-        ]),
-    );
+    const result = Array.isArray(item)
+      ? item.map(normalise)
+      : Object.fromEntries(
+          Object.entries(item as UnknownRecord)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, child]) => [key, normalise(child)]),
+        );
+    ancestors.delete(item);
+    return result;
   };
 
   return JSON.stringify(normalise(value));

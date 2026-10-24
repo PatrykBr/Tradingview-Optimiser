@@ -215,6 +215,12 @@ describe('buildSearchSpace', () => {
     });
   });
 
+  it('omits an off-grid baseline instead of counting it as a reachable combination', () => {
+    expect(buildBaselineParameters(inputs, [
+      { type: 'int', name: 'in_1', low: 5, high: 30, step: 6 },
+    ])).toEqual({});
+  });
+
   it('allows a later dropdown to control an earlier parameter', () => {
     const conditionalInputs: StrategyInput[] = [
       {

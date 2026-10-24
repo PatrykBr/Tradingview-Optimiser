@@ -204,7 +204,7 @@ export const runMonteCarloValidation =
           : 'Trade-level data unavailable',
       );
 
-      return runTradeMonteCarlo(
+      return await runTradeMonteCarlo(
         snapshot,
         settings.simulations,
         settings.confidence,

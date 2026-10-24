@@ -16,6 +16,8 @@ import {
   type ParameterConfig,
 } from './parameter-config';
 import { splitResearchRange } from './research';
+import { parseDate } from './dates';
+import { buildWalkForwardPlan } from './walk-forward';
 
 export type OptimisationForm = OptimisationDraft;
 export type { FilterConfig };
@@ -338,6 +340,9 @@ export const buildBacktestRange = (
     );
   }
 
+  parseDate(form.startDate);
+  parseDate(form.endDate);
+
   return {
     mode: 'deep',
     start_date: form.startDate,
@@ -536,6 +541,10 @@ export const buildResearchPlan = (
   }
 
   let optimisationRange = fullRange;
+
+  if (form.walkForwardEnabled && fullRange) {
+    buildWalkForwardPlan(fullRange, walkForwardFolds, walkForwardInitialTrainingFraction);
+  }
 
   if (form.robustnessEnabled) {
     if (!fullRange) {

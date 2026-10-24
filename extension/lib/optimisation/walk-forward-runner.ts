@@ -295,7 +295,7 @@ export const runWalkForwardValidation =
               ? objective
               : null,
           passedFilters:
-            passesMetricFilters(
+            typeof objective === 'number' && Number.isFinite(objective) && passesMetricFilters(
               metrics,
               request.config.filters,
             ),

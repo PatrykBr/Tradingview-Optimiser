@@ -6,6 +6,7 @@ import type {
   TrialSummary,
 } from '../protocol/types';
 import type { MonteCarloResult } from './monte-carlo';
+import { DAY_MS, formatDate, parseDate } from './dates';
 import { isFeasibleTrial } from './results';
 import type { WalkForwardResult } from './walk-forward';
 
@@ -72,19 +73,6 @@ export interface ResearchEvaluation {
   monteCarlo?: MonteCarloResult;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-const parseDate = (value: string): number => {
-  const timestamp = Date.parse(value + 'T00:00:00Z');
-  if (!Number.isFinite(timestamp)) {
-    throw new Error('Invalid research date: ' + value);
-  }
-  return timestamp;
-};
-
-const formatDate = (timestamp: number): string =>
-  new Date(timestamp).toISOString().slice(0, 10);
-
 export const splitResearchRange = (
   fullRange: BacktestRange,
   validationFraction: number,
@@ -108,6 +96,10 @@ export const splitResearchRange = (
     Math.round(totalDays * validationFraction),
   );
   const trainingDays = totalDays - validationDays;
+
+  if (validationDays < folds * 2) {
+    throw new Error('Each robustness fold needs at least two days; use fewer folds or a longer range');
+  }
 
   if (trainingDays < 5) {
     throw new Error(
@@ -174,8 +166,9 @@ export const topFeasibleCandidates = (
   trials: TrialSummary[],
   direction: ObjectiveDirection,
   count: number,
-): TrialSummary[] =>
-  trials
+): TrialSummary[] => {
+  const seen = new Set<string>();
+  return trials
     .filter(
       (trial) =>
         isFeasibleTrial(trial) &&
@@ -192,7 +185,16 @@ export const topFeasibleCandidates = (
         ? b - a
         : a - b;
     })
+    .filter((trial) => {
+      const key = JSON.stringify(
+        Object.entries(trial.parameters).sort(([a], [b]) => a.localeCompare(b)),
+      );
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .slice(0, count);
+};
 
 export const median = (
   values: number[],
@@ -268,23 +270,6 @@ const clamp = (
   high: number,
 ): number => Math.min(high, Math.max(low, value));
 
-const alignInt = (
-  value: number,
-  low: number,
-  step: number,
-): number =>
-  low + Math.round((value - low) / step) * step;
-
-const alignFloat = (
-  value: number,
-  low: number,
-  step: number,
-): number => {
-  const aligned =
-    low + Math.round((value - low) / step) * step;
-  return Number(aligned.toPrecision(12));
-};
-
 export const buildStabilityVariants = (
   searchSpace: SearchParameter[],
   winner: Record<string, unknown>,
@@ -317,20 +302,16 @@ export const buildStabilityVariants = (
           parameter.high,
         );
 
-        if (parameter.type === 'int') {
-          return alignInt(
-            clamped,
-            parameter.low,
-            parameter.step ?? 1,
+        const step = parameter.step ?? (parameter.type === 'int' ? 1 : undefined);
+        if (step !== undefined) {
+          // Clamp the grid index: rounding the value can overshoot an unaligned high bound.
+          const width = (parameter.high - parameter.low) / step;
+          const maxIndex = Math.floor(
+            parameter.type === 'int' ? width : Number(width.toPrecision(12)),
           );
-        }
-
-        if (parameter.step) {
-          return alignFloat(
-            clamped,
-            parameter.low,
-            parameter.step,
-          );
+          const index = clamp(Math.round((clamped - parameter.low) / step), 0, maxIndex);
+          const aligned = parameter.low + index * step;
+          return parameter.type === 'int' ? aligned : Number(aligned.toPrecision(12));
         }
 
         return Number(clamped.toPrecision(12));

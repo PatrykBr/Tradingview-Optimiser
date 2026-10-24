@@ -144,6 +144,18 @@ const parentProgress: RunProgress = {
 };
 
 describe('walk-forward runner', () => {
+  it('fails unseen folds with a missing objective even when their filters pass', async () => {
+    const adapter = new FakeWalkForwardAdapter();
+    const result = await runWalkForwardValidation({
+      adapter, strategyId: 'strategy-1',
+      config: { ...config, objective_metric: 'sharpeRatio' },
+      parentProgress, originalParameters: null,
+      runStudy: async (child) => ({ ...parentProgress, run_id: child.run_id }),
+    });
+    expect(result.passedFolds).toBe(0);
+    expect(result.folds.every((fold) => fold.testObjective === null)).toBe(true);
+  });
+
   it('prepares every training range and evaluates every unseen fold', async () => {
     const adapter =
       new FakeWalkForwardAdapter();

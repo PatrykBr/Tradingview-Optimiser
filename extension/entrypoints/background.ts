@@ -108,6 +108,7 @@ export default defineBackground(() => {
   const clearRunOwner = async (
     runId: string,
   ): Promise<void> => {
+    await ownersReady;
     runOwners.delete(runId);
     await persistRunOwners();
   };
@@ -117,6 +118,7 @@ export default defineBackground(() => {
     message: BackgroundMessage,
     critical = false,
   ): Promise<void> => {
+    await ownersReady;
     const owner = runOwners.get(runId);
 
     if (owner === undefined) {
@@ -304,6 +306,7 @@ export default defineBackground(() => {
             return backend.state;
 
           case 'CREATE_RUN': {
+            await ownersReady;
             await backend.createRun(
               msg.payload,
             );
@@ -373,6 +376,7 @@ export default defineBackground(() => {
             return { ok: true };
 
           case 'DELETE_RUN':
+            await ownersReady;
             await backend.deleteRun(msg.payload.runId);
             runOwners.delete(msg.payload.runId);
             await persistRunOwners();
@@ -430,7 +434,8 @@ export default defineBackground(() => {
     },
   );
 
-  void loadRunOwners().catch(
+  const ownersReady = loadRunOwners();
+  void ownersReady.catch(
     (cause) => {
       console.error(
         'Could not restore optimiser run ownership',

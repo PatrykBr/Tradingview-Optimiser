@@ -27,6 +27,7 @@ export default function SavedConfigurationsSection({
 
       <div className="presetSaveRow">
         <input
+          aria-label="Configuration name"
           type="text"
           value={model.presetName}
           disabled={locked}
@@ -52,6 +53,7 @@ export default function SavedConfigurationsSection({
 
       <div className="presetLoadRow">
         <select
+          aria-label="Saved configuration"
           value={model.selectedPresetId}
           disabled={
             locked ||

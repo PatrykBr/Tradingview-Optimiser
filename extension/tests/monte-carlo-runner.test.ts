@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   runMonteCarloValidation,
@@ -123,6 +123,20 @@ const progress: RunProgress = {
 };
 
 describe('Monte Carlo runner', () => {
+  it('preserves cancellation when restoring TradingView also fails', async () => {
+    const adapter = new FakeMonteCarloAdapter();
+    const controller = new AbortController();
+    vi.spyOn(adapter, 'readClosedTrades').mockImplementation(async () => {
+      controller.abort();
+      return { available: true, reason: null, trades: [{ pnl: 10 }, { pnl: -5 }] };
+    });
+    vi.spyOn(adapter, 'prepareBacktest').mockRejectedValue(new Error('restore failed'));
+    await expect(runMonteCarloValidation({
+      adapter, config, progress, strategyId: 'strategy-1', originalParameters: null,
+      existingResearch: {}, signal: controller.signal,
+    })).rejects.toThrow(/Operation aborted.*restore failed/);
+  });
+
   it('uses the reserved unseen range when robustness results exist', async () => {
     const adapter =
       new FakeMonteCarloAdapter();

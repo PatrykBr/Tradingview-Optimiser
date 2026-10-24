@@ -15,6 +15,7 @@ interface ResearchValidationResultsProps {
   evaluation: ResearchEvaluation | null;
   phase?: string;
   busy: boolean;
+  disabled: boolean;
   inputLabel: (
     id: string,
   ) => string;
@@ -37,6 +38,7 @@ export default function ResearchValidationResults({
   evaluation,
   phase,
   busy,
+  disabled,
   inputLabel,
   onRun,
   onCancel,
@@ -72,6 +74,7 @@ export default function ResearchValidationResults({
           )}
         </div>
         <button
+          disabled={disabled}
           className={
             busy
               ? 'danger researchAction'
@@ -211,6 +214,7 @@ export default function ResearchValidationResults({
 
           <button
             className="secondary researchApply"
+            disabled={busy || disabled}
             onClick={onApplyRobustWinner}
           >
             Apply robust winner

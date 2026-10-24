@@ -181,11 +181,15 @@ describe('TradingView adapter run context', () => {
 
       const adapter =
         new TradingViewAdapter(bridge);
+      const controller = new AbortController();
+      const add = vi.spyOn(controller.signal, 'addEventListener');
+      const remove = vi.spyOn(controller.signal, 'removeEventListener');
       const evaluation =
         adapter.evaluateParameters(
           'strategy-1',
           { in_0: 15 },
           null,
+          controller.signal,
         );
 
       await vi.advanceTimersByTimeAsync(
@@ -199,6 +203,8 @@ describe('TradingView adapter run context', () => {
       expect(actions).not.toContain(
         'readReportSnapshot',
       );
+      expect(add.mock.calls.length).toBeGreaterThan(1);
+      expect(remove.mock.calls.length).toBe(add.mock.calls.length);
       expect(
         actions.filter(
           (action) => action === 'readMetrics',

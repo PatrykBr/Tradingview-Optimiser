@@ -7,6 +7,10 @@ import {
 import type { SearchParameter } from '../lib/protocol/types';
 
 describe('walk-forward research', () => {
+  it('rejects an initial training split that leaves single-day test folds', () => {
+    expect(() => buildWalkForwardPlan({ mode: 'deep', start_date: '2024-01-01', end_date: '2024-01-30' }, 8, 0.8)).toThrow(/too little unseen data/);
+  });
+
   it('builds expanding training windows with chronological unseen tests', () => {
     const folds = buildWalkForwardPlan(
       {

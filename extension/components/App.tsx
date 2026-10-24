@@ -134,13 +134,14 @@ export default function App({ bridge }: AppProps) {
       <ResearchSection
         run={run}
         research={research}
+        busy={busy}
         inputLabel={configuration.inputLabel}
         onLoadExperiment={loadExperiment}
         onRerunExperiment={rerunExperiment}
       />
 
       {error && (
-        <div className="error">{error}</div>
+        <div className="error" role="alert">{error}</div>
       )}
     </main>
   );

@@ -18,9 +18,11 @@ export default function BestSoFarChart({
   const rightPadding = 8;
   const verticalPadding = 10;
 
-  const values = points.map((point) => point.value);
-  const rawMin = Math.min(...values);
-  const rawMax = Math.max(...values);
+  // Best-so-far values are monotonic, so the endpoints bound the domain.
+  const first = points[0]!;
+  const last = points.at(-1)!;
+  const rawMin = Math.min(first.value, last.value);
+  const rawMax = Math.max(first.value, last.value);
   const rawSpread = rawMax - rawMin;
 
   const domainPadding =
@@ -31,11 +33,17 @@ export default function BestSoFarChart({
   const max = rawMax + domainPadding;
   const spread = max - min;
 
-  const firstTrial = points[0]!.trial;
-  const lastTrial = points[points.length - 1]!.trial;
+  const firstTrial = first.trial;
+  const lastTrial = last.trial;
   const trialSpread = lastTrial - firstTrial || 1;
 
-  const coordinates = points.map((point) => {
+  // Keep both ends of each plateau: intermediate points lie on the same line.
+  const plotted = points.filter((point, index) =>
+    index === 0 || index === points.length - 1 ||
+    point.value !== points[index - 1]!.value ||
+    point.value !== points[index + 1]!.value,
+  );
+  const coordinates = plotted.map((point) => {
     const x =
       leftPadding +
       ((point.trial - firstTrial) / trialSpread) *

@@ -36,6 +36,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 export class BackendClient {
   #socket: WebSocket | null = null;
+  #connecting: Promise<void> | null = null;
   #listeners = new Set<Listener>();
   #pendingRequests = new Map<string, PendingRequest>();
   #heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -63,14 +64,23 @@ export class BackendClient {
     };
   }
 
-  async connect(): Promise<void> {
+  connect(): Promise<void> {
+    if (this.#connecting) return this.#connecting;
+
     if (
       this.#socket?.readyState === WebSocket.OPEN ||
       this.#socket?.readyState === WebSocket.CONNECTING
     ) {
-      return;
+      return Promise.resolve();
     }
 
+    this.#connecting = this.#connect().finally(() => {
+      this.#connecting = null;
+    });
+    return this.#connecting;
+  }
+
+  async #connect(): Promise<void> {
     this.#manualClose = false;
     this.#authenticated = false;
     this.#token = await this.#loadToken();
@@ -85,6 +95,7 @@ export class BackendClient {
     this.#socket = socket;
 
     socket.addEventListener('open', () => {
+      if (this.#socket !== socket) return;
       socket.send(
         JSON.stringify({
           type: 'AUTH',
@@ -94,14 +105,15 @@ export class BackendClient {
       );
     });
 
-    socket.addEventListener('message', (event) =>
-      this.#handleMessage(String(event.data)),
-    );
+    socket.addEventListener('message', (event) => {
+      if (this.#socket === socket) this.#handleMessage(String(event.data));
+    });
 
     socket.addEventListener('close', (event) => {
+      if (this.#socket !== socket) return;
       this.#stopHeartbeat();
       this.#authenticated = false;
-      if (this.#socket === socket) this.#socket = null;
+      this.#socket = null;
 
       this.#rejectPending(
         new OptimiserError(
@@ -124,6 +136,7 @@ export class BackendClient {
     });
 
     socket.addEventListener('error', () => {
+      if (this.#socket !== socket) return;
       this.#emit({
         type: 'error',
         message: 'Could not connect to the local optimiser service.',
@@ -176,8 +189,9 @@ export class BackendClient {
         true,
       ),
     );
-    this.#socket?.close();
+    const socket = this.#socket;
     this.#socket = null;
+    socket?.close();
   }
 
   async createRun(run: CreateRun): Promise<void> {
@@ -237,7 +251,7 @@ export class BackendClient {
   }
 
   #request(type: string, payload: unknown): Promise<Envelope> {
-    if (this.#socket?.readyState !== WebSocket.OPEN) {
+    if (!this.#authenticated || this.#socket?.readyState !== WebSocket.OPEN) {
       return Promise.reject(
         new OptimiserError(
           'BACKEND_DISCONNECTED',
@@ -311,10 +325,19 @@ export class BackendClient {
 
     try {
       message = JSON.parse(raw) as Envelope;
+      if (
+        !message ||
+        typeof message.type !== 'string' ||
+        !message.payload ||
+        typeof message.payload !== 'object' ||
+        Array.isArray(message.payload)
+      ) {
+        throw new Error('Invalid backend envelope');
+      }
     } catch {
       this.#emit({
         type: 'error',
-        message: 'Backend returned invalid JSON.',
+        message: 'Backend returned an invalid protocol message.',
       });
       return;
     }

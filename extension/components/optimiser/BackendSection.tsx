@@ -86,6 +86,7 @@ export default function BackendSection({
           </p>
           <div className="inlineForm">
             <input
+              aria-label="Backend pairing code"
               value={run.pairingCode}
               placeholder="Pairing code"
               autoComplete="off"

@@ -12,6 +12,7 @@ import type {
   RunProgress,
 } from '../protocol/types';
 import {
+  isTerminalStatus,
   mergeRunUpdate,
 } from './run-progress';
 import {
@@ -49,13 +50,6 @@ interface AuxiliaryStudyRequest {
     progress: RunProgress,
   ) => void;
 }
-
-const isTerminal = (
-  status: RunProgress['status'],
-): boolean =>
-  status === 'completed' ||
-  status === 'stopped' ||
-  status === 'failed';
 
 export const runAuxiliaryStudy =
   async (
@@ -211,7 +205,7 @@ export const runAuxiliaryStudy =
         );
 
         if (
-          isTerminal(
+          isTerminalStatus(
             latestProgress.status,
           )
         ) {
@@ -235,7 +229,7 @@ export const runAuxiliaryStudy =
         );
 
         if (
-          isTerminal(
+          isTerminalStatus(
             latestProgress.status,
           )
         ) {

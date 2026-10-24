@@ -48,15 +48,15 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
       return;
     }
 
-    const timeout = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timeout);
-        reject(new DOMException('Operation aborted', 'AbortError'));
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new DOMException('Operation aborted', 'AbortError'));
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 
 export class TradingViewAdapter {
@@ -360,6 +360,7 @@ export class TradingViewAdapter {
     range: TradingViewBacktestRange | null,
     signal?: AbortSignal,
   ): Promise<TradingViewMetrics> {
+    signal?.throwIfAborted();
     const expectedDeepBacktesting =
       range !== null;
     const before =
@@ -367,10 +368,12 @@ export class TradingViewAdapter {
         strategyId,
         expectedDeepBacktesting,
       );
+    signal?.throwIfAborted();
     await this.applyParameters(
       strategyId,
       parameters,
     );
+    signal?.throwIfAborted();
 
     if (range) {
       const rangeKey =

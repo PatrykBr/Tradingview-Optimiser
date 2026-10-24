@@ -17,7 +17,7 @@ Optuna optimises one TradingView metric. Filters set requirements for the other 
 
 Filters do not add objectives. A trial can have the highest objective value and still fail a filter.
 
-The extension uses the current strategy settings for the baseline trial when they fit the search space.
+The extension uses the current strategy settings for the baseline trial when they fit the search space, including its steps. An off-grid value cannot serve as the baseline. The backend also rejects supplied baselines outside the search space.
 
 ## Set parameter ranges
 

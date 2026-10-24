@@ -526,7 +526,7 @@ export default function ExperimentHistory({
         <div className="experimentActions">
           <button
             className="secondary"
-            disabled={busy}
+            disabled={busy || activeRunId !== null}
             onClick={() =>
               void onLoadExperiment(
                 left.config,

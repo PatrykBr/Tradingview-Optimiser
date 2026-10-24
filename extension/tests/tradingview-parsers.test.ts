@@ -4,9 +4,21 @@ import {
   buildStrategySignature,
   extractTradingViewMetrics,
   normalisePineInputs,
+  stableStringify,
 } from '../lib/tradingview/parsers';
 
 describe('TradingView parser fixtures', () => {
+  it('serialises shared objects by value while handling actual object and array cycles', () => {
+    const shared = { z: 1, a: 2 };
+    expect(stableStringify({ b: shared, a: shared })).toBe('{"a":{"a":2,"z":1},"b":{"a":2,"z":1}}');
+    const array: unknown[] = [];
+    array.push(array);
+    expect(stableStringify(array)).toBe('["[Circular]"]');
+    const object: Record<string, unknown> = {};
+    object.self = object;
+    expect(stableStringify(object)).toBe('{"self":"[Circular]"}');
+  });
+
   it('filters internal Pine metadata and keeps user-facing input metadata', () => {
     const parsed = normalisePineInputs(
       [

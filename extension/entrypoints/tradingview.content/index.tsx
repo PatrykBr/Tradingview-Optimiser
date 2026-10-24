@@ -130,7 +130,7 @@ export default defineContentScript({
     }
 
     const bridge = new TradingViewBridge(bridgeScript);
-    let mounted = true;
+    ctx.onInvalidated(() => bridge.dispose());
     let reloadRequested = false;
 
     const reloadWithFreshContext = () => {
@@ -221,12 +221,9 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener((message: { type?: string }) => {
       if (message.type !== 'TOGGLE_UI') return;
 
-      if (mounted) {
-        ui.remove();
-      } else {
-        ui.mount();
-      }
-      mounted = !mounted;
+      // Keep trial listeners, form state and research alive while hidden.
+      ui.shadowHost.style.display =
+        ui.shadowHost.style.display === 'none' ? '' : 'none';
     });
   },
 });

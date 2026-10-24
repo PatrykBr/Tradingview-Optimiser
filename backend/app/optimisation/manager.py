@@ -69,10 +69,14 @@ class StaleTrialError(ValueError):
 
 class OptimisationManager:
     def __init__(self, storage_url: str) -> None:
-        self._storage_url = storage_url
+        self._storage = optuna.storages.RDBStorage(storage_url)
         self._runs: dict[str, ActiveRun] = {}
         self._registry_lock = asyncio.Lock()
         self._run_locks: dict[str, asyncio.Lock] = {}
+
+    def close(self) -> None:
+        self._storage.remove_session()
+        self._storage.engine.dispose()
 
     async def create_run(self, config: CreateRun) -> RunProgress:
         async with self._registry_lock:
@@ -86,7 +90,7 @@ class OptimisationManager:
             # for single-objective studies.
             study = optuna.create_study(
                 study_name=config.run_id,
-                storage=self._storage_url,
+                storage=self._storage,
                 direction=config.direction.value,
                 load_if_exists=True,
             )
@@ -378,7 +382,7 @@ class OptimisationManager:
             async with self._registry_lock:
                 optuna.delete_study(
                     study_name=run_id,
-                    storage=self._storage_url,
+                    storage=self._storage,
                 )
                 self._runs.pop(run_id, None)
                 self._run_locks.pop(run_id, None)

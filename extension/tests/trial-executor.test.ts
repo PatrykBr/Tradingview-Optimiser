@@ -46,6 +46,28 @@ const trial: NextTrial = {
 };
 
 describe('optimisation trial execution', () => {
+  it.each(['before', 'checking', 'evaluation', 'verification'])(
+    'does not submit a result when cancelled during %s', async (phase) => {
+      const controller = new AbortController();
+      let checks = 0;
+      const adapter = {
+        assertRunContext: vi.fn(async () => {
+          checks += 1;
+          if ((phase === 'checking' && checks === 1) || (phase === 'verification' && checks === 2)) controller.abort();
+        }),
+        evaluateParameters: vi.fn(async () => {
+          if (phase === 'evaluation') controller.abort();
+          return { profitFactor: 2 };
+        }),
+      };
+      if (phase === 'before') controller.abort();
+      await expect(evaluateOptimisationTrial({
+        adapter, config, trial, strategyId: 'strategy-1', originalParameters: null, signal: controller.signal,
+      })).rejects.toMatchObject({ name: 'AbortError' });
+      if (phase === 'before' || phase === 'checking') expect(adapter.evaluateParameters).not.toHaveBeenCalled();
+    },
+  );
+
   it('records phase timings without changing strategy metrics', async () => {
     const adapter = {
       assertRunContext: vi

@@ -12,9 +12,13 @@ import type {
 } from '../lib/protocol/types';
 import {
   clearActiveRun,
+  finishActiveRun,
+  loadExperimentHistory,
   loadActiveRun,
   saveActiveRun,
   updateActiveRunProgress,
+  updateExperimentAnalysis,
+  updateExperimentResearch,
 } from '../lib/optimisation/storage';
 
 const config: CreateRun = {
@@ -60,6 +64,54 @@ const progress = (
 });
 
 describe('active run checkpoints', () => {
+  it('orders checkpoints, stop intent and completion without resurrecting a finished run', async () => {
+    const stored: Record<string, unknown> = {};
+    const pause = Promise.withResolvers<void>();
+    let pauseNextRead = false;
+    vi.stubGlobal('browser', { storage: { local: {
+      get: vi.fn(async (key: string) => {
+        const value = structuredClone(stored[key]);
+        if (pauseNextRead) {
+          pauseNextRead = false;
+          await pause.promise;
+        }
+        return { [key]: value };
+      }),
+      set: vi.fn(async (values: Record<string, unknown>) => { Object.assign(stored, structuredClone(values)); }),
+      remove: vi.fn(async (key: string) => { delete stored[key]; }),
+    } } });
+    const run = {
+      version: 2 as const, config, strategyId: 'strategy-1', originalParameters: {},
+      startedAt: 1, intent: 'running' as const, phase: 'running' as const,
+    };
+    await saveActiveRun(run);
+    pauseNextRead = true;
+    const checkpoint = updateActiveRunProgress(progress(10));
+    const stop = saveActiveRun({ ...run, intent: 'stopped', phase: 'stopping' });
+    const finish = finishActiveRun({ ...progress(10), status: 'stopped' });
+    // Let other storage work finish while the earlier checkpoint read is stalled.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    pause.resolve();
+    await Promise.all([checkpoint, stop, finish]);
+    expect(await loadActiveRun()).toBeNull();
+    expect(stored.lastOptimisationRun).toMatchObject({ intent: 'stopped', phase: 'stopping' });
+
+    const analysis = { run_id: config.run_id, parameter_importance: {}, parameter_importance_status: 'insufficient_data' as const, parameter_importance_error: null, completed_trials: 10 };
+    await Promise.all([
+      updateExperimentAnalysis(config.run_id, analysis),
+      updateExperimentResearch(config.run_id, {}),
+    ]);
+    expect((await loadExperimentHistory())[0]).toMatchObject({ analysis, research: {} });
+  });
+
+  it('allows subsequent storage mutations after a failed write', async () => {
+    const set = vi.fn().mockRejectedValueOnce(new Error('quota')).mockResolvedValue(undefined);
+    vi.stubGlobal('browser', { storage: { local: { set } } });
+    const run = { version: 2 as const, config, strategyId: 'strategy-1', originalParameters: {}, startedAt: 1, intent: 'running' as const, phase: 'running' as const };
+    await expect(saveActiveRun(run)).rejects.toThrow('quota');
+    await expect(saveActiveRun(run)).resolves.toBeUndefined();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

@@ -37,9 +37,11 @@ Out-of-sample validation, or OOS validation, reserves the final part of the Deep
 | --- | --- |
 | OOS % | Percentage of the date range reserved for validation. A larger share leaves less training history. |
 | Folds | Number of sequential validation windows. More folds add backtests and shorten each window. |
-| Candidates | Number of top feasible trials to validate. Backtest count grows with candidates multiplied by folds. |
+| Candidates | Number of distinct feasible parameter sets to validate. Reused trials do not take additional candidate slots. Backtest count grows with candidates multiplied by folds. |
 
 The form starts with 30% OOS data, 3 folds and 5 candidates.
+
+Each validation or walk-forward test fold needs at least two calendar days. Invalid dates and splits that leave shorter folds are rejected before optimisation starts.
 
 The robust winner ranks first by the number of folds that pass the filters, then by the median OOS objective. It may have a lower training objective than the original best trial.
 
@@ -84,7 +86,7 @@ The form starts with 5,000 simulations and a 90% interval.
 
 PnL and drawdown use the same additive units as the TradingView trade data. They are not account-equity percentages. The reported probability of loss is the share of resampled historical trade sequences that finish with negative cumulative PnL. These resamples describe the observed trade sample. They do not establish the probability of future losses.
 
-When OOS validation has run, Monte Carlo uses the reserved unseen period. Otherwise, it uses the optimisation period and labels the sample as in-sample. If TradingView does not expose a recognised trade list, the result reports that Monte Carlo is unavailable. It does not derive trades from aggregate metrics.
+When OOS validation has run, Monte Carlo uses the reserved unseen period. If only walk-forward results are available, it uses the final fold's unseen test period. Otherwise, it uses the optimisation period and labels the sample as in-sample. If TradingView does not expose a recognised trade list, the result reports that Monte Carlo is unavailable. It does not derive trades from aggregate metrics.
 
 ## Read parameter importance and evidence
 

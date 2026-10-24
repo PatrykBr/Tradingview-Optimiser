@@ -54,6 +54,8 @@ For Firefox, use `pnpm extension:dev:firefox`.
 
 Open a TradingView chart with a Pine strategy, open the optimiser panel and enter the backend's pairing code.
 
+Use the extension toolbar button to hide or show the panel. Hiding it keeps the current run, validation and form state active.
+
 On Windows, you can also [build a companion executable](docs/development.md#windows-companion) to run the backend without a development terminal.
 
 ## Run your first study

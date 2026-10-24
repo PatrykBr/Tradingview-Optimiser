@@ -1,3 +1,4 @@
+import { isTerminalStatus } from '../../lib/optimisation/run-progress';
 import type {
   CreateRun,
 } from '../../lib/protocol/types';
@@ -14,6 +15,7 @@ import type {
 interface ResearchSectionProps {
   run: OptimisationRunModel;
   research: ResearchValidationModel;
+  busy: boolean;
   inputLabel: (
     id: string,
   ) => string;
@@ -25,16 +27,10 @@ interface ResearchSectionProps {
   ) => Promise<void>;
 }
 
-const terminal = (
-  status: string | undefined,
-): boolean =>
-  status === 'completed' ||
-  status === 'stopped' ||
-  status === 'failed';
-
 export default function ResearchSection({
   run,
   research,
+  busy,
   inputLabel,
   onLoadExperiment,
   onRerunExperiment,
@@ -42,7 +38,7 @@ export default function ResearchSection({
   const currentResearch =
     run.runConfig?.research;
   const canValidate =
-    terminal(run.progress?.status) &&
+    isTerminalStatus(run.progress?.status) &&
     Boolean(run.progress?.best) &&
     Boolean(
       currentResearch?.robustness.enabled ||
@@ -113,6 +109,7 @@ export default function ResearchSection({
                 }
               : {})}
             busy={research.busy}
+            disabled={busy && !research.busy}
             inputLabel={inputLabel}
             onRun={() => {
               void research.runValidation();
@@ -130,7 +127,7 @@ export default function ResearchSection({
         experiments={
           research.experiments
         }
-        busy={research.busy}
+        busy={busy}
         connected={run.connected}
         activeRunId={run.activeRunId}
         inputLabel={inputLabel}

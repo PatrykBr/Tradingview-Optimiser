@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
-Primitive = str | int | float | bool
+Primitive = str | int | FiniteFloat | bool
 
 
 class ObjectiveDirection(StrEnum):
@@ -33,9 +34,9 @@ class FloatParameter(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["float"]
     name: str
-    low: float
-    high: float
-    step: float | None = None
+    low: FiniteFloat
+    high: FiniteFloat
+    step: FiniteFloat | None = None
     log: bool = False
     condition: ParameterCondition | None = None
 
@@ -99,14 +100,14 @@ class MetricFilter(BaseModel):
     model_config = ConfigDict(extra="forbid")
     metric: str
     operator: Literal["lte", "gte"]
-    value: float
+    value: FiniteFloat
 
 
 class BacktestRange(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: Literal["deep"]
-    start_date: str
-    end_date: str
+    start_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    end_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
     @model_validator(mode="after")
     def validate_dates(self) -> BacktestRange:
@@ -271,6 +272,28 @@ class CreateRun(BaseModel):
                 "baseline contains parameters outside the search space: "
                 f"{sorted(unknown_baseline)!r}"
             )
+
+        for parameter in self.parameters:
+            if parameter.name not in self.baseline_parameters:
+                continue
+            value = self.baseline_parameters[parameter.name]
+            if isinstance(parameter, CategoricalParameter):
+                valid = value in parameter.choices
+            elif isinstance(value, bool) or not isinstance(value, int | float):
+                valid = False
+            else:
+                valid = parameter.low <= value <= parameter.high
+                if isinstance(parameter, IntParameter):
+                    valid = valid and float(value).is_integer()
+                if parameter.step is not None:
+                    index = (Decimal(str(value)) - Decimal(str(parameter.low))) / Decimal(
+                        str(parameter.step)
+                    )
+                    valid = valid and abs(index - round(index)) <= Decimal("1e-8")
+            if not valid:
+                raise ValueError(
+                    f"baseline value for {parameter.name!r} is outside the search space"
+                )
 
         convergence = self.research.convergence
         if convergence.enabled:

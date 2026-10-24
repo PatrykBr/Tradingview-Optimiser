@@ -40,12 +40,15 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     try:
         while True:
-            raw = await websocket.receive_json()
+            raw = None
             try:
+                raw = await websocket.receive_json()
                 envelope = Envelope.model_validate(raw)
                 await _dispatch(websocket, manager, envelope)
             except (ValidationError, ValueError, KeyError) as exc:
                 request_id = raw.get("request_id") if isinstance(raw, dict) else None
+                if not isinstance(request_id, str):
+                    request_id = None
                 if isinstance(exc, UnknownRunError):
                     code = "UNKNOWN_RUN"
                 elif isinstance(exc, StaleTrialError):
@@ -110,7 +113,9 @@ def _status_update(progress: RunProgress) -> RunUpdate:
         reused_trials=progress.reused_trials,
         best=progress.best,
         termination_reason=progress.termination_reason,
-        trial_updates=[],
+        # Include the trial settled by an abort so browser history records its failure.
+        # Re-sending an already known trial on STOP_RUN is safe: clients merge by number.
+        trial_updates=progress.trials[-1:],
     )
 
 

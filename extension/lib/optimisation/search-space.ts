@@ -419,6 +419,12 @@ export const buildBaselineParameters = (
       return {};
     }
 
+    const step = parameter.step ?? (parameter.type === 'int' ? 1 : undefined);
+    if (step !== undefined) {
+      const index = (current - parameter.low) / step;
+      if (Math.abs(index - Math.round(index)) > 1e-8) return {};
+    }
+
     baseline[parameter.name] = current;
   }
 

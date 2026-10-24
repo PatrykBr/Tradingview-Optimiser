@@ -1,3 +1,4 @@
+import { isTerminalStatus } from '../../lib/optimisation/run-progress';
 import {
   useCallback,
   useEffect,
@@ -43,13 +44,6 @@ interface UseResearchValidationOptions {
   strategyId: string;
   setError: ErrorSetter;
 }
-
-const terminalStatus = (
-  status: string | undefined,
-): boolean =>
-  status === 'completed' ||
-  status === 'stopped' ||
-  status === 'failed';
 
 const isAbortError = (
   cause: unknown,
@@ -110,7 +104,7 @@ export function useResearchValidation({
 
   useEffect(() => {
     if (
-      !terminalStatus(
+      !isTerminalStatus(
         run.progress?.status,
       )
     ) {
@@ -156,7 +150,7 @@ export function useResearchValidation({
     if (
       !runId ||
       analysis ||
-      !terminalStatus(status) ||
+      !isTerminalStatus(status) ||
       !run.connected
     ) {
       return;
@@ -232,7 +226,7 @@ export function useResearchValidation({
         !config ||
         !progress ||
         !progress.best ||
-        !terminalStatus(
+        !isTerminalStatus(
           progress.status,
         ) ||
         !settings ||

@@ -4,6 +4,9 @@ import type {
   TrialSummary,
 } from '../protocol/types';
 
+export const isTerminalStatus = (status: RunProgress['status'] | undefined): boolean =>
+  status === 'completed' || status === 'stopped' || status === 'failed';
+
 const orderedTrials = (
   trials: TrialSummary[],
 ): TrialSummary[] => {

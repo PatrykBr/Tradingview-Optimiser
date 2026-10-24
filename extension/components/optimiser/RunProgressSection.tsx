@@ -583,6 +583,7 @@ export default function RunProgressSection({
               <>
                 <div className="trialToolbar">
                   <select
+                    aria-label="Filter trials"
                     value={trialFilter}
                     onChange={(event) =>
                       setTrialFilter(
@@ -607,6 +608,7 @@ export default function RunProgressSection({
                   </select>
 
                   <select
+                    aria-label="Sort trials"
                     value={trialSort}
                     onChange={(event) =>
                       setTrialSort(

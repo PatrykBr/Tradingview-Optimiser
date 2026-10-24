@@ -49,7 +49,7 @@ export const isPrimitive = (
   value: unknown,
 ): value is Primitive =>
   typeof value === 'string' ||
-  typeof value === 'number' ||
+  (typeof value === 'number' && Number.isFinite(value)) ||
   typeof value === 'boolean';
 
 export const isParameterConfig = (

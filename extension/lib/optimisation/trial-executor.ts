@@ -64,6 +64,7 @@ export const evaluateOptimisationTrial =
   async (
     request: EvaluateTrialRequest,
   ): Promise<TrialResult> => {
+    request.signal?.throwIfAborted();
     const startedAt = Date.now();
 
     request.onPhase?.({
@@ -81,6 +82,7 @@ export const evaluateOptimisationTrial =
     );
     const contextPreMs =
       Date.now() - startedAt;
+    request.signal?.throwIfAborted();
 
     request.onPhase?.({
       number:
@@ -100,6 +102,7 @@ export const evaluateOptimisationTrial =
       );
     const evaluationMs =
       Date.now() - evaluationStartedAt;
+    request.signal?.throwIfAborted();
 
     const contextPostStartedAt = Date.now();
     await request.adapter.assertRunContext(
@@ -109,6 +112,7 @@ export const evaluateOptimisationTrial =
     );
     const contextPostMs =
       Date.now() - contextPostStartedAt;
+    request.signal?.throwIfAborted();
 
     request.onPhase?.({
       number:
