@@ -14,16 +14,22 @@ class FakeSocket extends EventTarget {
     FakeSocket.instances.push(this);
   }
 
-  send(raw: string) { this.sent.push(JSON.parse(raw)); }
-  close() { this.readyState = 2; }
+  send(raw: string) {
+    this.sent.push(JSON.parse(raw));
+  }
+  close() {
+    this.readyState = 2;
+  }
   open() {
     this.readyState = FakeSocket.OPEN;
     this.dispatchEvent(new Event('open'));
   }
   message(type: string, payload: unknown, request_id?: string) {
-    this.dispatchEvent(new MessageEvent('message', {
-      data: JSON.stringify({ type, payload, request_id }),
-    }));
+    this.dispatchEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({ type, payload, request_id }),
+      }),
+    );
   }
   authenticate() {
     this.open();
@@ -36,10 +42,14 @@ describe('backend connection lifecycle', () => {
     vi.useFakeTimers();
     FakeSocket.instances = [];
     vi.stubGlobal('WebSocket', FakeSocket);
-    vi.stubGlobal('browser', { storage: { local: {
-      get: vi.fn(async () => ({ backendToken: 'existing-token-123456789' })),
-      set: vi.fn(async () => {}),
-    } } });
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ backendToken: 'existing-token-123456789' })),
+          set: vi.fn(async () => {}),
+        },
+      },
+    });
   });
 
   afterEach(() => {
@@ -60,7 +70,9 @@ describe('backend connection lifecycle', () => {
     await client.connect();
     const socket = FakeSocket.instances[0]!;
     socket.open();
-    await expect(client.startRun('run-1234')).rejects.toMatchObject({ code: 'BACKEND_DISCONNECTED' });
+    await expect(
+      client.request({ type: 'START_RUN', payload: { run_id: 'run-1234' } }),
+    ).rejects.toMatchObject({ code: 'BACKEND_DISCONNECTED' });
     expect(socket.sent.map((message) => message.type)).toEqual(['AUTH']);
   });
 
@@ -70,14 +82,17 @@ describe('backend connection lifecycle', () => {
     const previous = FakeSocket.instances[0]!;
     previous.authenticate();
 
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ token: 'replacement-token-123456789' }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ token: 'replacement-token-123456789' }),
+      })),
+    );
     await client.pair('ABCD1234');
     const current = FakeSocket.instances[1]!;
     current.authenticate();
-    const pending = client.startRun('run-1234');
+    const pending = client.request({ type: 'START_RUN', payload: { run_id: 'run-1234' } });
     const requestId = current.sent.at(-1)!.request_id;
 
     previous.dispatchEvent(Object.assign(new Event('close'), { code: 1008 }));
@@ -85,7 +100,7 @@ describe('backend connection lifecycle', () => {
     expect(client.state).toMatchObject({ connected: true, pairingRequired: false });
 
     current.message('RUN_PROGRESS', {}, requestId);
-    await expect(pending).resolves.toBeUndefined();
+    await expect(pending).resolves.toMatchObject({ type: 'RUN_PROGRESS' });
     await vi.advanceTimersByTimeAsync(20_000);
     expect(current.sent.at(-1)!.type).toBe('PING');
   });

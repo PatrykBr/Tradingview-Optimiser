@@ -1,5 +1,3 @@
-import { isExtensionContextInvalidated } from './extension-context';
-
 export interface SerializedOptimiserError {
   code: string;
   message: string;
@@ -10,11 +8,7 @@ export class OptimiserError extends Error {
   readonly code: string;
   readonly retryable: boolean;
 
-  constructor(
-    code: string,
-    message: string,
-    retryable = false,
-  ) {
+  constructor(code: string, message: string, retryable = false) {
     super(message);
     this.name = 'OptimiserError';
     this.code = code;
@@ -23,11 +17,7 @@ export class OptimiserError extends Error {
 }
 
 const messageFor = (cause: unknown): string =>
-  cause instanceof Error
-    ? cause.message
-    : typeof cause === 'string'
-      ? cause
-      : String(cause);
+  cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : String(cause);
 
 export const toOptimiserError = (
   cause: unknown,
@@ -42,7 +32,7 @@ export const toOptimiserError = (
 
   // Browsers report extension replacement as an error message without a code.
   // Convert that message to a typed error here.
-  if (isExtensionContextInvalidated(message)) {
+  if (/extension context invalidated/i.test(message)) {
     return new OptimiserError(
       'EXTENSION_CONTEXT_INVALIDATED',
       message || 'Extension context invalidated',
@@ -50,11 +40,7 @@ export const toOptimiserError = (
     );
   }
 
-  return new OptimiserError(
-    fallbackCode,
-    message,
-    fallbackRetryable,
-  );
+  return new OptimiserError(fallbackCode, message, fallbackRetryable);
 };
 
 export const serialiseOptimiserError = (
@@ -62,11 +48,7 @@ export const serialiseOptimiserError = (
   fallbackCode = 'INTERNAL_ERROR',
   fallbackRetryable = false,
 ): SerializedOptimiserError => {
-  const error = toOptimiserError(
-    cause,
-    fallbackCode,
-    fallbackRetryable,
-  );
+  const error = toOptimiserError(cause, fallbackCode, fallbackRetryable);
 
   return {
     code: error.code,
@@ -75,12 +57,8 @@ export const serialiseOptimiserError = (
   };
 };
 
-export const isOptimiserErrorCode = (
-  cause: unknown,
-  ...codes: string[]
-): boolean =>
-  cause instanceof OptimiserError &&
-  codes.includes(cause.code);
+export const isOptimiserErrorCode = (cause: unknown, ...codes: string[]): boolean =>
+  cause instanceof OptimiserError && codes.includes(cause.code);
 
 export const combineFailures = (
   primary: unknown,
@@ -97,7 +75,6 @@ export const combineFailures = (
       primaryError.message +
       '. Cleanup/restoration also failed: ' +
       secondaryError.message,
-    primaryError.retryable ||
-      secondaryError.retryable,
+    primaryError.retryable || secondaryError.retryable,
   );
 };

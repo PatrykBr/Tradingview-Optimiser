@@ -1,7 +1,4 @@
-import {
-  useMemo,
-  useState,
-} from 'react';
+import { useMemo, useState } from 'react';
 
 import BackendSection from './optimiser/BackendSection';
 import ResearchSection from './optimiser/ResearchSection';
@@ -18,23 +15,16 @@ interface AppProps {
 }
 
 export default function App({ bridge }: AppProps) {
-  const adapter = useMemo(
-    () => new TradingViewAdapter(bridge),
-    [bridge],
-  );
-  const [error, setError] =
-    useState<string>();
+  const adapter = useMemo(() => new TradingViewAdapter(bridge), [bridge]);
+  const [error, setError] = useState<string>();
 
-  const configuration =
-    useStrategyConfiguration(adapter, setError);
+  const configuration = useStrategyConfiguration(adapter, setError);
 
   const run = useOptimisationRun({
     adapter,
     prepareRun: configuration.prepareRun,
-    restorePersistedRun:
-      configuration.restorePersistedRun,
-    selectedStrategyId:
-      configuration.selectedStrategyId,
+    restorePersistedRun: configuration.restorePersistedRun,
+    selectedStrategyId: configuration.selectedStrategyId,
     setError,
   });
 
@@ -45,10 +35,7 @@ export default function App({ bridge }: AppProps) {
     setError,
   });
 
-  const busy =
-    configuration.busy ||
-    run.busy ||
-    research.busy;
+  const busy = configuration.busy || run.busy || research.busy;
 
   const changeStrategy = (strategyId: string) => {
     setError(undefined);
@@ -57,56 +44,21 @@ export default function App({ bridge }: AppProps) {
   };
 
   const loadExperiment = async (
-    config: Parameters<
-      typeof configuration.loadExperimentConfiguration
-    >[0],
+    config: Parameters<typeof configuration.loadExperimentConfiguration>[0],
   ) => {
     setError(undefined);
 
     try {
-      await configuration.loadExperimentConfiguration(
-        config,
-      );
+      await configuration.loadExperimentConfiguration(config);
       run.clearDisplayedRun();
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : String(cause),
-      );
-    }
-  };
-
-  const rerunExperiment = async (
-    config: Parameters<
-      typeof configuration.prepareExperimentRerun
-    >[0],
-  ) => {
-    setError(undefined);
-
-    try {
-      const prepared =
-        await configuration.prepareExperimentRerun(
-          config,
-        );
-      await run.startPreparedOptimisation(
-        prepared,
-      );
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : String(cause),
-      );
+      setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
 
   return (
     <main className="panel">
-      <BackendSection
-        run={run}
-        busy={busy}
-      />
+      <BackendSection run={run} busy={busy} />
 
       <StrategyConfigurationSection
         model={configuration}
@@ -114,20 +66,14 @@ export default function App({ bridge }: AppProps) {
         connected={run.connected}
         busy={busy}
         onStrategyChange={changeStrategy}
-        onStart={() =>
-          void run.startOptimisation()
-        }
-        onStop={() =>
-          void run.stopOptimisation()
-        }
+        onStart={() => void run.startOptimisation()}
+        onStop={() => void run.stopOptimisation()}
       />
 
       <RunProgressSection
         run={run}
         inputLabel={configuration.inputLabel}
-        fallbackTargetTrials={
-          configuration.form.targetTrials
-        }
+        fallbackTargetTrials={configuration.form.targetTrials}
         busy={busy}
       />
 
@@ -137,11 +83,15 @@ export default function App({ bridge }: AppProps) {
         busy={busy}
         inputLabel={configuration.inputLabel}
         onLoadExperiment={loadExperiment}
-        onRerunExperiment={rerunExperiment}
+        onRerunExperiment={(config) =>
+          run.startOptimisation(() => configuration.prepareExperimentRerun(config))
+        }
       />
 
       {error && (
-        <div className="error" role="alert">{error}</div>
+        <div className="error" role="alert">
+          {error}
+        </div>
       )}
     </main>
   );

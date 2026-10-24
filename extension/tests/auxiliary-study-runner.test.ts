@@ -1,23 +1,12 @@
-import {
-  describe,
-  expect,
-  it,
-} from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   runAuxiliaryStudy,
   type AuxiliaryStudyTransport,
 } from '../lib/optimisation/auxiliary-study-runner';
-import type {
-  BackgroundMessage,
-  ExtensionRequest,
-} from '../lib/messages';
-import type {
-  CreateRun,
-} from '../lib/protocol/types';
-import type {
-  OptimisationTrialAdapter,
-} from '../lib/optimisation/trial-executor';
+import type { BackgroundMessage, ExtensionRequest } from '../lib/messages';
+import type { CreateRun } from '../lib/protocol/types';
+import type { OptimisationTrialAdapter } from '../lib/optimisation/study-trial-runner';
 
 const config: CreateRun = {
   run_id: 'aux-run',
@@ -42,21 +31,11 @@ const config: CreateRun = {
   },
 };
 
-class FakeTransport
-  implements AuxiliaryStudyTransport
-{
-  readonly requests:
-    ExtensionRequest[] = [];
-  readonly listeners =
-    new Set<
-      (
-        message: BackgroundMessage,
-      ) => void
-    >();
+class FakeTransport implements AuxiliaryStudyTransport {
+  readonly requests: ExtensionRequest[] = [];
+  readonly listeners = new Set<(message: BackgroundMessage) => void>();
 
-  async request(
-    request: ExtensionRequest,
-  ): Promise<unknown> {
+  async request(request: ExtensionRequest): Promise<unknown> {
     this.requests.push(request);
 
     if (request.type === 'START_RUN') {
@@ -96,8 +75,7 @@ class FakeTransport
               },
               constraints: {},
             },
-            termination_reason:
-              'target_trials',
+            termination_reason: 'target_trials',
             trial_updates: [
               {
                 trial_number: 0,
@@ -124,32 +102,22 @@ class FakeTransport
     return undefined;
   }
 
-  subscribe(
-    listener: (
-      message: BackgroundMessage,
-    ) => void,
-  ): () => void {
+  subscribe(listener: (message: BackgroundMessage) => void): () => void {
     this.listeners.add(listener);
 
     return () => {
-      this.listeners.delete(
-        listener,
-      );
+      this.listeners.delete(listener);
     };
   }
 
-  emit(
-    message: BackgroundMessage,
-  ): void {
+  emit(message: BackgroundMessage): void {
     for (const listener of this.listeners) {
       listener(message);
     }
   }
 }
 
-class FakeAdapter
-  implements OptimisationTrialAdapter
-{
+class FakeAdapter implements OptimisationTrialAdapter {
   evaluations = 0;
   assertions = 0;
 
@@ -157,9 +125,7 @@ class FakeAdapter
     this.assertions += 1;
   }
 
-  async evaluateParameters(): Promise<
-    Record<string, number>
-  > {
+  async evaluateParameters(): Promise<Record<string, number>> {
     this.evaluations += 1;
 
     return {
@@ -171,32 +137,23 @@ class FakeAdapter
 
 describe('auxiliary study runner', () => {
   it('runs a temporary study through the shared trial runner and cleans it up', async () => {
-    const transport =
-      new FakeTransport();
-    const adapter =
-      new FakeAdapter();
+    const transport = new FakeTransport();
+    const adapter = new FakeAdapter();
 
-    const progress =
-      await runAuxiliaryStudy({
-        transport,
-        adapter,
-        strategyId: 'strategy-1',
-        config,
-        originalParameters: {
-          length: 14,
-        },
-      });
+    const progress = await runAuxiliaryStudy({
+      transport,
+      adapter,
+      strategyId: 'strategy-1',
+      config,
+      originalParameters: {
+        length: 14,
+      },
+    });
 
-    expect(progress.status).toBe(
-      'completed',
-    );
+    expect(progress.status).toBe('completed');
     expect(adapter.evaluations).toBe(1);
     expect(adapter.assertions).toBe(2);
-    expect(
-      transport.requests.map(
-        (request) => request.type,
-      ),
-    ).toEqual([
+    expect(transport.requests.map((request) => request.type)).toEqual([
       'CREATE_RUN',
       'START_RUN',
       'TRIAL_RESULT',
@@ -204,8 +161,6 @@ describe('auxiliary study runner', () => {
       'DELETE_RUN',
       'CLEAR_RUN_OWNER',
     ]);
-    expect(
-      transport.listeners.size,
-    ).toBe(0);
+    expect(transport.listeners.size).toBe(0);
   });
 });

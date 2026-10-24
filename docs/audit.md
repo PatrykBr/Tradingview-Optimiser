@@ -2,6 +2,8 @@
 
 Scope covered the extension UI and lifecycle, TradingView page bridge and report parsing, configuration and search spaces, trial sequencing and recovery, research stages, browser persistence, backend protocol and authentication, Optuna storage, dependency manifests, tests, documentation and Windows packaging.
 
+The initial pass is recorded below. The structural follow-up at the end describes the current architecture.
+
 ## Deleted and simplified
 
 - Replaced repetitive saved-draft migration code with the field lists already used for validation. Versioned migration and nested filter copies remain supported.
@@ -41,3 +43,14 @@ No dependencies were added or upgraded. Existing declared dependencies have acti
 - Existing saved runs with invalid baselines may now fail validation and need a new configuration. Valid saved-run and preset migrations remain covered.
 - PyInstaller still reports missing optional `tzdata`, `pysqlite2` and `MySQLdb` imports. These warnings were not suppressed. SQLite packaging and the actual server flow passed; other database drivers are outside this application's requirements.
 - The extension has no standalone lint configuration. Its configured TypeScript strict/unused checks and test suite were run; backend linting uses Ruff.
+
+## Structural cleanup follow-up
+
+- Deleted four production modules: the independent walk-forward and Monte Carlo runners, the separate trial executor, and the extension-context error helper. Their needed behavior now lives with research orchestration, trial execution and error classification respectively.
+- Research has one entry point and one restoration scope. It runs OOS, stability, walk-forward and Monte Carlo in sequence, preserves cancellation and combined failures, and restores the parent chart only once. The full-stage fixture now makes four range preparations (three training folds and one restoration), down from six.
+- Browser requests and WebSocket commands share one typed backend payload. Removed the eight command-specific `BackendClient` methods, background payload translation and duplicate trial transport adapters. Response types are inferred from the request, and event subscription lives in the message module.
+- Fresh starts and history reruns use the same preparation/start operation, so busy state and errors cover the entire preparation period.
+- Typed field definitions replace repeated settings markup and handlers. Labels, numeric limits, toggles, filters and editing locks remain covered. No general form framework or runtime dependency was introduced.
+- Consolidated duplicated runner fixtures and added cross-stage, cancellation, command forwarding and settings coverage. User aborts still reach the backend before tab ownership finishes loading. All 117 extension tests and 48 backend tests pass, along with TypeScript, Ruff and Chrome/Firefox production builds.
+- Extension production TypeScript decreased by about 2,500 lines across 55 to 51 files. Applying the same Prettier settings to both revisions shows about **865 lines of structural reduction**, with the rest from removing fragmented wrapping in edited files. Tests and documentation are excluded from these production counts.
+- The Chrome production bundle decreased from about 382.38 kB to 372.60 kB in the same environment. No dependency changes or backend protocol changes were needed. A live TradingView account was still unavailable for validation; the earlier integration limits continue to apply.

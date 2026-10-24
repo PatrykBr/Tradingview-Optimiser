@@ -1,17 +1,6 @@
-import {
-  OptimiserError,
-  type SerializedOptimiserError,
-} from './errors';
+import { OptimiserError, type SerializedOptimiserError } from './errors';
 import type { BackendState } from './messages';
-import type {
-  CreateRun,
-  Envelope,
-  NextTrial,
-  RunAnalysis,
-  RunProgress,
-  RunUpdate,
-  TrialResult,
-} from './protocol/types';
+import type { BackendCommand, Envelope, NextTrial, RunProgress, RunUpdate } from './protocol/types';
 
 type BackendEvent =
   | ({ type: 'connection' } & BackendState)
@@ -56,9 +45,7 @@ export class BackendClient {
   get state(): BackendState {
     return {
       connected: this.#authenticated,
-      ...(this.#backendVersion
-        ? { backendVersion: this.#backendVersion }
-        : {}),
+      ...(this.#backendVersion ? { backendVersion: this.#backendVersion } : {}),
       ...(this.#optunaVersion ? { optunaVersion: this.#optunaVersion } : {}),
       pairingRequired: this.#pairingRequired,
     };
@@ -183,81 +170,18 @@ export class BackendClient {
     this.#reconnectTimer = null;
 
     this.#rejectPending(
-      new OptimiserError(
-        'BACKEND_DISCONNECTED',
-        'Backend client disconnected',
-        true,
-      ),
+      new OptimiserError('BACKEND_DISCONNECTED', 'Backend client disconnected', true),
     );
     const socket = this.#socket;
     this.#socket = null;
     socket?.close();
   }
 
-  async createRun(run: CreateRun): Promise<void> {
-    await this.#request('CREATE_RUN', run);
-  }
-
-  async startRun(runId: string): Promise<void> {
-    await this.#request('START_RUN', { run_id: runId });
-  }
-
-  async stopRun(runId: string): Promise<void> {
-    await this.#request('STOP_RUN', { run_id: runId });
-  }
-
-  async abortRun(
-    runId: string,
-    reason: string,
-  ): Promise<void> {
-    await this.#request('ABORT_RUN', {
-      run_id: runId,
-      reason,
-    });
-  }
-
-  async deleteRun(runId: string): Promise<void> {
-    await this.#request('DELETE_RUN', { run_id: runId });
-  }
-
-  async getRunAnalysis(
-    runId: string,
-    config: CreateRun,
-  ): Promise<RunAnalysis> {
-    const response = await this.#request(
-      'GET_RUN_ANALYSIS',
-      {
-        run_id: runId,
-        config,
-      },
-    );
-    return response.payload as RunAnalysis;
-  }
-
-  async submitTrialResult(result: TrialResult): Promise<void> {
-    await this.#request('TRIAL_RESULT', result);
-  }
-
-  async submitTrialFailure(
-    runId: string,
-    trialNumber: number,
-    reason: string,
-  ): Promise<void> {
-    await this.#request('TRIAL_FAILED', {
-      run_id: runId,
-      trial_number: trialNumber,
-      reason,
-    });
-  }
-
-  #request(type: string, payload: unknown): Promise<Envelope> {
+  request(command: BackendCommand): Promise<Envelope> {
+    const { type, payload } = command;
     if (!this.#authenticated || this.#socket?.readyState !== WebSocket.OPEN) {
       return Promise.reject(
-        new OptimiserError(
-          'BACKEND_DISCONNECTED',
-          'Backend is not connected',
-          true,
-        ),
+        new OptimiserError('BACKEND_DISCONNECTED', 'Backend is not connected', true),
       );
     }
 
@@ -271,13 +195,7 @@ export class BackendClient {
     return new Promise<Envelope>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.#pendingRequests.delete(requestId);
-        reject(
-          new OptimiserError(
-            'REQUEST_TIMEOUT',
-            'Backend request timed out: ' + type,
-            true,
-          ),
-        );
+        reject(new OptimiserError('REQUEST_TIMEOUT', 'Backend request timed out: ' + type, true));
 
         // A timeout leaves the request outcome unknown. Reconnect to reconcile
         // the run state before sending more requests.
@@ -298,9 +216,7 @@ export class BackendClient {
         reject(
           new OptimiserError(
             'BACKEND_DISCONNECTED',
-            error instanceof Error
-              ? error.message
-              : String(error),
+            error instanceof Error ? error.message : String(error),
             true,
           ),
         );
@@ -349,14 +265,12 @@ export class BackendClient {
         this.#pendingRequests.delete(message.request_id);
 
         if (message.type === 'ERROR') {
-          const payload =
-            message.payload as Partial<SerializedOptimiserError>;
+          const payload = message.payload as Partial<SerializedOptimiserError>;
 
           pending.reject(
             new OptimiserError(
               payload.code ?? 'BACKEND_ERROR',
-              payload.message ??
-                'Backend rejected the request',
+              payload.message ?? 'Backend rejected the request',
               payload.retryable ?? false,
             ),
           );
@@ -374,10 +288,7 @@ export class BackendClient {
           optuna_version?: string;
         };
 
-        if (
-          payload.protocol_version !==
-          PROTOCOL_VERSION
-        ) {
+        if (payload.protocol_version !== PROTOCOL_VERSION) {
           this.#emit({
             type: 'error',
             message:
@@ -387,10 +298,8 @@ export class BackendClient {
           return;
         }
 
-        this.#backendVersion =
-          payload.backend_version;
-        this.#optunaVersion =
-          payload.optuna_version;
+        this.#backendVersion = payload.backend_version;
+        this.#optunaVersion = payload.optuna_version;
         this.#authenticated = true;
         this.#pairingRequired = false;
         this.#emitConnection();
@@ -420,13 +329,10 @@ export class BackendClient {
         break;
 
       case 'ERROR': {
-        const payload =
-          message.payload as Partial<SerializedOptimiserError>;
+        const payload = message.payload as Partial<SerializedOptimiserError>;
         this.#emit({
           type: 'error',
-          message:
-            payload.message ??
-            'Unknown backend error',
+          message: payload.message ?? 'Unknown backend error',
         });
         break;
       }
@@ -435,8 +341,7 @@ export class BackendClient {
 
   async #loadToken(): Promise<string | null> {
     const stored = await browser.storage.local.get('backendToken');
-    return typeof stored.backendToken === 'string' &&
-      stored.backendToken.length >= 16
+    return typeof stored.backendToken === 'string' && stored.backendToken.length >= 16
       ? stored.backendToken
       : null;
   }

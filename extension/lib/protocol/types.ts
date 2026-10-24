@@ -1,11 +1,6 @@
 export type ObjectiveDirection = 'maximize' | 'minimize';
 export type RunStatus =
-  | 'created'
-  | 'running'
-  | 'stop_requested'
-  | 'stopped'
-  | 'completed'
-  | 'failed';
+  'created' | 'running' | 'stop_requested' | 'stopped' | 'completed' | 'failed';
 
 export type Primitive = string | number | boolean;
 
@@ -128,6 +123,14 @@ export interface TrialResult {
   duration_ms?: number;
 }
 
+export type BackendCommand =
+  | { type: 'CREATE_RUN'; payload: CreateRun }
+  | { type: 'START_RUN' | 'STOP_RUN' | 'DELETE_RUN'; payload: { run_id: string } }
+  | { type: 'ABORT_RUN'; payload: { run_id: string; reason?: string } }
+  | { type: 'GET_RUN_ANALYSIS'; payload: { run_id: string; config: CreateRun } }
+  | { type: 'TRIAL_RESULT'; payload: TrialResult }
+  | { type: 'TRIAL_FAILED'; payload: { run_id: string; trial_number: number; reason: string } };
+
 export interface BestTrial {
   trial_number: number;
   objective_value: number;
@@ -156,40 +159,18 @@ export interface RunProgress {
   failed_trials: number;
   reused_trials?: number;
   best: BestTrial | null;
-  termination_reason?:
-    | 'target_trials'
-    | 'converged'
-    | 'search_space_exhausted'
-    | 'user'
-    | null;
+  termination_reason?: 'target_trials' | 'converged' | 'search_space_exhausted' | 'user' | null;
   trials: TrialSummary[];
 }
 
-export interface RunUpdate {
-  run_id: string;
-  status: RunStatus;
-  completed_trials: number;
-  target_trials: number;
-  failed_trials: number;
-  reused_trials?: number;
-  best: BestTrial | null;
-  termination_reason?:
-    | 'target_trials'
-    | 'converged'
-    | 'search_space_exhausted'
-    | 'user'
-    | null;
+export interface RunUpdate extends Omit<RunProgress, 'trials'> {
   trial_updates: TrialSummary[];
 }
 
 export interface RunAnalysis {
   run_id: string;
   parameter_importance: Record<string, number>;
-  parameter_importance_status:
-    | 'available'
-    | 'insufficient_data'
-    | 'not_applicable'
-    | 'failed';
+  parameter_importance_status: 'available' | 'insufficient_data' | 'not_applicable' | 'failed';
   parameter_importance_error: string | null;
   completed_trials: number;
 }
