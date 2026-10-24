@@ -1,19 +1,11 @@
-import {
-  describe,
-  expect,
-  it,
-} from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   compatibilityFailureReason,
   type CompatibilityAdapter,
 } from '../lib/optimisation/run-compatibility';
-import type {
-  CreateRun,
-} from '../lib/protocol/types';
-import type {
-  TradingViewDiagnostics,
-} from '../lib/tradingview/types';
+import type { CreateRun } from '../lib/protocol/types';
+import type { TradingViewDiagnostics } from '../lib/tradingview/types';
 
 const config: CreateRun = {
   run_id: 'run-1',
@@ -35,72 +27,63 @@ const config: CreateRun = {
   },
 };
 
-const adapterFor = (
-  diagnostics: TradingViewDiagnostics,
-): CompatibilityAdapter => ({
-  diagnostics: async () =>
-    diagnostics,
+const adapterFor = (diagnostics: TradingViewDiagnostics): CompatibilityAdapter => ({
+  diagnostics: async () => diagnostics,
 });
 
 describe('run compatibility', () => {
   it('returns null when all critical checks pass', async () => {
-    const reason =
-      await compatibilityFailureReason(
-        adapterFor({
-          checks: [
-            {
-              id: 'chart-api',
-              label: 'Chart API',
-              ok: true,
-            },
-            {
-              id: 'strategy-signature',
-              label: 'Strategy signature',
-              ok: true,
-            },
-          ],
-          deepBacktesting: {
-            available: true,
-            reason: null,
+    const reason = await compatibilityFailureReason(
+      adapterFor({
+        checks: [
+          {
+            id: 'chart-api',
+            label: 'Chart API',
+            ok: true,
           },
-        }),
-        'strategy-1',
-        config,
-      );
+          {
+            id: 'strategy-signature',
+            label: 'Strategy signature',
+            ok: true,
+          },
+        ],
+        deepBacktesting: {
+          available: true,
+          reason: null,
+        },
+      }),
+      'strategy-1',
+      config,
+    );
 
     expect(reason).toBeNull();
   });
 
   it('combines critical and deep-backtesting failures', async () => {
-    const reason =
-      await compatibilityFailureReason(
-        adapterFor({
-          checks: [
-            {
-              id: 'metrics-readable',
-              label: 'Metrics',
-              ok: false,
-              detail:
-                'report missing',
-            },
-            {
-              id: 'optional-check',
-              label: 'Optional',
-              ok: false,
-            },
-          ],
-          deepBacktesting: {
-            available: false,
-            reason:
-              'not available',
+    const reason = await compatibilityFailureReason(
+      adapterFor({
+        checks: [
+          {
+            id: 'metrics-readable',
+            label: 'Metrics',
+            ok: false,
+            detail: 'report missing',
           },
-        }),
-        'strategy-1',
-        config,
-      );
-
-    expect(reason).toBe(
-      'Metrics: report missing; Deep Backtesting: not available',
+          {
+            id: 'optional-check',
+            label: 'Optional',
+            ok: false,
+          },
+        ],
+        deepBacktesting: {
+          available: false,
+          reason: 'not available',
+        },
+      }),
+      'strategy-1',
+      config,
     );
+
+    expect(reason).toBe('Metrics: report missing; Deep Backtesting: not available');
   });
 });

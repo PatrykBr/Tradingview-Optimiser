@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { runTradeMonteCarlo } from '../lib/optimisation/monte-carlo';
 
@@ -16,27 +16,11 @@ describe('trade Monte Carlo', () => {
     const snapshot = {
       available: true,
       reason: null,
-      trades: [
-        { pnl: 100 },
-        { pnl: -50 },
-        { pnl: 80 },
-        { pnl: -30 },
-        { pnl: 60 },
-      ],
+      trades: [{ pnl: 100 }, { pnl: -50 }, { pnl: 80 }, { pnl: -30 }, { pnl: 60 }],
     };
 
-    const first = await runTradeMonteCarlo(
-      snapshot,
-      1_000,
-      0.9,
-      context,
-    );
-    const second = await runTradeMonteCarlo(
-      snapshot,
-      1_000,
-      0.9,
-      context,
-    );
+    const first = await runTradeMonteCarlo(snapshot, 1_000, 0.9, context);
+    const second = await runTradeMonteCarlo(snapshot, 1_000, 0.9, context);
 
     expect(first).toEqual(second);
     expect(first.available).toBe(true);
@@ -73,14 +57,7 @@ describe('trade Monte Carlo', () => {
       {
         available: true,
         reason: null,
-        trades: [
-          { pnl: 20 },
-          { pnl: 15 },
-          { pnl: -10 },
-          { pnl: 25 },
-          { pnl: -8 },
-          { pnl: 12 },
-        ],
+        trades: [{ pnl: 20 }, { pnl: 15 }, { pnl: -10 }, { pnl: 25 }, { pnl: -8 }, { pnl: 12 }],
       },
       2_000,
       0.9,

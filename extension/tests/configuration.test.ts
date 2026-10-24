@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   buildBacktestRange,
@@ -116,10 +116,7 @@ describe('optimisation configuration', () => {
   });
 
   it('restores parameter search-space settings from a run', () => {
-    const configs = parameterConfigsFromRun(
-      inputs,
-      run,
-    );
+    const configs = parameterConfigsFromRun(inputs, run);
 
     expect(configs.in_0).toMatchObject({
       enabled: true,
@@ -137,19 +134,13 @@ describe('optimisation configuration', () => {
   it('builds filters and Deep Backtesting range from the form', () => {
     const form = formFromRun(run);
 
-    expect(buildMetricFilters(form)).toEqual(
-      run.filters,
-    );
-    expect(buildBacktestRange(form)).toEqual(
-      run.backtest_range,
-    );
+    expect(buildMetricFilters(form)).toEqual(run.filters);
+    expect(buildBacktestRange(form)).toEqual(run.backtest_range ?? null);
   });
 
   it('validates trial counts and date ranges', () => {
     expect(parseTargetTrials('1000')).toBe(1000);
-    expect(() => parseTargetTrials('0')).toThrow(
-      /between 1 and 100,000/,
-    );
+    expect(() => parseTargetTrials('0')).toThrow(/between 1 and 100,000/);
     expect(() =>
       buildBacktestRange({
         ...DEFAULT_OPTIMISATION_FORM,
@@ -173,17 +164,9 @@ describe('optimisation configuration', () => {
   });
 
   it('keeps disabled research inert for small runs', () => {
-    expect(() =>
-      buildResearchPlan(
-        DEFAULT_OPTIMISATION_FORM,
-        5,
-      ),
-    ).not.toThrow();
+    expect(() => buildResearchPlan(DEFAULT_OPTIMISATION_FORM, 5)).not.toThrow();
 
-    const plan = buildResearchPlan(
-      DEFAULT_OPTIMISATION_FORM,
-      5,
-    );
+    const plan = buildResearchPlan(DEFAULT_OPTIMISATION_FORM, 5);
     expect(plan.research.convergence.enabled).toBe(false);
     expect(plan.research.robustness.enabled).toBe(false);
     expect(plan.research.stability.enabled).toBe(false);
@@ -245,8 +228,6 @@ describe('optimisation configuration', () => {
       start_date: '2020-01-01',
       end_date: '2024-12-31',
     });
-    expect(plan.backtestRange?.end_date).not.toBe(
-      '2024-12-31',
-    );
+    expect(plan.backtestRange?.end_date).not.toBe('2024-12-31');
   });
 });

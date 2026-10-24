@@ -33,10 +33,7 @@ export const metricDefinition = (key: string): MetricDefinition =>
 export const formatMetric = (key: string, value: number): string => {
   if (!Number.isFinite(value)) return 'Unavailable';
 
-  if (
-    key.toLowerCase().includes('percent') ||
-    key === 'netProfitPercent'
-  ) {
+  if (key.toLowerCase().includes('percent') || key === 'netProfitPercent') {
     return value.toFixed(2) + '%';
   }
 

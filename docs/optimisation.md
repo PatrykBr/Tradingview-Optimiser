@@ -6,14 +6,14 @@
 
 Optuna optimises one TradingView metric. Filters set requirements for the other metrics. A feasible trial passes every enabled filter.
 
-| Setting | Effect |
-| --- | --- |
-| Metric | Selects the performance metric to maximise or minimise. |
-| Max trials | Limits the number of Optuna trials. Start with 5 to 20 trials to check the setup. |
-| Custom Deep Backtesting range | Uses a fixed historical period. Requires TradingView Deep Backtesting access. |
-| Max drawdown % | Rejects trials above the drawdown limit. |
-| Min profit factor | Rejects trials below the profit factor limit. |
-| Min trades | Rejects trials with too few trades. |
+| Setting                       | Effect                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------- |
+| Metric                        | Selects the performance metric to maximise or minimise.                           |
+| Max trials                    | Limits the number of Optuna trials. Start with 5 to 20 trials to check the setup. |
+| Custom Deep Backtesting range | Uses a fixed historical period. Requires TradingView Deep Backtesting access.     |
+| Max drawdown %                | Rejects trials above the drawdown limit.                                          |
+| Min profit factor             | Rejects trials below the profit factor limit.                                     |
+| Min trades                    | Rejects trials with too few trades.                                               |
 
 Filters do not add objectives. A trial can have the highest objective value and still fail a filter.
 
@@ -21,13 +21,13 @@ The extension uses the current strategy settings for the baseline trial when the
 
 ## Set parameter ranges
 
-| Setting | Effect |
-| --- | --- |
-| Min / Max | Sets the numeric search interval. Choose values that make sense for the strategy. |
-| Step | Restricts numeric values to fixed increments. Leave it blank for Auto. |
-| Logarithmic search | Samples a positive range by ratio. Useful when values span several orders of magnitude. |
-| Categorical choices | Selects the boolean or dropdown values Optuna may test. |
-| Active when | Samples a parameter only when its controller has a selected value. |
+| Setting             | Effect                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| Min / Max           | Sets the numeric search interval. Choose values that make sense for the strategy.       |
+| Step                | Restricts numeric values to fixed increments. Leave it blank for Auto.                  |
+| Logarithmic search  | Samples a positive range by ratio. Useful when values span several orders of magnitude. |
+| Categorical choices | Selects the boolean or dropdown values Optuna may test.                                 |
+| Active when         | Samples a parameter only when its controller has a selected value.                      |
 
 ### Step and Auto
 
@@ -35,13 +35,13 @@ A range of `0.5` to `2.0` with step `0.1` allows values such as `0.5`, `0.6` and
 
 Auto resolves the step as follows:
 
-| Input | Auto behaviour |
-| --- | --- |
-| Pine declares a step that TradingView exposes | Uses the declared step. |
-| Integer with no declared step | Uses `1`. |
-| Float with no declared step | Uses continuous sampling. |
-| Logarithmic float | Uses continuous sampling. A fixed step cannot accompany `log=true`. |
-| Logarithmic integer | Uses integer values with step `1`. |
+| Input                                         | Auto behaviour                                                      |
+| --------------------------------------------- | ------------------------------------------------------------------- |
+| Pine declares a step that TradingView exposes | Uses the declared step.                                             |
+| Integer with no declared step                 | Uses `1`.                                                           |
+| Float with no declared step                   | Uses continuous sampling.                                           |
+| Logarithmic float                             | Uses continuous sampling. A fixed step cannot accompany `log=true`. |
+| Logarithmic integer                           | Uses integer values with step `1`.                                  |
 
 Override Auto when the strategy needs a specific increment, such as testing an ATR multiplier in steps of `0.25`.
 
@@ -57,12 +57,12 @@ Logarithmic search requires a positive minimum. The extension disables the custo
 
 Use **Active when** when an input matters only in a particular mode. For example:
 
-| Parameter | Active when Stop-Loss Type is |
-| --- | --- |
-| ATR Period | ATR Bars |
-| ATR Multiplier | ATR Bars |
-| Stop-Loss % | Percent |
-| Swing H/L Lookback | Swing H/L |
+| Parameter          | Active when Stop-Loss Type is |
+| ------------------ | ----------------------------- |
+| ATR Period         | ATR Bars                      |
+| ATR Multiplier     | ATR Bars                      |
+| Stop-Loss %        | Percent                       |
+| Swing H/L Lookback | Swing H/L                     |
 
 Any Pine boolean or dropdown can control another parameter. Selecting a controller adds it to the search space if it is not already enabled. The backend samples controllers before their dependent parameters, regardless of their order in the Pine script. It rejects circular dependencies.
 

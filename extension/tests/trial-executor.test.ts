@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   evaluateOptimisationTrial,
@@ -44,12 +44,12 @@ describe('optimisation trial execution', () => {
       const controller = new AbortController();
       let checks = 0;
       const adapter = {
-        assertRunContext: vi.fn(async () => {
+        assertRunContext: mock(async () => {
           checks += 1;
           if ((phase === 'checking' && checks === 1) || (phase === 'verification' && checks === 2))
             controller.abort();
         }),
-        evaluateParameters: vi.fn(async () => {
+        evaluateParameters: mock(async () => {
           if (phase === 'evaluation') controller.abort();
           return { profitFactor: 2 };
         }),
@@ -72,8 +72,8 @@ describe('optimisation trial execution', () => {
 
   it('records phase timings without changing strategy metrics', async () => {
     const adapter = {
-      assertRunContext: vi.fn().mockResolvedValue(undefined),
-      evaluateParameters: vi.fn().mockResolvedValue({
+      assertRunContext: mock().mockResolvedValue(undefined),
+      evaluateParameters: mock().mockResolvedValue({
         profitFactor: 1.75,
         totalTrades: 120,
       }),

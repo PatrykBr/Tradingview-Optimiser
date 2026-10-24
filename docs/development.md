@@ -4,12 +4,12 @@
 
 ## Local setup
 
-Requirements are Python 3.12 or later, `uv`, Node.js and the pnpm version in [package.json](../package.json).
+Requirements are Python 3.12 or later, `uv`, and Bun 1.4.4 or later, pinned in [package.json](../package.json).
 
 Install extension dependencies from the repository root:
 
 ```sh
-pnpm install
+bun install
 ```
 
 Install and start the backend in another terminal:
@@ -23,39 +23,55 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8765
 Start the extension from the repository root:
 
 ```sh
-pnpm extension:dev
+bun run extension:dev
 ```
 
-Use `pnpm extension:dev:firefox` for Firefox. Enter the pairing code from the backend terminal in the extension on first use.
+Use `bun run extension:dev:firefox` for Firefox. Enter the pairing code from the backend terminal in the extension on first use.
 
-Commit changes to `pnpm-lock.yaml` and `backend/uv.lock` when dependencies change. The backend permits prerelease dependencies because it pins Optuna `5.0.0rc1`.
+Commit changes to `bun.lock` and `backend/uv.lock` when dependencies change. The backend permits prerelease dependencies because it pins Optuna `5.0.0rc1`.
 
-The backend's `.python-version` selects Python 3.12 for reproducible development and packaging. Extension installation runs `wxt prepare` to generate its TypeScript configuration before type checking.
+The backend's `.python-version` selects Python 3.12 for reproducible development and packaging. Extension installation runs `wxt prepare` under Bun to generate its TypeScript configuration before type checking. For reproducible installs, use `bun install --frozen-lockfile` and `uv sync --locked`.
 
 ## Checks and builds
 
-Run extension checks from the repository root:
+Run formatting, browser/test type checks, extension tests, Python tests and Ruff together from the repository root:
 
 ```sh
-pnpm extension:typecheck
-pnpm extension:test
-pnpm extension:build
-pnpm extension:build:firefox
+bun run verify
 ```
 
-Run backend tests from the `backend` directory:
+Bun runs these independent checks in parallel. Build browser targets separately because WXT generates shared configuration:
 
 ```sh
-uv run pytest
-uv run ruff check .
+bun run extension:typecheck
+bun run extension:test
+bun run extension:build
+bun run extension:build:firefox
 ```
+
+Other Bun tools:
+
+```sh
+bun run format
+bun run extension:test:watch
+bun run extension:test:coverage
+bun run extension:zip
+bun run extension:zip:firefox
+bun audit
+```
+
+Tests use `bun:test` with a fresh global and module registry per file (`--isolate`), so module mocks cannot leak into other suites. To run files across CPU cores, use `bun run extension:test --parallel=4`. Test-only Bun declarations live in `tsconfig.test.json`; browser code is checked without Bun globals. `bun check` performs type checking; the matching TypeScript package remains for editor support. After upgrading Bun, check `bun -p process.versions.typescript` and keep the editor package aligned.
+
+Bun's formatter configuration lives in `bunfig.toml`. Its native linter is currently canary-only, so stable development uses strict/unused TypeScript checks and Ruff. The backend checks can also run separately with `bun run backend:test` and `bun run backend:lint`.
+
+Firefox ZIP packaging also produces a source archive containing the workspace manifest and `bun.lock`. Extract it, run `bun install --frozen-lockfile`, then `bun run extension:build:firefox` to rebuild the extension with the same dependency versions.
 
 ## Windows companion
 
 The companion packages the same FastAPI and Optuna backend as a single console executable. Build it from the repository root on Windows:
 
 ```powershell
-pnpm backend:build-companion
+bun run backend:build-companion
 ```
 
 The build writes:

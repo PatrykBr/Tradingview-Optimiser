@@ -1,15 +1,7 @@
-import type {
-  RunProgress,
-} from '../protocol/types';
-import type {
-  ResearchEvaluation,
-} from './research';
+import type { RunProgress } from '../protocol/types';
+import type { ResearchEvaluation } from './research';
 
-export type EvidenceRating =
-  | 'strong'
-  | 'moderate'
-  | 'weak'
-  | 'insufficient';
+export type EvidenceRating = 'strong' | 'moderate' | 'weak' | 'insufficient';
 
 export interface EvidenceArea {
   id: string;
@@ -24,22 +16,15 @@ export interface ResearchVerdict {
   concerns: string[];
 }
 
-const tradeSampleArea = (
-  progress: RunProgress,
-): EvidenceArea => {
-  const totalTrades =
-    progress.best?.metrics.totalTrades;
+const tradeSampleArea = (progress: RunProgress): EvidenceArea => {
+  const totalTrades = progress.best?.metrics.totalTrades;
 
-  if (
-    typeof totalTrades !== 'number' ||
-    !Number.isFinite(totalTrades)
-  ) {
+  if (typeof totalTrades !== 'number' || !Number.isFinite(totalTrades)) {
     return {
       id: 'sample',
       label: 'Trade sample',
       rating: 'insufficient',
-      detail:
-        'TradingView did not expose a trade count for the best result.',
+      detail: 'TradingView did not expose a trade count for the best result.',
     };
   }
 
@@ -48,9 +33,7 @@ const tradeSampleArea = (
       id: 'sample',
       label: 'Trade sample',
       rating: 'strong',
-      detail:
-        Math.round(totalTrades) +
-        ' trades form a broad historical sample.',
+      detail: Math.round(totalTrades) + ' trades form a broad historical sample.',
     };
   }
 
@@ -59,9 +42,7 @@ const tradeSampleArea = (
       id: 'sample',
       label: 'Trade sample',
       rating: 'moderate',
-      detail:
-        Math.round(totalTrades) +
-        ' trades leave sampling uncertainty.',
+      detail: Math.round(totalTrades) + ' trades leave sampling uncertainty.',
     };
   }
 
@@ -75,34 +56,21 @@ const tradeSampleArea = (
   };
 };
 
-const robustnessArea = (
-  research: ResearchEvaluation,
-): EvidenceArea | null => {
-  const result =
-    research.robustness;
-  const winner =
-    result?.candidates[0];
+const robustnessArea = (research: ResearchEvaluation): EvidenceArea | null => {
+  const result = research.robustness;
+  const winner = result?.candidates[0];
 
   if (!result || !winner) {
     return null;
   }
 
-  const passRate =
-    winner.totalWindows > 0
-      ? winner.passedWindows /
-        winner.totalWindows
-      : 0;
-  const degradation =
-    winner.degradationPercent;
+  const passRate = winner.totalWindows > 0 ? winner.passedWindows / winner.totalWindows : 0;
+  const degradation = winner.degradationPercent;
 
   const rating: EvidenceRating =
-    passRate === 1 &&
-    degradation !== null &&
-    degradation <= 20
+    passRate === 1 && degradation !== null && degradation <= 20
       ? 'strong'
-      : passRate >= 0.67 &&
-          (degradation === null ||
-            degradation <= 40)
+      : passRate >= 0.67 && (degradation === null || degradation <= 40)
         ? 'moderate'
         : 'weak';
 
@@ -117,25 +85,19 @@ const robustnessArea = (
       ' unseen folds passed' +
       (degradation === null
         ? '.'
-        : ', with ' +
-          degradation.toFixed(1) +
-          '% objective degradation.'),
+        : ', with ' + degradation.toFixed(1) + '% objective degradation.'),
   };
 };
 
-const stabilityArea = (
-  research: ResearchEvaluation,
-): EvidenceArea | null => {
-  const result =
-    research.stability;
+const stabilityArea = (research: ResearchEvaluation): EvidenceArea | null => {
+  const result = research.stability;
 
   if (!result) return null;
 
   const rating: EvidenceRating =
     result.overallRating === 'strong'
       ? 'strong'
-      : result.overallRating ===
-          'moderate'
+      : result.overallRating === 'moderate'
         ? 'moderate'
         : 'weak';
 
@@ -146,33 +108,21 @@ const stabilityArea = (
     detail:
       result.overallRating === 'strong'
         ? 'Nearby numeric parameter values retained similar performance.'
-        : result.overallRating ===
-            'moderate'
+        : result.overallRating === 'moderate'
           ? 'Some nearby parameter values reduced performance.'
           : 'Small parameter changes caused large degradation or filter failures.',
   };
 };
 
-const walkForwardArea = (
-  research: ResearchEvaluation,
-): EvidenceArea | null => {
-  const result =
-    research.walkForward;
+const walkForwardArea = (research: ResearchEvaluation): EvidenceArea | null => {
+  const result = research.walkForward;
 
   if (!result) return null;
 
-  const passRate =
-    result.totalFolds > 0
-      ? result.passedFolds /
-        result.totalFolds
-      : 0;
+  const passRate = result.totalFolds > 0 ? result.passedFolds / result.totalFolds : 0;
 
   const rating: EvidenceRating =
-    passRate >= 0.75
-      ? 'strong'
-      : passRate >= 0.5
-        ? 'moderate'
-        : 'weak';
+    passRate >= 0.75 ? 'strong' : passRate >= 0.5 ? 'moderate' : 'weak';
 
   return {
     id: 'walk-forward',
@@ -186,11 +136,8 @@ const walkForwardArea = (
   };
 };
 
-const monteCarloArea = (
-  research: ResearchEvaluation,
-): EvidenceArea | null => {
-  const result =
-    research.monteCarlo;
+const monteCarloArea = (research: ResearchEvaluation): EvidenceArea | null => {
+  const result = research.monteCarlo;
 
   if (!result) return null;
 
@@ -199,45 +146,32 @@ const monteCarloArea = (
       id: 'monte-carlo',
       label: 'Monte Carlo',
       rating: 'insufficient',
-      detail:
-        result.reason ??
-        'Trade-level data was unavailable.',
+      detail: result.reason ?? 'Trade-level data was unavailable.',
     };
   }
 
-  const lossProbability =
-    result.probabilityOfLoss;
+  const lossProbability = result.probabilityOfLoss;
 
   if (lossProbability === null) {
     return {
       id: 'monte-carlo',
       label: 'Monte Carlo',
       rating: 'insufficient',
-      detail:
-        'The simulation did not produce a usable loss probability.',
+      detail: 'The simulation did not produce a usable loss probability.',
     };
   }
 
   const rawRating: EvidenceRating =
-    lossProbability <= 0.05
-      ? 'strong'
-      : lossProbability <= 0.2
-        ? 'moderate'
-        : 'weak';
+    lossProbability <= 0.05 ? 'strong' : lossProbability <= 0.2 ? 'moderate' : 'weak';
   const rating: EvidenceRating =
-    result.source === 'optimisation' &&
-    rawRating === 'strong'
-      ? 'moderate'
-      : rawRating;
+    result.source === 'optimisation' && rawRating === 'strong' ? 'moderate' : rawRating;
 
   return {
     id: 'monte-carlo',
     label: 'Monte Carlo',
     rating,
     detail:
-      (
-        lossProbability * 100
-      ).toFixed(1) +
+      (lossProbability * 100).toFixed(1) +
       '% of bootstrap simulations finished with negative cumulative PnL' +
       (result.source === 'oos'
         ? ' on the unseen OOS trade sample.'
@@ -245,34 +179,19 @@ const monteCarloArea = (
   };
 };
 
-const overallFrom = (
-  areas: EvidenceArea[],
-): EvidenceRating => {
-  const rated = areas.filter(
-    (area) =>
-      area.rating !==
-      'insufficient',
-  );
+const overallFrom = (areas: EvidenceArea[]): EvidenceRating => {
+  const rated = areas.filter((area) => area.rating !== 'insufficient');
 
   if (rated.length === 0) {
     return 'insufficient';
   }
 
-  const weak = rated.filter(
-    (area) =>
-      area.rating === 'weak',
-  ).length;
-  const strong = rated.filter(
-    (area) =>
-      area.rating === 'strong',
-  ).length;
+  const weak = rated.filter((area) => area.rating === 'weak').length;
+  const strong = rated.filter((area) => area.rating === 'strong').length;
 
   if (weak >= 2) return 'weak';
 
-  if (
-    weak === 0 &&
-    strong >= 2
-  ) {
+  if (weak === 0 && strong >= 2) {
     return 'strong';
   }
 
@@ -283,9 +202,7 @@ export const buildResearchVerdict = (
   progress: RunProgress,
   research: ResearchEvaluation,
 ): ResearchVerdict => {
-  const areas: EvidenceArea[] = [
-    tradeSampleArea(progress),
-  ];
+  const areas: EvidenceArea[] = [tradeSampleArea(progress)];
 
   for (const area of [
     robustnessArea(research),
@@ -297,22 +214,11 @@ export const buildResearchVerdict = (
   }
 
   const concerns = areas
-    .filter(
-      (area) =>
-        area.rating === 'weak' ||
-        area.rating ===
-          'insufficient',
-    )
-    .map(
-      (area) =>
-        area.label +
-        ': ' +
-        area.detail,
-    );
+    .filter((area) => area.rating === 'weak' || area.rating === 'insufficient')
+    .map((area) => area.label + ': ' + area.detail);
 
   return {
-    overall:
-      overallFrom(areas),
+    overall: overallFrom(areas),
     areas,
     concerns,
   };

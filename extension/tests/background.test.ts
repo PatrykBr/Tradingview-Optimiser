@@ -1,13 +1,14 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { mockGlobal } from './helpers/globals';
+import { beforeEach, expect, it, mock } from 'bun:test';
 import type { BackendCommand, Envelope } from '../lib/protocol/types';
 import type { ExtensionRequest } from '../lib/messages';
 
-const backend = vi.hoisted(() => ({
-  subscribe: vi.fn(),
-  connect: vi.fn(async () => {}),
-  request: vi.fn<(command: BackendCommand) => Promise<Envelope>>(),
-}));
-vi.mock('../lib/backend-client', () => ({
+const backend = {
+  subscribe: mock(),
+  connect: mock(async () => {}),
+  request: mock<(command: BackendCommand) => Promise<Envelope>>(),
+};
+mock.module('../lib/backend-client', () => ({
   BackendClient: class {
     subscribe = backend.subscribe;
     connect = backend.connect;
@@ -15,7 +16,6 @@ vi.mock('../lib/backend-client', () => ({
   },
 }));
 beforeEach(() => backend.request.mockReset().mockResolvedValue({ type: 'ACK', payload: {} }));
-afterEach(() => vi.unstubAllGlobals());
 
 async function startBackground(
   owners = Promise.resolve({ runOwners: {} as Record<string, number> }),
@@ -25,15 +25,15 @@ async function startBackground(
     sender: unknown,
     reply: (value: unknown) => void,
   ) => void = () => {};
-  const set = vi.fn(async () => {});
-  vi.stubGlobal('defineBackground', (start: () => void) => start);
-  vi.stubGlobal('browser', {
-    storage: { local: { get: vi.fn(() => owners), set } },
-    tabs: { query: vi.fn(async () => []) },
-    action: { onClicked: { addListener: vi.fn() } },
+  const set = mock(async () => {});
+  mockGlobal('defineBackground', (start: () => void) => start);
+  mockGlobal('browser', {
+    storage: { local: { get: mock(() => owners), set } },
+    tabs: { query: mock(async () => []) },
+    action: { onClicked: { addListener: mock() } },
     runtime: {
       onMessage: {
-        addListener: vi.fn((callback: typeof listener) => {
+        addListener: mock((callback: typeof listener) => {
           listener = callback;
         }),
       },

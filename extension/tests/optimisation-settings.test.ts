@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 import OptimisationSettingsSection from '../components/optimiser/OptimisationSettingsSection';
 import type { StrategyConfigurationModel } from '../components/optimiser/useStrategyConfiguration';
 import {
@@ -20,8 +20,8 @@ const render = (patch: Partial<OptimisationDraft> = {}, activeRunId: string | nu
       activeRunId,
       connected: true,
       busy: false,
-      onStart: vi.fn(),
-      onStop: vi.fn(),
+      onStart: mock(),
+      onStop: mock(),
     }),
   );
 };

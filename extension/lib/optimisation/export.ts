@@ -14,25 +14,12 @@ const csvCell = (value: unknown): string => {
 const collectKeys = (
   trials: TrialSummary[],
   selector: (trial: TrialSummary) => Record<string, unknown>,
-): string[] =>
-  [...new Set(trials.flatMap((trial) => Object.keys(selector(trial))))].sort();
+): string[] => [...new Set(trials.flatMap((trial) => Object.keys(selector(trial))))].sort();
 
-export const buildTrialsCsv = (
-  config: CreateRun,
-  progress: RunProgress,
-): string => {
-  const parameterKeys = collectKeys(
-    progress.trials,
-    (trial) => trial.parameters,
-  );
-  const metricKeys = collectKeys(
-    progress.trials,
-    (trial) => trial.metrics,
-  );
-  const constraintKeys = collectKeys(
-    progress.trials,
-    (trial) => trial.constraints,
-  );
+export const buildTrialsCsv = (config: CreateRun, progress: RunProgress): string => {
+  const parameterKeys = collectKeys(progress.trials, (trial) => trial.parameters);
+  const metricKeys = collectKeys(progress.trials, (trial) => trial.metrics);
+  const constraintKeys = collectKeys(progress.trials, (trial) => trial.constraints);
 
   const header = [
     'trial',
@@ -69,9 +56,7 @@ export const buildTrialsCsv = (
     [
       'backtest_range',
       config.backtest_range
-        ? config.backtest_range.start_date +
-          ' to ' +
-          config.backtest_range.end_date
+        ? config.backtest_range.start_date + ' to ' + config.backtest_range.end_date
         : 'chart history',
     ],
   ];
@@ -84,10 +69,7 @@ export const buildTrialsCsv = (
   ].join('\r\n');
 };
 
-export const buildRunJson = (
-  config: CreateRun,
-  progress: RunProgress,
-): string =>
+export const buildRunJson = (config: CreateRun, progress: RunProgress): string =>
   JSON.stringify(
     {
       config,
@@ -98,16 +80,13 @@ export const buildRunJson = (
     2,
   );
 
-
 interface RunExport {
   filename: string;
   mimeType: string;
   content: string;
 }
 
-const safeFilename = (
-  value: string,
-): string =>
+const safeFilename = (value: string): string =>
   value
     .replace(/[^a-z0-9._-]+/gi, '-')
     .replace(/^-+|-+$/g, '')
@@ -118,27 +97,12 @@ export const buildRunExport = (
   progress: RunProgress,
   format: 'csv' | 'json',
 ): RunExport => {
-  const base =
-    safeFilename(
-      config.chart.strategy_name,
-    ) +
-    '-' +
-    config.run_id.slice(0, 8);
+  const base = safeFilename(config.chart.strategy_name) + '-' + config.run_id.slice(0, 8);
   const isCsv = format === 'csv';
 
   return {
     filename: base + '.' + format,
-    mimeType: isCsv
-      ? 'text/csv'
-      : 'application/json',
-    content: isCsv
-      ? buildTrialsCsv(
-          config,
-          progress,
-        )
-      : buildRunJson(
-          config,
-          progress,
-        ),
+    mimeType: isCsv ? 'text/csv' : 'application/json',
+    content: isCsv ? buildTrialsCsv(config, progress) : buildRunJson(config, progress),
   };
 };

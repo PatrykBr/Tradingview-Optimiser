@@ -1,34 +1,20 @@
-import type {
-  ObjectiveDirection,
-  TrialSummary,
-} from '../protocol/types';
+import type { ObjectiveDirection, TrialSummary } from '../protocol/types';
 
 export type TrialFilter = 'all' | 'valid' | 'filtered' | 'failed';
 export type TrialSort =
-  | 'trial-desc'
-  | 'trial-asc'
-  | 'objective-best'
-  | 'objective-worst'
-  | 'duration';
+  'trial-desc' | 'trial-asc' | 'objective-best' | 'objective-worst' | 'duration';
 
 export const isFeasibleTrial = (trial: TrialSummary): boolean =>
-  trial.state === 'complete' &&
-  Object.values(trial.constraints).every((value) => value <= 0);
+  trial.state === 'complete' && Object.values(trial.constraints).every((value) => value <= 0);
 
-export const filterTrials = (
-  trials: TrialSummary[],
-  filter: TrialFilter,
-): TrialSummary[] => {
+export const filterTrials = (trials: TrialSummary[], filter: TrialFilter): TrialSummary[] => {
   if (filter === 'all') return trials;
 
   return trials.filter((trial) => {
     if (filter === 'failed') return trial.state === 'failed';
     if (filter === 'valid') return isFeasibleTrial(trial);
 
-    return (
-      trial.state === 'complete' &&
-      !isFeasibleTrial(trial)
-    );
+    return trial.state === 'complete' && !isFeasibleTrial(trial);
   });
 };
 
@@ -37,15 +23,9 @@ export const sortTrials = (
   sort: TrialSort,
   direction: ObjectiveDirection,
 ): TrialSummary[] => {
-  const objective = (
-    trial: TrialSummary,
-  ): number => {
-    if (
-      trial.objective_value === null
-    ) {
-      return direction === 'maximize'
-        ? Number.NEGATIVE_INFINITY
-        : Number.POSITIVE_INFINITY;
+  const objective = (trial: TrialSummary): number => {
+    if (trial.objective_value === null) {
+      return direction === 'maximize' ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
     }
     return trial.objective_value;
   };
@@ -62,22 +42,14 @@ export const sortTrials = (
 
   switch (sort) {
     case 'duration':
-      return copy.sort(
-        (a, b) =>
-          (b.duration_ms ?? -1) -
-          (a.duration_ms ?? -1),
-      );
+      return copy.sort((a, b) => (b.duration_ms ?? -1) - (a.duration_ms ?? -1));
     case 'objective-worst':
       return copy.sort((a, b) =>
-        direction === 'maximize'
-          ? objective(a) - objective(b)
-          : objective(b) - objective(a),
+        direction === 'maximize' ? objective(a) - objective(b) : objective(b) - objective(a),
       );
     case 'objective-best':
       return copy.sort((a, b) =>
-        direction === 'maximize'
-          ? objective(b) - objective(a)
-          : objective(a) - objective(b),
+        direction === 'maximize' ? objective(b) - objective(a) : objective(a) - objective(b),
       );
   }
 };
@@ -95,41 +67,23 @@ export const bestSoFar = (
   const points: BestSoFarPoint[] = [];
 
   let ordered = true;
-  for (
-    let index = 1;
-    index < trials.length;
-    index += 1
-  ) {
-    if (
-      trials[index - 1]!.trial_number >
-      trials[index]!.trial_number
-    ) {
+  for (let index = 1; index < trials.length; index += 1) {
+    if (trials[index - 1]!.trial_number > trials[index]!.trial_number) {
       ordered = false;
       break;
     }
   }
 
-  const source = ordered
-    ? trials
-    : [...trials].sort(
-        (a, b) =>
-          a.trial_number -
-          b.trial_number,
-      );
+  const source = ordered ? trials : [...trials].sort((a, b) => a.trial_number - b.trial_number);
 
   for (const trial of source) {
-    if (
-      trial.objective_value === null ||
-      !isFeasibleTrial(trial)
-    ) {
+    if (trial.objective_value === null || !isFeasibleTrial(trial)) {
       continue;
     }
 
     if (
       best === null ||
-      (direction === 'maximize'
-        ? trial.objective_value > best
-        : trial.objective_value < best)
+      (direction === 'maximize' ? trial.objective_value > best : trial.objective_value < best)
     ) {
       best = trial.objective_value;
     }
@@ -152,23 +106,17 @@ export const extendBestSoFar = (
     return existing;
   }
 
-  let best =
-    existing.at(-1)?.value ?? null;
+  let best = existing.at(-1)?.value ?? null;
   const points = [...existing];
 
   for (const trial of newTrials) {
-    if (
-      trial.objective_value === null ||
-      !isFeasibleTrial(trial)
-    ) {
+    if (trial.objective_value === null || !isFeasibleTrial(trial)) {
       continue;
     }
 
     if (
       best === null ||
-      (direction === 'maximize'
-        ? trial.objective_value > best
-        : trial.objective_value < best)
+      (direction === 'maximize' ? trial.objective_value > best : trial.objective_value < best)
     ) {
       best = trial.objective_value;
     }
@@ -193,19 +141,10 @@ export const estimateRemainingMs = (
 
   const recent: number[] = [];
 
-  for (
-    let index = trials.length - 1;
-    index >= 0 &&
-    recent.length < 20;
-    index -= 1
-  ) {
-    const duration =
-      trials[index]?.duration_ms;
+  for (let index = trials.length - 1; index >= 0 && recent.length < 20; index -= 1) {
+    const duration = trials[index]?.duration_ms;
 
-    if (
-      typeof duration === 'number' &&
-      duration >= 0
-    ) {
+    if (typeof duration === 'number' && duration >= 0) {
       recent.push(duration);
     }
   }
@@ -214,17 +153,7 @@ export const estimateRemainingMs = (
     return null;
   }
 
-  const average =
-    recent.reduce(
-      (sum, value) => sum + value,
-      0,
-    ) / recent.length;
+  const average = recent.reduce((sum, value) => sum + value, 0) / recent.length;
 
-  return (
-    average *
-    Math.max(
-      0,
-      target - completed,
-    )
-  );
+  return average * Math.max(0, target - completed);
 };

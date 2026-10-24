@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   buildStrategySignature,
@@ -188,6 +188,4 @@ describe('TradingView parser fixtures', () => {
     expect(inputs[0]).not.toHaveProperty('min');
     expect(inputs[0]).not.toHaveProperty('max');
   });
-
-
 });

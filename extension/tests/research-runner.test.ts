@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 import {
   runResearchValidation,
   type ResearchBacktestAdapter,
@@ -111,7 +111,7 @@ const enableWalkForward = (run: CreateRun) => {
 const enableMonteCarlo = (run: CreateRun) => {
   run.research!.monte_carlo = { enabled: true, simulations: 1_000, confidence: 0.9 };
 };
-const runStudy = vi.fn(async (child: CreateRun): Promise<RunProgress> => ({
+const runStudy = mock(async (child: CreateRun): Promise<RunProgress> => ({
   ...progress,
   run_id: child.run_id,
   target_trials: child.target_trials,
@@ -186,7 +186,7 @@ describe('research workflow', () => {
     run.config.research!.robustness.enabled = false;
     enableMonteCarlo(run.config);
     const controller = new AbortController();
-    vi.spyOn(run.adapter, 'readClosedTrades').mockImplementation(async () => {
+    spyOn(run.adapter, 'readClosedTrades').mockImplementation(async () => {
       controller.abort();
       return { available: true, reason: null, trades: [{ pnl: 10 }, { pnl: -5 }] };
     });
@@ -220,7 +220,7 @@ describe('research workflow', () => {
     run.config.research!.robustness.enabled = false;
     enableWalkForward(run.config);
     const controller = new AbortController();
-    const child = vi.fn(async () => {
+    const child = mock(async () => {
       controller.abort();
       return progress;
     });

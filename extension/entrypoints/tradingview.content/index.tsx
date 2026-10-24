@@ -79,14 +79,8 @@ const makeDraggable = (element: HTMLElement): (() => void) => {
     const maxLeft = Math.max(8, window.innerWidth - width - 8);
     const maxTop = Math.max(8, window.innerHeight - height - 8);
 
-    const left = Math.min(
-      maxLeft,
-      Math.max(8, drag.startLeft + event.clientX - drag.startX),
-    );
-    const top = Math.min(
-      maxTop,
-      Math.max(8, drag.startTop + event.clientY - drag.startY),
-    );
+    const left = Math.min(maxLeft, Math.max(8, drag.startLeft + event.clientX - drag.startX));
+    const top = Math.min(maxTop, Math.max(8, drag.startTop + event.clientY - drag.startY));
 
     element.style.left = left + 'px';
     element.style.top = top + 'px';
@@ -168,9 +162,7 @@ export default defineContentScript({
         removeDragListeners = makeDraggable(app);
         removeInputIsolation = isolateTextInputEvents(app);
 
-        const recoverInvalidContext = (
-          event: Event,
-        ) => {
+        const recoverInvalidContext = (event: Event) => {
           if (!ctx.isInvalid) return;
 
           event.preventDefault();
@@ -178,27 +170,11 @@ export default defineContentScript({
           reloadWithFreshContext();
         };
 
-        app.addEventListener(
-          'pointerdown',
-          recoverInvalidContext,
-          true,
-        );
-        app.addEventListener(
-          'keydown',
-          recoverInvalidContext,
-          true,
-        );
+        app.addEventListener('pointerdown', recoverInvalidContext, true);
+        app.addEventListener('keydown', recoverInvalidContext, true);
         removeContextRecovery = () => {
-          app.removeEventListener(
-            'pointerdown',
-            recoverInvalidContext,
-            true,
-          );
-          app.removeEventListener(
-            'keydown',
-            recoverInvalidContext,
-            true,
-          );
+          app.removeEventListener('pointerdown', recoverInvalidContext, true);
+          app.removeEventListener('keydown', recoverInvalidContext, true);
         };
 
         const root = ReactDOM.createRoot(app);
@@ -222,8 +198,7 @@ export default defineContentScript({
       if (message.type !== 'TOGGLE_UI') return;
 
       // Keep trial listeners, form state and research alive while hidden.
-      ui.shadowHost.style.display =
-        ui.shadowHost.style.display === 'none' ? '' : 'none';
+      ui.shadowHost.style.display = ui.shadowHost.style.display === 'none' ? '' : 'none';
     });
   },
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { extractClosedTrades } from '../lib/tradingview/trades';
 
@@ -46,10 +46,7 @@ describe('TradingView closed-trade extraction', () => {
   it('does not mistake arbitrary report arrays for trades', () => {
     const result = extractClosedTrades({
       performance: {
-        rows: [
-          { profit: 10 },
-          { profit: -5 },
-        ],
+        rows: [{ profit: 10 }, { profit: -5 }],
       },
       drawdown: [1, 2, 3],
     });

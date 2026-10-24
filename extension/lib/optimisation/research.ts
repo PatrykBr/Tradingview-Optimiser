@@ -86,25 +86,20 @@ export const splitResearchRange = (
   const totalDays = Math.floor((end - start) / DAY_MS);
 
   if (totalDays < folds + 10) {
-    throw new Error(
-      'Deep Backtesting range is too short for the selected robustness folds',
-    );
+    throw new Error('Deep Backtesting range is too short for the selected robustness folds');
   }
 
-  const validationDays = Math.max(
-    folds,
-    Math.round(totalDays * validationFraction),
-  );
+  const validationDays = Math.max(folds, Math.round(totalDays * validationFraction));
   const trainingDays = totalDays - validationDays;
 
   if (validationDays < folds * 2) {
-    throw new Error('Each robustness fold needs at least two days; use fewer folds or a longer range');
+    throw new Error(
+      'Each robustness fold needs at least two days; use fewer folds or a longer range',
+    );
   }
 
   if (trainingDays < 5) {
-    throw new Error(
-      'Robustness validation leaves too little optimisation data',
-    );
+    throw new Error('Robustness validation leaves too little optimisation data');
   }
 
   const trainingEnd = start + trainingDays * DAY_MS;
@@ -115,16 +110,9 @@ export const splitResearchRange = (
 
   for (let index = 0; index < folds; index += 1) {
     const remainingWindows = folds - index;
-    const remainingDays =
-      Math.floor((validationEnd - cursor) / DAY_MS) + 1;
-    const windowDays = Math.max(
-      1,
-      Math.floor(remainingDays / remainingWindows),
-    );
-    const windowEnd =
-      index === folds - 1
-        ? validationEnd
-        : cursor + (windowDays - 1) * DAY_MS;
+    const remainingDays = Math.floor((validationEnd - cursor) / DAY_MS) + 1;
+    const windowDays = Math.max(1, Math.floor(remainingDays / remainingWindows));
+    const windowEnd = index === folds - 1 ? validationEnd : cursor + (windowDays - 1) * DAY_MS;
 
     windows.push({
       index,
@@ -150,16 +138,11 @@ export const passesMetricFilters = (
 ): boolean =>
   filters.every((filter) => {
     const actual = metrics[filter.metric];
-    if (
-      typeof actual !== 'number' ||
-      !Number.isFinite(actual)
-    ) {
+    if (typeof actual !== 'number' || !Number.isFinite(actual)) {
       return false;
     }
 
-    return filter.operator === 'lte'
-      ? actual <= filter.value
-      : actual >= filter.value;
+    return filter.operator === 'lte' ? actual <= filter.value : actual >= filter.value;
   });
 
 export const topFeasibleCandidates = (
@@ -169,11 +152,7 @@ export const topFeasibleCandidates = (
 ): TrialSummary[] => {
   const seen = new Set<string>();
   return trials
-    .filter(
-      (trial) =>
-        isFeasibleTrial(trial) &&
-        trial.objective_value !== null,
-    )
+    .filter((trial) => isFeasibleTrial(trial) && trial.objective_value !== null)
     .sort((left, right) => {
       const a = left.objective_value;
       const b = right.objective_value;
@@ -181,9 +160,7 @@ export const topFeasibleCandidates = (
       if (a === null) return 1;
       if (b === null) return -1;
 
-      return direction === 'maximize'
-        ? b - a
-        : a - b;
+      return direction === 'maximize' ? b - a : a - b;
     })
     .filter((trial) => {
       const key = JSON.stringify(
@@ -196,17 +173,11 @@ export const topFeasibleCandidates = (
     .slice(0, count);
 };
 
-export const median = (
-  values: number[],
-): number | null => {
+export const median = (values: number[]): number | null => {
   if (values.length === 0) return null;
 
-  const sorted = [...values].sort(
-    (a, b) => a - b,
-  );
-  const middle = Math.floor(
-    sorted.length / 2,
-  );
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
   const right = sorted[middle];
 
   if (right === undefined) {
@@ -218,9 +189,7 @@ export const median = (
   }
 
   const left = sorted[middle - 1];
-  return left === undefined
-    ? null
-    : (left + right) / 2;
+  return left === undefined ? null : (left + right) / 2;
 };
 
 export const degradationPercent = (
@@ -229,10 +198,7 @@ export const degradationPercent = (
   direction: ObjectiveDirection,
 ): number => {
   const scale = Math.max(Math.abs(baseline), 1e-9);
-  const degradation =
-    direction === 'maximize'
-      ? baseline - candidate
-      : candidate - baseline;
+  const degradation = direction === 'maximize' ? baseline - candidate : candidate - baseline;
 
   return (degradation / scale) * 100;
 };
@@ -252,9 +218,7 @@ export const rankRobustnessCandidates = (
     if (leftScore === null) return 1;
     if (rightScore === null) return -1;
 
-    return direction === 'maximize'
-      ? rightScore - leftScore
-      : leftScore - rightScore;
+    return direction === 'maximize' ? rightScore - leftScore : leftScore - rightScore;
   });
 
 export interface StabilityVariant {
@@ -264,11 +228,8 @@ export interface StabilityVariant {
   parameters: Record<string, unknown>;
 }
 
-const clamp = (
-  value: number,
-  low: number,
-  high: number,
-): number => Math.min(high, Math.max(low, value));
+const clamp = (value: number, low: number, high: number): number =>
+  Math.min(high, Math.max(low, value));
 
 export const buildStabilityVariants = (
   searchSpace: SearchParameter[],
@@ -284,23 +245,12 @@ export const buildStabilityVariants = (
     if (typeof raw !== 'number') continue;
 
     const range = parameter.high - parameter.low;
-    const minimumDelta =
-      parameter.type === 'int'
-        ? parameter.step ?? 1
-        : parameter.step ?? 0;
-    const delta = Math.max(
-      range * (perturbationPercent / 100),
-      minimumDelta,
-      Number.EPSILON,
-    );
+    const minimumDelta = parameter.type === 'int' ? (parameter.step ?? 1) : (parameter.step ?? 0);
+    const delta = Math.max(range * (perturbationPercent / 100), minimumDelta, Number.EPSILON);
 
     const values = [raw - delta, raw + delta]
       .map((candidate) => {
-        const clamped = clamp(
-          candidate,
-          parameter.low,
-          parameter.high,
-        );
+        const clamped = clamp(candidate, parameter.low, parameter.high);
 
         const step = parameter.step ?? (parameter.type === 'int' ? 1 : undefined);
         if (step !== undefined) {
@@ -316,11 +266,7 @@ export const buildStabilityVariants = (
 
         return Number(clamped.toPrecision(12));
       })
-      .filter(
-        (value, index, all) =>
-          value !== raw &&
-          all.indexOf(value) === index,
-      );
+      .filter((value, index, all) => value !== raw && all.indexOf(value) === index);
 
     for (const value of values) {
       variants.push({
@@ -338,9 +284,7 @@ export const buildStabilityVariants = (
   return variants;
 };
 
-export const stabilityRating = (
-  degradation: number,
-): StabilityRating => {
+export const stabilityRating = (degradation: number): StabilityRating => {
   if (degradation <= 5) return 'strong';
   if (degradation <= 15) return 'moderate';
   return 'fragile';

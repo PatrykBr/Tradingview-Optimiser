@@ -45,26 +45,17 @@ export type ParameterConfigEdit =
       value: Primitive;
     };
 
-export const isPrimitive = (
-  value: unknown,
-): value is Primitive =>
+export const isPrimitive = (value: unknown): value is Primitive =>
   typeof value === 'string' ||
   (typeof value === 'number' && Number.isFinite(value)) ||
   typeof value === 'boolean';
 
-export const isParameterConfig = (
-  value: unknown,
-): value is ParameterConfig => {
-  if (
-    !value ||
-    typeof value !== 'object' ||
-    Array.isArray(value)
-  ) {
+export const isParameterConfig = (value: unknown): value is ParameterConfig => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
 
-  const record =
-    value as Record<string, unknown>;
+  const record = value as Record<string, unknown>;
   const expectedKeys = new Set([
     'enabled',
     'low',
@@ -77,11 +68,8 @@ export const isParameterConfig = (
   ]);
 
   if (
-    Object.keys(record).length !==
-      expectedKeys.size ||
-    Object.keys(record).some(
-      (key) => !expectedKeys.has(key),
-    )
+    Object.keys(record).length !== expectedKeys.size ||
+    Object.keys(record).some((key) => !expectedKeys.has(key))
   ) {
     return false;
   }
@@ -94,38 +82,22 @@ export const isParameterConfig = (
     typeof record.log === 'boolean' &&
     Array.isArray(record.choices) &&
     record.choices.every(isPrimitive) &&
-    typeof record.conditionParameter ===
-      'string' &&
-    Array.isArray(
-      record.conditionValues,
-    ) &&
-    record.conditionValues.every(
-      isPrimitive,
-    )
+    typeof record.conditionParameter === 'string' &&
+    Array.isArray(record.conditionValues) &&
+    record.conditionValues.every(isPrimitive)
   );
 };
 
-export const isOptimisableInput = (
-  input: StrategyInput,
-): boolean =>
+export const isOptimisableInput = (input: StrategyInput): boolean =>
   input.type === 'integer' ||
   input.type === 'float' ||
   input.type === 'boolean' ||
-  (input.type === 'categorical' &&
-    (input.options?.filter(isPrimitive).length ?? 0) >= 2);
+  (input.type === 'categorical' && (input.options?.filter(isPrimitive).length ?? 0) >= 2);
 
-export const defaultParameterConfig = (
-  input: StrategyInput,
-): ParameterConfig => ({
+export const defaultParameterConfig = (input: StrategyInput): ParameterConfig => ({
   enabled: false,
-  low:
-    input.type === 'integer' || input.type === 'float'
-      ? input.min?.toString() ?? ''
-      : '',
-  high:
-    input.type === 'integer' || input.type === 'float'
-      ? input.max?.toString() ?? ''
-      : '',
+  low: input.type === 'integer' || input.type === 'float' ? (input.min?.toString() ?? '') : '',
+  high: input.type === 'integer' || input.type === 'float' ? (input.max?.toString() ?? '') : '',
   // Blank selects Auto. Use Pine's declared step when available.
   // Otherwise, use step 1 for integers and continuous sampling for floats.
   step: '',
@@ -146,8 +118,7 @@ export const createParameterConfigs = (
   const configs: Record<string, ParameterConfig> = {};
 
   for (const input of inputs) {
-    configs[input.id] =
-      defaultParameterConfig(input);
+    configs[input.id] = defaultParameterConfig(input);
   }
 
   return configs;
@@ -160,8 +131,7 @@ export const reconcileParameterConfigs = (
   const reconciled: Record<string, ParameterConfig> = {};
 
   for (const input of inputs) {
-    const fallback =
-      defaultParameterConfig(input);
+    const fallback = defaultParameterConfig(input);
     const stored = saved[input.id];
 
     if (!stored) {
@@ -172,12 +142,8 @@ export const reconcileParameterConfigs = (
     reconciled[input.id] = {
       ...fallback,
       ...stored,
-      choices: Array.isArray(stored.choices)
-        ? [...stored.choices]
-        : fallback.choices,
-      conditionValues: Array.isArray(
-        stored.conditionValues,
-      )
+      choices: Array.isArray(stored.choices) ? [...stored.choices] : fallback.choices,
+      conditionValues: Array.isArray(stored.conditionValues)
         ? [...stored.conditionValues]
         : fallback.conditionValues,
     };
@@ -221,9 +187,7 @@ const removeConditionValueFromDependants = (
   for (const [id, config] of Object.entries(configs)) {
     if (
       config.conditionParameter !== controllerId ||
-      !config.conditionValues.some(
-        (value) => value === removedValue,
-      )
+      !config.conditionValues.some((value) => value === removedValue)
     ) {
       continue;
     }
@@ -234,10 +198,7 @@ const removeConditionValueFromDependants = (
 
     next[id] = {
       ...config,
-      conditionValues:
-        config.conditionValues.filter(
-          (value) => value !== removedValue,
-        ),
+      conditionValues: config.conditionValues.filter((value) => value !== removedValue),
     };
   }
 
@@ -261,12 +222,7 @@ export const applyParameterConfigEdit = (
       },
     };
 
-    return edit.enabled
-      ? next
-      : clearDependentConditions(
-          next,
-          edit.id,
-        );
+    return edit.enabled ? next : clearDependentConditions(next, edit.id);
   }
 
   if (edit.type === 'field') {
@@ -291,13 +247,9 @@ export const applyParameterConfigEdit = (
   }
 
   if (edit.type === 'choice') {
-    const exists = config.choices.some(
-      (value) => value === edit.choice,
-    );
+    const exists = config.choices.some((value) => value === edit.choice);
     const choices = exists
-      ? config.choices.filter(
-          (value) => value !== edit.choice,
-        )
+      ? config.choices.filter((value) => value !== edit.choice)
       : [...config.choices, edit.choice];
 
     const next = {
@@ -308,13 +260,7 @@ export const applyParameterConfigEdit = (
       },
     };
 
-    return exists
-      ? removeConditionValueFromDependants(
-          next,
-          edit.id,
-          edit.choice,
-        )
-      : next;
+    return exists ? removeConditionValueFromDependants(next, edit.id, edit.choice) : next;
   }
 
   if (edit.type === 'condition') {
@@ -332,16 +278,10 @@ export const applyParameterConfigEdit = (
     const parent = configs[edit.parameterId];
     if (!parent) return configs;
 
-    const parentInput = inputs.find(
-      (input) => input.id === edit.parameterId,
-    );
-    const currentValue =
-      parentInput?.currentValue;
+    const parentInput = inputs.find((input) => input.id === edit.parameterId);
+    const currentValue = parentInput?.currentValue;
     const preferredValue =
-      isPrimitive(currentValue) &&
-      parent.choices.some(
-        (choice) => choice === currentValue,
-      )
+      isPrimitive(currentValue) && parent.choices.some((choice) => choice === currentValue)
         ? currentValue
         : parent.choices[0];
 
@@ -354,30 +294,20 @@ export const applyParameterConfigEdit = (
       [edit.id]: {
         ...config,
         conditionParameter: edit.parameterId,
-        conditionValues:
-          preferredValue === undefined
-            ? []
-            : [preferredValue],
+        conditionValues: preferredValue === undefined ? [] : [preferredValue],
       },
     };
   }
 
-  const exists = config.conditionValues.some(
-    (value) => value === edit.value,
-  );
+  const exists = config.conditionValues.some((value) => value === edit.value);
 
   return {
     ...configs,
     [edit.id]: {
       ...config,
       conditionValues: exists
-        ? config.conditionValues.filter(
-            (value) => value !== edit.value,
-          )
-        : [
-            ...config.conditionValues,
-            edit.value,
-          ],
+        ? config.conditionValues.filter((value) => value !== edit.value)
+        : [...config.conditionValues, edit.value],
     },
   };
 };
@@ -387,20 +317,16 @@ export const conditionCandidatesFor = (
   inputs: StrategyInput[],
   configs: Record<string, ParameterConfig>,
 ): StrategyInput[] => {
-  const wouldCreateCycle = (
-    candidateId: string,
-  ): boolean => {
+  const wouldCreateCycle = (candidateId: string): boolean => {
     const seen = new Set<string>();
-    let current =
-      configs[candidateId]?.conditionParameter ?? '';
+    let current = configs[candidateId]?.conditionParameter ?? '';
 
     while (current) {
       if (current === inputId) return true;
       if (seen.has(current)) return true;
 
       seen.add(current);
-      current =
-        configs[current]?.conditionParameter ?? '';
+      current = configs[current]?.conditionParameter ?? '';
     }
 
     return false;
@@ -409,18 +335,11 @@ export const conditionCandidatesFor = (
   return inputs.filter((input) => {
     if (input.id === inputId) return false;
 
-    if (
-      input.type !== 'boolean' &&
-      input.type !== 'categorical'
-    ) {
+    if (input.type !== 'boolean' && input.type !== 'categorical') {
       return false;
     }
 
-    if (
-      input.type === 'categorical' &&
-      (input.options?.filter(isPrimitive).length ??
-        0) < 2
-    ) {
+    if (input.type === 'categorical' && (input.options?.filter(isPrimitive).length ?? 0) < 2) {
       return false;
     }
 

@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mockGlobal } from './helpers/globals';
+import { afterEach, beforeEach, describe, expect, it, mock, jest } from 'bun:test';
 
 import { BackendClient } from '../lib/backend-client';
 
@@ -39,23 +40,22 @@ class FakeSocket extends EventTarget {
 
 describe('backend connection lifecycle', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     FakeSocket.instances = [];
-    vi.stubGlobal('WebSocket', FakeSocket);
-    vi.stubGlobal('browser', {
+    mockGlobal('WebSocket', FakeSocket);
+    mockGlobal('browser', {
       storage: {
         local: {
-          get: vi.fn(async () => ({ backendToken: 'existing-token-123456789' })),
-          set: vi.fn(async () => {}),
+          get: mock(async () => ({ backendToken: 'existing-token-123456789' })),
+          set: mock(async () => {}),
         },
       },
     });
   });
 
   afterEach(() => {
-    vi.clearAllTimers();
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
+    jest.clearAllTimers();
+    jest.useRealTimers();
   });
 
   it('shares concurrent connection attempts while loading the token', async () => {
@@ -82,9 +82,9 @@ describe('backend connection lifecycle', () => {
     const previous = FakeSocket.instances[0]!;
     previous.authenticate();
 
-    vi.stubGlobal(
+    mockGlobal(
       'fetch',
-      vi.fn(async () => ({
+      mock(async () => ({
         ok: true,
         json: async () => ({ token: 'replacement-token-123456789' }),
       })),
@@ -101,7 +101,7 @@ describe('backend connection lifecycle', () => {
 
     current.message('RUN_PROGRESS', {}, requestId);
     await expect(pending).resolves.toMatchObject({ type: 'RUN_PROGRESS' });
-    await vi.advanceTimersByTimeAsync(20_000);
+    jest.advanceTimersByTime(20_000);
     expect(current.sent.at(-1)!.type).toBe('PING');
   });
 

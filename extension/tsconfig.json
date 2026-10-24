@@ -1,11 +1,13 @@
 {
   "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
+    "types": ["react", "react-dom"],
     "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true
-  }
+  },
+  "exclude": ["tests", "node_modules", ".output"]
 }

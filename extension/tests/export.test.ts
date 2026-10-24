@@ -1,14 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
-import {
-  buildRunExport,
-  buildRunJson,
-  buildTrialsCsv,
-} from '../lib/optimisation/export';
-import type {
-  CreateRun,
-  RunProgress,
-} from '../lib/protocol/types';
+import { buildRunExport, buildRunJson, buildTrialsCsv } from '../lib/optimisation/export';
+import type { CreateRun, RunProgress } from '../lib/protocol/types';
 
 const config: CreateRun = {
   run_id: '12345678-test-run',
@@ -90,21 +83,11 @@ describe('run export', () => {
   });
 
   it('builds a complete downloadable export payload', () => {
-    const payload = buildRunExport(
-      config,
-      progress,
-      'csv',
-    );
+    const payload = buildRunExport(config, progress, 'csv');
 
-    expect(payload.filename).toBe(
-      'Strategy-A-12345678.csv',
-    );
-    expect(payload.mimeType).toBe(
-      'text/csv',
-    );
-    expect(payload.content).toContain(
-      '"reused_from_trial"',
-    );
+    expect(payload.filename).toBe('Strategy-A-12345678.csv');
+    expect(payload.mimeType).toBe('text/csv');
+    expect(payload.content).toContain('"reused_from_trial"');
   });
 
   it('exports complete JSON', () => {

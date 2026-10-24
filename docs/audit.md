@@ -2,7 +2,7 @@
 
 Scope covered the extension UI and lifecycle, TradingView page bridge and report parsing, configuration and search spaces, trial sequencing and recovery, research stages, browser persistence, backend protocol and authentication, Optuna storage, dependency manifests, tests, documentation and Windows packaging.
 
-The initial pass is recorded below. The structural follow-up at the end describes the current architecture.
+The initial pass is recorded below, followed by the structural cleanup and Bun tooling migration.
 
 ## Deleted and simplified
 
@@ -54,3 +54,14 @@ No dependencies were added or upgraded. Existing declared dependencies have acti
 - Consolidated duplicated runner fixtures and added cross-stage, cancellation, command forwarding and settings coverage. User aborts still reach the backend before tab ownership finishes loading. All 117 extension tests and 48 backend tests pass, along with TypeScript, Ruff and Chrome/Firefox production builds.
 - Extension production TypeScript decreased by about 2,500 lines across 55 to 51 files. Applying the same Prettier settings to both revisions shows about **865 lines of structural reduction**, with the rest from removing fragmented wrapping in edited files. Tests and documentation are excluded from these production counts.
 - The Chrome production bundle decreased from about 382.38 kB to 372.60 kB in the same environment. No dependency changes or backend protocol changes were needed. A live TradingView account was still unavailable for validation; the earlier integration limits continue to apply.
+
+## Bun tooling migration
+
+- Replaced pnpm's workspace configuration and lockfile with Bun workspaces, an isolated dependency linker and `bun.lock`. Bun 1.4.4 is the tooling baseline. WXT prepare, development, builds and ZIP commands explicitly run under Bun.
+- Removed Vitest and migrated all 117 tests to `bun:test`, using native mocks, spies and fake timers. Test files run in isolated globals and module registries. A small test fixture restores browser/WXT global descriptors after each case; polling timeout tests drain asynchronous continuations between virtual clock ticks and still exercise both timeout attempts.
+- Replaced `tsc --noEmit` with native `bun check`. Browser and test configurations keep Bun declarations out of browser globals. TypeScript 7.0.2 remains as the matching editor dependency. Existing strictness and unused-code checks remain enabled.
+- Added native formatting, format checking, watch tests, coverage, and a parallel `verify` command covering the extension and Python backend. Applied one formatter configuration across the extension and documentation, removing fragmented wrapping. Production React and browser logic changes are formatting-only.
+- Bun's audit found seven advisories in the original build dependencies. Refreshed compatible dependencies to Vite 8.3.5 and source-map-js 1.2.2; the final audit reports no vulnerabilities. React, React DOM, WXT and the React build plugin retain their existing pinned runtime/build versions.
+- Firefox source archives now contain the workspace manifest, Bun configuration and lockfile, so extracted sources rebuild with the locked dependency graph. Backend files, dependencies, generated output, coverage and test helpers are excluded.
+- Validated all 117 extension tests in serial isolation, parallel isolation and coverage modes; both type configurations; formatting; all 48 Python tests and Ruff; Chrome/Firefox builds and ZIPs; and dev-server startup with an HTTP 200 response for the HMR client. Clean frozen installation generates WXT types and passes type checks with Node removed from PATH. The extracted Firefox source archive also installs and builds without Node.
+- WXT remains responsible for browser packaging and Python remains responsible for Optuna. Bun's native linter is currently canary-only; stable development continues to use strict TypeScript checks and Ruff. A signed-in TradingView session and actual browser HMR reloads were not exercised during this migration. The Windows executable was not repackaged because its Python build inputs did not change.

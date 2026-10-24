@@ -1,7 +1,4 @@
-import {
-  OptimiserError,
-  serialiseOptimiserError,
-} from '../lib/errors';
+import { OptimiserError, serialiseOptimiserError } from '../lib/errors';
 import {
   asRecord,
   buildStrategySignature,
@@ -112,10 +109,7 @@ const getChart = (): ChartLike => {
 
 const detectStrategies = () => {
   const chart = getChart();
-  const found = new Map<
-    string,
-    { id: string; name: string; shortTitle?: string }
-  >();
+  const found = new Map<string, { id: string; name: string; shortTitle?: string }>();
 
   // Read strategy data sources from the chart model. Legend nodes and public
   // study wrappers do not always identify strategies reliably.
@@ -136,12 +130,10 @@ const detectStrategies = () => {
         meta = {};
       }
 
-      const isStrategy =
-        isStrategyMeta(meta) || typeof candidate.reportData === 'function';
+      const isStrategy = isStrategyMeta(meta) || typeof candidate.reportData === 'function';
       if (!isStrategy) continue;
 
-      const rawId =
-        typeof candidate.id === 'function' ? candidate.id() : candidate.id;
+      const rawId = typeof candidate.id === 'function' ? candidate.id() : candidate.id;
       const name = metaName(meta);
 
       if (typeof rawId !== 'string' || !rawId || !name) continue;
@@ -149,9 +141,7 @@ const detectStrategies = () => {
       found.set(rawId, {
         id: rawId,
         name,
-        ...(typeof meta.shortDescription === 'string'
-          ? { shortTitle: meta.shortDescription }
-          : {}),
+        ...(typeof meta.shortDescription === 'string' ? { shortTitle: meta.shortDescription } : {}),
       });
     }
   } catch {
@@ -171,19 +161,14 @@ const detectStrategies = () => {
     found.set(study.id, {
       id: study.id,
       name,
-      ...(typeof meta.shortDescription === 'string'
-        ? { shortTitle: meta.shortDescription }
-        : {}),
+      ...(typeof meta.shortDescription === 'string' ? { shortTitle: meta.shortDescription } : {}),
     });
   }
 
   return [...found.values()];
 };
 
-const getInternalStudyMeta = (
-  chart: ChartLike,
-  strategyId: string,
-): UnknownRecord => {
+const getInternalStudyMeta = (chart: ChartLike, strategyId: string): UnknownRecord => {
   try {
     const sources = chart._chartWidget?.model?.()?.model?.()?.dataSources?.() ?? [];
 
@@ -193,8 +178,7 @@ const getInternalStudyMeta = (
         metaInfo?: () => UnknownRecord;
       };
 
-      const rawId =
-        typeof candidate.id === 'function' ? candidate.id() : candidate.id;
+      const rawId = typeof candidate.id === 'function' ? candidate.id() : candidate.id;
       if (rawId !== strategyId) continue;
 
       try {
@@ -229,17 +213,11 @@ const readStrategyInputs = (strategyId: string) => {
   return normalisePineInputs(current, declaredInputs);
 };
 
-const applyParameters = (
-  strategyId: string,
-  parameters: Record<string, unknown>,
-) => {
+const applyParameters = (strategyId: string, parameters: Record<string, unknown>) => {
   const chart = getChart();
   const study = chart.getStudyById?.(strategyId);
   if (!study) throw new Error('TradingView strategy is no longer on the chart');
-  if (
-    typeof study.getInputValues !== 'function' ||
-    typeof study.setInputValues !== 'function'
-  ) {
+  if (typeof study.getInputValues !== 'function' || typeof study.setInputValues !== 'function') {
     throw new Error('TradingView does not expose writable inputs for this strategy');
   }
 
@@ -299,17 +277,14 @@ const getStrategySource = (
     // or report after the user removes or replaces it.
     if (typeof model.activeStrategySource === 'function') {
       const watched = model.activeStrategySource();
-      const active = unwrapValue(watched) as
-        | {
-            id?: string | (() => string);
-            metaInfo?: () => UnknownRecord;
-            reportData?: () => unknown;
-          }
-        | null;
+      const active = unwrapValue(watched) as {
+        id?: string | (() => string);
+        metaInfo?: () => UnknownRecord;
+        reportData?: () => unknown;
+      } | null;
 
       if (active) {
-        const activeId =
-          typeof active.id === 'function' ? active.id() : active.id;
+        const activeId = typeof active.id === 'function' ? active.id() : active.id;
 
         if (activeId === strategyId) return active;
 
@@ -325,17 +300,14 @@ const getStrategySource = (
         metaInfo?: () => UnknownRecord;
         reportData?: () => unknown;
       };
-      const rawId =
-        typeof candidate.id === 'function' ? candidate.id() : candidate.id;
+      const rawId = typeof candidate.id === 'function' ? candidate.id() : candidate.id;
       if (rawId === strategyId) return candidate;
     }
   } catch (cause) {
     throw new OptimiserError(
       'TV_REPORT_SOURCE_UNAVAILABLE',
       'TradingView strategy source lookup failed: ' +
-        (cause instanceof Error
-          ? cause.message
-          : String(cause)),
+        (cause instanceof Error ? cause.message : String(cause)),
       true,
     );
   }
@@ -346,9 +318,7 @@ const getStrategySource = (
 const unwrapValue = (value: unknown): unknown => {
   const record = asRecord(value);
   if (typeof record.value === 'function') {
-    return (
-      record.value as () => unknown
-    )();
+    return (record.value as () => unknown)();
   }
   return value;
 };
@@ -358,26 +328,14 @@ interface MetricsRead {
   source: 'internal' | 'deep-visible';
 }
 
-const readMetricsFromRawReport = (
-  rawReport: unknown,
-  deepBacktesting: boolean,
-): MetricsRead => {
-  let internalMetrics:
-    | Record<string, number>
-    | null = null;
-  let internalFailure: string | null =
-    null;
+const readMetricsFromRawReport = (rawReport: unknown, deepBacktesting: boolean): MetricsRead => {
+  let internalMetrics: Record<string, number> | null = null;
+  let internalFailure: string | null = null;
 
   try {
-    internalMetrics =
-      extractTradingViewMetrics(
-        rawReport,
-      );
+    internalMetrics = extractTradingViewMetrics(rawReport);
   } catch (cause) {
-    internalFailure =
-      cause instanceof Error
-        ? cause.message
-        : String(cause);
+    internalFailure = cause instanceof Error ? cause.message : String(cause);
   }
 
   if (!deepBacktesting) {
@@ -391,14 +349,12 @@ const readMetricsFromRawReport = (
     throw new OptimiserError(
       'TV_REPORT_PARSE_FAILED',
       internalFailure
-        ? 'TradingView internal report metrics could not be parsed: ' +
-            internalFailure
+        ? 'TradingView internal report metrics could not be parsed: ' + internalFailure
         : 'TradingView internal report metrics are unavailable',
     );
   }
 
-  const visibleMetrics =
-    readVisibleStrategyReportMetrics();
+  const visibleMetrics = readVisibleStrategyReportMetrics();
 
   if (!visibleMetrics) {
     throw new OptimiserError(
@@ -417,32 +373,18 @@ const readMetricsFromRawReport = (
       'sortinoRatio',
     ];
 
-    const disagrees =
-      comparableKeys.some((key) => {
-        const internal =
-          internalMetrics?.[key];
-        const visible =
-          visibleMetrics[key];
+    const disagrees = comparableKeys.some((key) => {
+      const internal = internalMetrics?.[key];
+      const visible = visibleMetrics[key];
 
-        if (
-          internal === undefined ||
-          visible === undefined
-        ) {
-          return false;
-        }
+      if (internal === undefined || visible === undefined) {
+        return false;
+      }
 
-        const tolerance =
-          Math.max(
-            1,
-            Math.abs(visible),
-          ) * 1.0e-6;
+      const tolerance = Math.max(1, Math.abs(visible)) * 1.0e-6;
 
-        return (
-          Math.abs(
-            internal - visible,
-          ) > tolerance
-        );
-      });
+      return Math.abs(internal - visible) > tolerance;
+    });
 
     if (!disagrees) {
       return {
@@ -461,22 +403,11 @@ const readMetricsFromRawReport = (
   };
 };
 
-const readStrategyMetrics = (
-  strategyId: string,
-  expectedDeepBacktesting?: boolean,
-) => {
+const readStrategyMetrics = (strategyId: string, expectedDeepBacktesting?: boolean) => {
   const chart = getChart();
-  const source =
-    getStrategySource(
-      chart,
-      strategyId,
-    );
+  const source = getStrategySource(chart, strategyId);
 
-  if (
-    !source ||
-    typeof source.reportData !==
-      'function'
-  ) {
+  if (!source || typeof source.reportData !== 'function') {
     throw new OptimiserError(
       'TV_REPORT_SOURCE_UNAVAILABLE',
       'TradingView strategy report source is unavailable',
@@ -485,61 +416,39 @@ const readStrategyMetrics = (
 
   let rawReport: unknown;
   try {
-    rawReport =
-      unwrapValue(
-        source.reportData(),
-      );
+    rawReport = unwrapValue(source.reportData());
   } catch (cause) {
     throw new OptimiserError(
       'TV_REPORT_SOURCE_UNAVAILABLE',
       'TradingView strategy report source could not be read: ' +
-        (cause instanceof Error
-          ? cause.message
-          : String(cause)),
+        (cause instanceof Error ? cause.message : String(cause)),
       true,
     );
   }
 
-  return readMetricsFromRawReport(
-    rawReport,
-    expectedDeepBacktesting ??
-      isDeepBacktestingActive(),
-  ).metrics;
+  return readMetricsFromRawReport(rawReport, expectedDeepBacktesting ?? isDeepBacktestingActive())
+    .metrics;
 };
 
-const readStrategyClosedTrades = (
-  strategyId: string,
-) => {
+const readStrategyClosedTrades = (strategyId: string) => {
   const chart = getChart();
-  const source = getStrategySource(
-    chart,
-    strategyId,
-  );
+  const source = getStrategySource(chart, strategyId);
 
-  if (
-    !source ||
-    typeof source.reportData !== 'function'
-  ) {
+  if (!source || typeof source.reportData !== 'function') {
     return {
       available: false,
       trades: [],
-      reason:
-        'TradingView strategy report source is unavailable',
+      reason: 'TradingView strategy report source is unavailable',
     };
   }
 
   try {
-    return extractClosedTrades(
-      unwrapValue(source.reportData()),
-    );
+    return extractClosedTrades(unwrapValue(source.reportData()));
   } catch (error) {
     return {
       available: false,
       trades: [],
-      reason:
-        error instanceof Error
-          ? error.message
-          : String(error),
+      reason: error instanceof Error ? error.message : String(error),
     };
   }
 };
@@ -579,17 +488,13 @@ const compactReportMetrics = (
     }
   }
 
-  return Object.keys(compact).length > 0
-    ? compact
-    : null;
+  return Object.keys(compact).length > 0 ? compact : null;
 };
 
 interface ReportCoreSnapshot {
   report: UnknownRecord;
   metrics: Record<string, number>;
-  metricSource:
-    | 'internal'
-    | 'deep-visible';
+  metricSource: 'internal' | 'deep-visible';
   token: string;
   objectId: number | null;
   deepBacktesting: boolean;
@@ -603,10 +508,7 @@ const readStrategyReportCore = (
   const chart = getChart();
   const source = getStrategySource(chart, strategyId);
 
-  if (
-    !source ||
-    typeof source.reportData !== 'function'
-  ) {
+  if (!source || typeof source.reportData !== 'function') {
     return null;
   }
 
@@ -619,30 +521,17 @@ const readStrategyReportCore = (
     throw new OptimiserError(
       'TV_REPORT_SOURCE_UNAVAILABLE',
       'TradingView strategy report source could not be read: ' +
-        (cause instanceof Error
-          ? cause.message
-          : String(cause)),
+        (cause instanceof Error ? cause.message : String(cause)),
       true,
     );
   }
 
   const objectId = reportObjectId(rawReport);
   const report = asRecord(rawReport);
-  const deepBacktesting =
-    expectedDeepBacktesting ??
-    isDeepBacktestingActive();
-  const metricRead =
-    readMetricsFromRawReport(
-      rawReport,
-      deepBacktesting,
-    );
-  const metrics =
-    metricRead.metrics;
-  const runtimeError =
-    report.error ??
-    report.runtimeError ??
-    report.errorMessage ??
-    report.message;
+  const deepBacktesting = expectedDeepBacktesting ?? isDeepBacktestingActive();
+  const metricRead = readMetricsFromRawReport(rawReport, deepBacktesting);
+  const metrics = metricRead.metrics;
+  const runtimeError = report.error ?? report.runtimeError ?? report.errorMessage ?? report.message;
 
   const revisionFields: UnknownRecord = {};
   for (const key of [
@@ -664,8 +553,7 @@ const readStrategyReportCore = (
     }
   }
 
-  const revisionMetrics =
-    compactReportMetrics(metrics);
+  const revisionMetrics = compactReportMetrics(metrics);
 
   const token = hashString(
     stableStringify({
@@ -673,36 +561,23 @@ const readStrategyReportCore = (
       revisionMetrics,
       objectId,
       deepBacktesting,
-      metricSource:
-        metricRead.source,
+      metricSource: metricRead.source,
     }),
   );
 
   return {
     report,
     metrics,
-    metricSource:
-      metricRead.source,
+    metricSource: metricRead.source,
     token,
     objectId,
     deepBacktesting,
-    error:
-      typeof runtimeError === 'string' &&
-      runtimeError.trim()
-        ? runtimeError.trim()
-        : null,
+    error: typeof runtimeError === 'string' && runtimeError.trim() ? runtimeError.trim() : null,
   };
 };
 
-const readStrategyReportPollSnapshot = (
-  strategyId: string,
-  expectedDeepBacktesting?: boolean,
-) => {
-  const core =
-    readStrategyReportCore(
-      strategyId,
-      expectedDeepBacktesting,
-    );
+const readStrategyReportPollSnapshot = (strategyId: string, expectedDeepBacktesting?: boolean) => {
+  const core = readStrategyReportCore(strategyId, expectedDeepBacktesting);
 
   if (!core) {
     throw new OptimiserError(
@@ -712,21 +587,16 @@ const readStrategyReportPollSnapshot = (
   }
 
   return {
-    metrics:
-      compactReportMetrics(core.metrics),
+    metrics: compactReportMetrics(core.metrics),
     token: core.token,
     objectId: core.objectId,
-    metricSource:
-      core.metricSource,
+    metricSource: core.metricSource,
     error: core.error,
   };
 };
 
-const readStrategyReportSnapshot = (
-  strategyId: string,
-) => {
-  const core =
-    readStrategyReportCore(strategyId);
+const readStrategyReportSnapshot = (strategyId: string) => {
+  const core = readStrategyReportCore(strategyId);
 
   if (!core) {
     throw new OptimiserError(
@@ -735,56 +605,29 @@ const readStrategyReportSnapshot = (
     );
   }
 
-  const settings = asRecord(
-    core.report.settings,
-  );
-  const dateRange = asRecord(
-    settings.dateRange,
-  );
-  const backtest = asRecord(
-    dateRange.backtest,
-  );
+  const settings = asRecord(core.report.settings);
+  const dateRange = asRecord(settings.dateRange);
+  const backtest = asRecord(dateRange.backtest);
 
   const from =
-    typeof backtest.from === 'number' &&
-    Number.isFinite(backtest.from)
-      ? backtest.from
-      : null;
-  const to =
-    typeof backtest.to === 'number' &&
-    Number.isFinite(backtest.to)
-      ? backtest.to
-      : null;
+    typeof backtest.from === 'number' && Number.isFinite(backtest.from) ? backtest.from : null;
+  const to = typeof backtest.to === 'number' && Number.isFinite(backtest.to) ? backtest.to : null;
 
   const stableSettings = Object.fromEntries(
     Object.entries(settings).filter(
       ([key]) =>
-        ![
-          'dateRange',
-          'inputs',
-          'inputValues',
-          'input_values',
-          'parameters',
-        ].includes(key),
+        !['dateRange', 'inputs', 'inputValues', 'input_values', 'parameters'].includes(key),
     ),
   );
   const settingsSignature =
-    Object.keys(stableSettings).length > 0
-      ? hashString(
-          stableStringify(stableSettings),
-        )
-      : null;
+    Object.keys(stableSettings).length > 0 ? hashString(stableStringify(stableSettings)) : null;
 
   return {
     metrics: core.metrics,
     token: core.token,
     objectId: core.objectId,
-    metricSource:
-      core.metricSource,
-    backtestRange:
-      from !== null && to !== null
-        ? { from, to }
-        : null,
+    metricSource: core.metricSource,
+    backtestRange: from !== null && to !== null ? { from, to } : null,
     settingsSignature,
     error: core.error,
   };
@@ -808,49 +651,27 @@ const getStrategySignature = (strategyId: string): string => {
   const study = chart.getStudyById?.(strategyId);
   if (!study) throw new Error('TradingView strategy is no longer on the chart');
 
-  return strategySignatureFromInputs(
-    chart,
-    study,
-    strategyId,
-    readStrategyInputs(strategyId),
-  );
+  return strategySignatureFromInputs(chart, study, strategyId, readStrategyInputs(strategyId));
 };
 
-const getRunContextSnapshot = (
-  strategyId: string,
-) => {
+const getRunContextSnapshot = (strategyId: string) => {
   const chart = getChart();
   const study = chart.getStudyById?.(strategyId);
   if (!study) {
-    throw new Error(
-      'TradingView strategy is no longer on the chart',
-    );
+    throw new Error('TradingView strategy is no longer on the chart');
   }
 
   const inputs = readStrategyInputs(strategyId);
-  const report =
-    readStrategyReportSnapshot(strategyId);
+  const report = readStrategyReportSnapshot(strategyId);
 
   return {
     symbol: chart.symbol?.() ?? 'UNKNOWN',
-    timeframe:
-      chart.resolution?.() ?? 'UNKNOWN',
-    strategySignature:
-      strategySignatureFromInputs(
-        chart,
-        study,
-        strategyId,
-        inputs,
-      ),
+    timeframe: chart.resolution?.() ?? 'UNKNOWN',
+    strategySignature: strategySignatureFromInputs(chart, study, strategyId, inputs),
     inputs,
-    backtestMode:
-      isDeepBacktestingActive()
-        ? 'deep'
-        : 'chart',
-    backtestRange:
-      report.backtestRange,
-    settingsSignature:
-      report.settingsSignature,
+    backtestMode: isDeepBacktestingActive() ? 'deep' : 'chart',
+    backtestRange: report.backtestRange,
+    settingsSignature: report.settingsSignature,
   };
 };
 
@@ -921,49 +742,34 @@ const runDiagnostics = (strategyId: string | null) => {
     });
 
     try {
-      const snapshot =
-        readStrategyReportSnapshot(
-          strategyId,
-        );
+      const snapshot = readStrategyReportSnapshot(strategyId);
       checks.push({
         id: 'metrics-readable',
-        label:
-          'Strategy Tester metrics',
-        ok:
-          Boolean(snapshot.metrics) &&
-          snapshot.metricSource !==
-            null,
+        label: 'Strategy Tester metrics',
+        ok: Boolean(snapshot.metrics) && snapshot.metricSource !== null,
         detail:
           snapshot.error ??
           (snapshot.metricSource
-            ? 'source: ' +
-              snapshot.metricSource
+            ? 'source: ' + snapshot.metricSource
             : 'Metric source unavailable'),
       });
     } catch (error) {
       checks.push({
         id: 'metrics-readable',
-        label:
-          'Strategy Tester metrics',
+        label: 'Strategy Tester metrics',
         ok: false,
-        detail:
-          error instanceof Error
-            ? error.message
-            : String(error),
+        detail: error instanceof Error ? error.message : String(error),
       });
     }
 
-    const tradeSnapshot =
-      readStrategyClosedTrades(strategyId);
+    const tradeSnapshot = readStrategyClosedTrades(strategyId);
     checks.push({
       id: 'trade-level-data',
       label: 'Closed-trade data',
       ok: tradeSnapshot.available,
       detail: tradeSnapshot.available
-        ? tradeSnapshot.trades.length +
-          ' closed trades exposed'
-        : tradeSnapshot.reason ??
-          'Unavailable',
+        ? tradeSnapshot.trades.length + ' closed trades exposed'
+        : (tradeSnapshot.reason ?? 'Unavailable'),
     });
 
     try {
@@ -1030,10 +836,7 @@ export default defineUnlistedScript(() => {
           if (typeof payload.strategyId !== 'string') {
             throw new Error('strategyId is required');
           }
-          result = applyParameters(
-            payload.strategyId,
-            asRecord(payload.parameters),
-          );
+          result = applyParameters(payload.strategyId, asRecord(payload.parameters));
           break;
         }
         case 'readMetrics': {
@@ -1043,8 +846,7 @@ export default defineUnlistedScript(() => {
           }
           result = readStrategyMetrics(
             payload.strategyId,
-            typeof payload.expectedDeepBacktesting ===
-              'boolean'
+            typeof payload.expectedDeepBacktesting === 'boolean'
               ? payload.expectedDeepBacktesting
               : undefined,
           );
@@ -1055,14 +857,12 @@ export default defineUnlistedScript(() => {
           if (typeof payload.strategyId !== 'string') {
             throw new Error('strategyId is required');
           }
-          result =
-            readStrategyReportPollSnapshot(
-              payload.strategyId,
-              typeof payload.expectedDeepBacktesting ===
-                'boolean'
-                ? payload.expectedDeepBacktesting
-                : undefined,
-            );
+          result = readStrategyReportPollSnapshot(
+            payload.strategyId,
+            typeof payload.expectedDeepBacktesting === 'boolean'
+              ? payload.expectedDeepBacktesting
+              : undefined,
+          );
           break;
         }
         case 'readReportSnapshot': {
@@ -1070,10 +870,7 @@ export default defineUnlistedScript(() => {
           if (typeof payload.strategyId !== 'string') {
             throw new Error('strategyId is required');
           }
-          result =
-            readStrategyReportSnapshot(
-              payload.strategyId,
-            );
+          result = readStrategyReportSnapshot(payload.strategyId);
           break;
         }
         case 'readClosedTrades': {
@@ -1081,9 +878,7 @@ export default defineUnlistedScript(() => {
           if (typeof payload.strategyId !== 'string') {
             throw new Error('strategyId is required');
           }
-          result = readStrategyClosedTrades(
-            payload.strategyId,
-          );
+          result = readStrategyClosedTrades(payload.strategyId);
           break;
         }
         case 'getStrategySignature': {
@@ -1099,9 +894,7 @@ export default defineUnlistedScript(() => {
           if (typeof payload.strategyId !== 'string') {
             throw new Error('strategyId is required');
           }
-          result = getRunContextSnapshot(
-            payload.strategyId,
-          );
+          result = getRunContextSnapshot(payload.strategyId);
           break;
         }
         case 'resetToChartSession':
@@ -1109,28 +902,19 @@ export default defineUnlistedScript(() => {
           break;
         case 'configureDeepBacktestRange': {
           const payload = asRecord(request.payload);
-          if (
-            typeof payload.startDate !== 'string' ||
-            typeof payload.endDate !== 'string'
-          ) {
+          if (typeof payload.startDate !== 'string' || typeof payload.endDate !== 'string') {
             throw new Error('startDate and endDate are required');
           }
-          result = await configureDeepBacktestRange(
-            payload.startDate,
-            payload.endDate,
-          );
+          result = await configureDeepBacktestRange(payload.startDate, payload.endDate);
           break;
         }
         case 'refreshDeepBacktestReport':
-          result =
-            await refreshDeepBacktestReport();
+          result = await refreshDeepBacktestReport();
           break;
         case 'diagnostics': {
           const payload = asRecord(request.payload);
           result = runDiagnostics(
-            typeof payload.strategyId === 'string'
-              ? payload.strategyId
-              : null,
+            typeof payload.strategyId === 'string' ? payload.strategyId : null,
           );
           break;
         }
@@ -1155,11 +939,7 @@ export default defineUnlistedScript(() => {
           detail: {
             id: request.id,
             ok: false,
-            error:
-              serialiseOptimiserError(
-                error,
-                'TV_BRIDGE_REQUEST_FAILED',
-              ),
+            error: serialiseOptimiserError(error, 'TV_BRIDGE_REQUEST_FAILED'),
           },
         }),
       );

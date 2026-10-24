@@ -1,7 +1,5 @@
 import SearchSpaceAdvisor from './SearchSpaceAdvisor';
-import {
-  isPrimitive,
-} from '../../lib/optimisation/parameter-config';
+import { isPrimitive } from '../../lib/optimisation/parameter-config';
 import type { Primitive } from '../../lib/protocol/types';
 import type { StrategyConfigurationModel } from './useStrategyConfiguration';
 
@@ -10,14 +8,10 @@ interface ParameterSearchSpaceSectionProps {
   locked: boolean;
 }
 
-const primitiveOptions = (
-  input: StrategyConfigurationModel['inputs'][number],
-): Primitive[] => {
+const primitiveOptions = (input: StrategyConfigurationModel['inputs'][number]): Primitive[] => {
   if (input.type === 'boolean') return [false, true];
 
-  return (input.options ?? []).filter(
-    isPrimitive,
-  );
+  return (input.options ?? []).filter(isPrimitive);
 };
 
 export default function ParameterSearchSpaceSection({
@@ -29,45 +23,28 @@ export default function ParameterSearchSpaceSection({
       <div className="rowLabel">
         <strong>Parameters</strong>
         <span className="muted">
-          {model.selectedInputCount}/
-          {model.optimisableInputs.length} selected
+          {model.selectedInputCount}/{model.optimisableInputs.length} selected
         </span>
       </div>
 
       <div className="parameterList">
         {model.optimisableInputs.map((input) => {
-          const config =
-            model.parameterConfigs[input.id];
+          const config = model.parameterConfigs[input.id];
           if (!config) return null;
 
           const enabled = config.enabled;
-          const numeric =
-            input.type === 'integer' ||
-            input.type === 'float';
-          const categorical =
-            input.type === 'boolean' ||
-            input.type === 'categorical';
+          const numeric = input.type === 'integer' || input.type === 'float';
+          const categorical = input.type === 'boolean' || input.type === 'categorical';
 
-          const conditionCandidates =
-            model.conditionCandidates(input.id);
+          const conditionCandidates = model.conditionCandidates(input.id);
           const parent = conditionCandidates.find(
-            (candidate) =>
-              candidate.id ===
-              config.conditionParameter,
+            (candidate) => candidate.id === config.conditionParameter,
           );
-          const parentChoices = parent
-            ? model.parameterConfigs[parent.id]
-                ?.choices ?? []
-            : [];
+          const parentChoices = parent ? (model.parameterConfigs[parent.id]?.choices ?? []) : [];
 
           return (
             <div
-              className={
-                'parameterCard' +
-                (enabled
-                  ? ' parameterCardEnabled'
-                  : '')
-              }
+              className={'parameterCard' + (enabled ? ' parameterCardEnabled' : '')}
               key={input.id}
             >
               <label className="parameterHeading">
@@ -79,16 +56,14 @@ export default function ParameterSearchSpaceSection({
                     model.editParameterConfig({
                       type: 'enabled',
                       id: input.id,
-                      enabled:
-                        event.target.checked,
+                      enabled: event.target.checked,
                     })
                   }
                 />
                 <span className="parameterName">
                   <strong>{input.label}</strong>
                   <small>
-                    {input.type} · current{' '}
-                    {String(input.currentValue)}
+                    {input.type} · current {String(input.currentValue)}
                   </small>
                 </span>
               </label>
@@ -101,19 +76,14 @@ export default function ParameterSearchSpaceSection({
                       <input
                         type="number"
                         value={config.low}
-                        placeholder={
-                          input.min !== undefined
-                            ? String(input.min)
-                            : 'Set min'
-                        }
+                        placeholder={input.min !== undefined ? String(input.min) : 'Set min'}
                         disabled={locked}
                         onChange={(event) =>
                           model.editParameterConfig({
                             type: 'field',
                             id: input.id,
                             field: 'low',
-                            value:
-                              event.target.value,
+                            value: event.target.value,
                           })
                         }
                       />
@@ -123,19 +93,14 @@ export default function ParameterSearchSpaceSection({
                       <input
                         type="number"
                         value={config.high}
-                        placeholder={
-                          input.max !== undefined
-                            ? String(input.max)
-                            : 'Set max'
-                        }
+                        placeholder={input.max !== undefined ? String(input.max) : 'Set max'}
                         disabled={locked}
                         onChange={(event) =>
                           model.editParameterConfig({
                             type: 'field',
                             id: input.id,
                             field: 'high',
-                            value:
-                              event.target.value,
+                            value: event.target.value,
                           })
                         }
                       />
@@ -144,12 +109,12 @@ export default function ParameterSearchSpaceSection({
                       title={
                         input.type === 'integer'
                           ? input.step !== undefined
-                            ? 'Leave blank to use Pine\'s declared step of ' +
+                            ? "Leave blank to use Pine's declared step of " +
                               input.step +
                               '. Enter a value to use a different step.'
                             : 'Leave blank to use step 1. Enter a value to use a different step.'
                           : input.step !== undefined
-                            ? 'Leave blank to use Pine\'s declared step of ' +
+                            ? "Leave blank to use Pine's declared step of " +
                               input.step +
                               '. Enter a value to use a different step.'
                             : 'Leave blank for continuous sampling. Enter a step to use fixed increments.'
@@ -159,20 +124,14 @@ export default function ParameterSearchSpaceSection({
                       <input
                         type="number"
                         value={config.step}
-                        disabled={
-                          locked || config.log
-                        }
+                        disabled={locked || config.log}
                         placeholder={
                           input.type === 'integer'
                             ? input.step !== undefined
-                              ? 'Auto (' +
-                                input.step +
-                                ')'
+                              ? 'Auto (' + input.step + ')'
                               : 'Auto (1)'
                             : input.step !== undefined
-                              ? 'Auto (' +
-                                input.step +
-                                ')'
+                              ? 'Auto (' + input.step + ')'
                               : 'Auto (continuous)'
                         }
                         onChange={(event) =>
@@ -180,8 +139,7 @@ export default function ParameterSearchSpaceSection({
                             type: 'field',
                             id: input.id,
                             field: 'step',
-                            value:
-                              event.target.value,
+                            value: event.target.value,
                           })
                         }
                       />
@@ -200,8 +158,7 @@ export default function ParameterSearchSpaceSection({
                         model.editParameterConfig({
                           type: 'log',
                           id: input.id,
-                          log:
-                            event.target.checked,
+                          log: event.target.checked,
                         })
                       }
                     />
@@ -212,121 +169,82 @@ export default function ParameterSearchSpaceSection({
 
               {enabled && categorical && (
                 <div className="choiceList">
-                  {primitiveOptions(input).map(
-                    (choice) => (
-                      <label
-                        className="choiceChip"
-                        key={String(choice)}
-                      >
-                        <input
-                          type="checkbox"
-                          disabled={locked}
-                          checked={config.choices.some(
-                            (value) =>
-                              value === choice,
-                          )}
-                          onChange={() =>
-                            model.editParameterConfig({
-                              type: 'choice',
-                              id: input.id,
-                              choice,
-                            })
-                          }
-                        />
-                        {String(choice)}
-                      </label>
-                    ),
-                  )}
+                  {primitiveOptions(input).map((choice) => (
+                    <label className="choiceChip" key={String(choice)}>
+                      <input
+                        type="checkbox"
+                        disabled={locked}
+                        checked={config.choices.some((value) => value === choice)}
+                        onChange={() =>
+                          model.editParameterConfig({
+                            type: 'choice',
+                            id: input.id,
+                            choice,
+                          })
+                        }
+                      />
+                      {String(choice)}
+                    </label>
+                  ))}
                 </div>
               )}
 
-              {enabled &&
-                conditionCandidates.length > 0 && (
-                  <div className="conditionBlock">
-                    <label
-                      title="Make this parameter conditional on any Pine dropdown or boolean input. If the controller is not already being optimised, selecting it here adds it automatically."
+              {enabled && conditionCandidates.length > 0 && (
+                <div className="conditionBlock">
+                  <label title="Make this parameter conditional on any Pine dropdown or boolean input. If the controller is not already being optimised, selecting it here adds it automatically.">
+                    <span>Active when</span>
+                    <select
+                      value={config.conditionParameter}
+                      disabled={locked}
+                      onChange={(event) =>
+                        model.editParameterConfig({
+                          type: 'condition',
+                          id: input.id,
+                          parameterId: event.target.value,
+                        })
+                      }
                     >
-                      <span>Active when</span>
-                      <select
-                        value={
-                          config.conditionParameter
-                        }
-                        disabled={locked}
-                        onChange={(event) =>
-                          model.editParameterConfig({
-                            type: 'condition',
-                            id: input.id,
-                            parameterId:
-                              event.target.value,
-                          })
-                        }
-                      >
-                        <option value="">
-                          Always
-                        </option>
-                        {conditionCandidates.map(
-                          (candidate) => {
-                            const controllerEnabled =
-                              model.parameterConfigs[
-                                candidate.id
-                              ]?.enabled ?? false;
+                      <option value="">Always</option>
+                      {conditionCandidates.map((candidate) => {
+                        const controllerEnabled =
+                          model.parameterConfigs[candidate.id]?.enabled ?? false;
 
-                            return (
-                              <option
-                                key={candidate.id}
-                                value={candidate.id}
-                              >
-                                {candidate.label}
-                                {controllerEnabled
-                                  ? ''
-                                  : ' (add to optimisation)'}
-                              </option>
-                            );
-                          },
-                        )}
-                      </select>
-                    </label>
+                        return (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.label}
+                            {controllerEnabled ? '' : ' (add to optimisation)'}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
 
-                    {config.conditionParameter &&
-                      parentChoices.length > 0 && (
-                        <>
-                          <div className="conditionValueLabel">
-                            {parent?.label ?? 'Controller'} is:
-                          </div>
-                          <div className="choiceList compactChoices">
-                            {parentChoices.map(
-                              (choice) => (
-                                <label
-                                  className="choiceChip"
-                                  key={String(choice)}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    disabled={locked}
-                                    checked={config.conditionValues.some(
-                                      (value) =>
-                                        value ===
-                                        choice,
-                                    )}
-                                    onChange={() =>
-                                      model.editParameterConfig({
-                                        type:
-                                          'condition-value',
-                                        id: input.id,
-                                        value:
-                                          choice,
-                                      })
-                                    }
-                                  />
-                                  {String(choice)}
-                                </label>
-                              ),
-                            )}
-                          </div>
-                        </>
-                      )}
-                  </div>
-                )}
+                  {config.conditionParameter && parentChoices.length > 0 && (
+                    <>
+                      <div className="conditionValueLabel">{parent?.label ?? 'Controller'} is:</div>
+                      <div className="choiceList compactChoices">
+                        {parentChoices.map((choice) => (
+                          <label className="choiceChip" key={String(choice)}>
+                            <input
+                              type="checkbox"
+                              disabled={locked}
+                              checked={config.conditionValues.some((value) => value === choice)}
+                              onChange={() =>
+                                model.editParameterConfig({
+                                  type: 'condition-value',
+                                  id: input.id,
+                                  value: choice,
+                                })
+                              }
+                            />
+                            {String(choice)}
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

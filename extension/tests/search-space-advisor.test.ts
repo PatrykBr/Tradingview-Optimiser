@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createParameterConfigs } from '../lib/optimisation/parameter-config';
 import { analyseSearchSpace } from '../lib/optimisation/search-space-advisor';
@@ -31,30 +31,18 @@ const inputs: StrategyInput[] = [
   },
 ];
 
-const requireInput = (
-  index: number,
-): StrategyInput => {
+const requireInput = (index: number): StrategyInput => {
   const input = inputs[index];
   if (!input) {
-    throw new Error(
-      'Missing advisor test input: ' +
-        index,
-    );
+    throw new Error('Missing advisor test input: ' + index);
   }
   return input;
 };
 
-const enable = (
-  configs: ReturnType<
-    typeof createParameterConfigs
-  >,
-  id: string,
-) => {
+const enable = (configs: ReturnType<typeof createParameterConfigs>, id: string) => {
   const config = configs[id];
   if (!config) {
-    throw new Error(
-      'Missing advisor test config: ' + id,
-    );
+    throw new Error('Missing advisor test config: ' + id);
   }
   config.enabled = true;
   return config;
@@ -62,78 +50,43 @@ const enable = (
 
 describe('search-space advisor', () => {
   it('flags a budget below the estimate and suggests log search for wide positive ranges', () => {
-    const configs =
-      createParameterConfigs(inputs);
+    const configs = createParameterConfigs(inputs);
 
     enable(configs, 'length');
     enable(configs, 'multiplier');
     enable(configs, 'mode');
 
-    const advice = analyseSearchSpace(
-      inputs,
-      configs,
-      '20',
-    );
+    const advice = analyseSearchSpace(inputs, configs, '20');
 
     expect(
-      advice.items.some((item) =>
-        /Trial budget is below the estimate/i.test(
-          item.title,
-        ),
-      ),
+      advice.items.some((item) => /Trial budget is below the estimate/i.test(item.title)),
     ).toBe(true);
     expect(
-      advice.items.some((item) =>
-        /has a maximum at least 100 times its minimum/i.test(
-          item.title,
-        ),
-      ),
+      advice.items.some((item) => /has a maximum at least 100 times its minimum/i.test(item.title)),
     ).toBe(true);
   });
 
   it('estimates under-sampled conditional branches', () => {
-    const configs =
-      createParameterConfigs(inputs);
+    const configs = createParameterConfigs(inputs);
 
     enable(configs, 'mode');
-    const length =
-      enable(configs, 'length');
+    const length = enable(configs, 'length');
     length.conditionParameter = 'mode';
     length.conditionValues = ['A'];
 
-    const advice = analyseSearchSpace(
-      inputs,
-      configs,
-      '30',
-    );
+    const advice = analyseSearchSpace(inputs, configs, '30');
 
-    expect(
-      advice.items.some((item) =>
-        /under-sampled/i.test(
-          item.title,
-        ),
-      ),
-    ).toBe(true);
+    expect(advice.items.some((item) => /under-sampled/i.test(item.title))).toBe(true);
   });
 
   it('reports discrete cardinality when every parameter is discrete', () => {
-    const configs =
-      createParameterConfigs([
-        requireInput(0),
-        requireInput(2),
-      ]);
+    const configs = createParameterConfigs([requireInput(0), requireInput(2)]);
 
     enable(configs, 'length');
     enable(configs, 'mode');
 
-    const advice = analyseSearchSpace(
-      [requireInput(0), requireInput(2)],
-      configs,
-      '100',
-    );
+    const advice = analyseSearchSpace([requireInput(0), requireInput(2)], configs, '100');
 
-    expect(
-      advice.discreteCombinations,
-    ).toBe(78);
+    expect(advice.discreteCombinations).toBe(78);
   });
 });

@@ -1,22 +1,13 @@
-import {
-  afterEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
+import { mockGlobal } from './helpers/globals';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   defaultParameterConfig,
   isParameterConfig,
   reconcileParameterConfigs,
 } from '../lib/optimisation/parameter-config';
-import {
-  DEFAULT_OPTIMISATION_DRAFT,
-} from '../lib/optimisation/draft';
-import {
-  loadStrategyPresets,
-} from '../lib/optimisation/presets';
+import { DEFAULT_OPTIMISATION_DRAFT } from '../lib/optimisation/draft';
+import { loadStrategyPresets } from '../lib/optimisation/presets';
 import type { StrategyInput } from '../lib/tradingview/types';
 
 const inputs: StrategyInput[] = [
@@ -37,64 +28,42 @@ const inputs: StrategyInput[] = [
   },
 ];
 
-const requireInput = (
-  index: number,
-): StrategyInput => {
+const requireInput = (index: number): StrategyInput => {
   const input = inputs[index];
 
   if (!input) {
-    throw new Error(
-      'Missing test input at index ' +
-        index,
-    );
+    throw new Error('Missing test input at index ' + index);
   }
 
   return input;
 };
 
 describe('saved strategy configurations', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it('validates current parameter configuration shape', () => {
-    expect(
-      isParameterConfig(
-        defaultParameterConfig(
-          requireInput(0),
-        ),
-      ),
-    ).toBe(true);
+    expect(isParameterConfig(defaultParameterConfig(requireInput(0)))).toBe(true);
 
     expect(
       isParameterConfig({
-        ...defaultParameterConfig(
-          requireInput(0),
-        ),
+        ...defaultParameterConfig(requireInput(0)),
         enabled: 'yes',
       }),
     ).toBe(false);
   });
 
   it('rejects corrupted v2 presets instead of silently defaulting them', async () => {
-    vi.stubGlobal('browser', {
+    mockGlobal('browser', {
       storage: {
         local: {
-          get: vi.fn(async () => ({
+          get: mock(async () => ({
             strategyOptimisationPresetsV1: [
               {
                 version: 2,
                 id: 'preset-1',
                 name: 'Broken',
-                strategyName:
-                  'Strategy',
-                strategySignature:
-                  'signature',
+                strategyName: 'Strategy',
+                strategySignature: 'signature',
                 parameterConfigs: {
-                  in_0:
-                    defaultParameterConfig(
-                      requireInput(0),
-                    ),
+                  in_0: defaultParameterConfig(requireInput(0)),
                 },
                 draft: {
                   ...DEFAULT_OPTIMISATION_DRAFT,
@@ -109,13 +78,7 @@ describe('saved strategy configurations', () => {
       },
     });
 
-    await expect(
-      loadStrategyPresets(
-        'signature',
-      ),
-    ).rejects.toThrow(
-      /invalid v2 draft/,
-    );
+    await expect(loadStrategyPresets('signature')).rejects.toThrow(/invalid v2 draft/);
   });
 
   it('restores saved parameter settings against the current input model', () => {
@@ -148,8 +111,6 @@ describe('saved strategy configurations', () => {
     });
 
     expect(restored.in_0?.enabled).toBe(true);
-    expect(restored.in_1).toEqual(
-      defaultParameterConfig(requireInput(1)),
-    );
+    expect(restored.in_1).toEqual(defaultParameterConfig(requireInput(1)));
   });
 });

@@ -1,61 +1,32 @@
-import type {
-  RunProgress,
-  RunUpdate,
-  TrialSummary,
-} from '../protocol/types';
+import type { RunProgress, RunUpdate, TrialSummary } from '../protocol/types';
 
 export const isTerminalStatus = (status: RunProgress['status'] | undefined): boolean =>
   status === 'completed' || status === 'stopped' || status === 'failed';
 
-const orderedTrials = (
-  trials: TrialSummary[],
-): TrialSummary[] => {
-  for (
-    let index = 1;
-    index < trials.length;
-    index += 1
-  ) {
-    if (
-      trials[index - 1]!.trial_number >
-      trials[index]!.trial_number
-    ) {
-      return [...trials].sort(
-        (left, right) =>
-          left.trial_number -
-          right.trial_number,
-      );
+const orderedTrials = (trials: TrialSummary[]): TrialSummary[] => {
+  for (let index = 1; index < trials.length; index += 1) {
+    if (trials[index - 1]!.trial_number > trials[index]!.trial_number) {
+      return [...trials].sort((left, right) => left.trial_number - right.trial_number);
     }
   }
 
   return trials;
 };
 
-const progressFromUpdate = (
-  update: RunUpdate,
-  trials: TrialSummary[],
-): RunProgress => ({
+const progressFromUpdate = (update: RunUpdate, trials: TrialSummary[]): RunProgress => ({
   run_id: update.run_id,
   status: update.status,
-  completed_trials:
-    update.completed_trials,
-  target_trials:
-    update.target_trials,
-  failed_trials:
-    update.failed_trials,
-  reused_trials:
-    update.reused_trials ?? 0,
+  completed_trials: update.completed_trials,
+  target_trials: update.target_trials,
+  failed_trials: update.failed_trials,
+  reused_trials: update.reused_trials ?? 0,
   best: update.best,
-  termination_reason:
-    update.termination_reason ?? null,
+  termination_reason: update.termination_reason ?? null,
   trials,
 });
 
-const canAppendUpdates = (
-  existing: TrialSummary[],
-  updates: TrialSummary[],
-): boolean => {
-  let previous =
-    existing.at(-1)?.trial_number ?? -1;
+const canAppendUpdates = (existing: TrialSummary[], updates: TrialSummary[]): boolean => {
+  let previous = existing.at(-1)?.trial_number ?? -1;
 
   for (const trial of updates) {
     if (trial.trial_number <= previous) {
@@ -67,65 +38,29 @@ const canAppendUpdates = (
   return true;
 };
 
-export const mergeRunUpdate = (
-  current: RunProgress | null,
-  update: RunUpdate,
-): RunProgress => {
-  if (
-    !current ||
-    current.run_id !== update.run_id
-  ) {
-    return progressFromUpdate(
-      update,
-      orderedTrials(update.trial_updates),
-    );
+export const mergeRunUpdate = (current: RunProgress | null, update: RunUpdate): RunProgress => {
+  if (!current || current.run_id !== update.run_id) {
+    return progressFromUpdate(update, orderedTrials(update.trial_updates));
   }
 
   if (update.trial_updates.length === 0) {
-    return progressFromUpdate(
-      update,
-      current.trials,
-    );
+    return progressFromUpdate(update, current.trials);
   }
 
   // Append normal trial updates with one array copy. Rebuild and sort only
   // when recovery or duplicate delivery produces repeated or out-of-order updates.
-  if (
-    canAppendUpdates(
-      current.trials,
-      update.trial_updates,
-    )
-  ) {
-    return progressFromUpdate(
-      update,
-      current.trials.concat(
-        update.trial_updates,
-      ),
-    );
+  if (canAppendUpdates(current.trials, update.trial_updates)) {
+    return progressFromUpdate(update, current.trials.concat(update.trial_updates));
   }
 
-  const trials = new Map(
-    current.trials.map(
-      (trial) => [
-        trial.trial_number,
-        trial,
-      ] as const,
-    ),
-  );
+  const trials = new Map(current.trials.map((trial) => [trial.trial_number, trial] as const));
 
   for (const trial of update.trial_updates) {
-    trials.set(
-      trial.trial_number,
-      trial,
-    );
+    trials.set(trial.trial_number, trial);
   }
 
   return progressFromUpdate(
     update,
-    [...trials.values()].sort(
-      (left, right) =>
-        left.trial_number -
-        right.trial_number,
-    ),
+    [...trials.values()].sort((left, right) => left.trial_number - right.trial_number),
   );
 };

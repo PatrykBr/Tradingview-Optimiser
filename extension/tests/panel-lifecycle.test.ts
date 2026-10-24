@@ -1,27 +1,42 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { mockGlobal } from './helpers/globals';
+import { expect, it, mock } from 'bun:test';
 
-vi.mock('../lib/tradingview/bridge', () => ({ TradingViewBridge: class {
-  dispose = vi.fn();
-} }));
-vi.mock('../components/App', () => ({ default: () => null }));
-
-afterEach(() => vi.unstubAllGlobals());
+mock.module('../lib/tradingview/bridge', () => ({
+  TradingViewBridge: class {
+    dispose = mock();
+  },
+}));
+mock.module('../components/App', () => ({ default: () => null }));
 
 it('hides and shows the mounted panel without dropping its active workflow', async () => {
   let listener: (message: { type: string }) => void = () => {};
   const ui = {
-    mount: vi.fn(), remove: vi.fn(), shadowHost: { style: { display: '' } },
+    mount: mock(),
+    remove: mock(),
+    shadowHost: { style: { display: '' } },
   };
-  vi.stubGlobal('defineContentScript', (definition: unknown) => definition);
-  vi.stubGlobal('injectScript', async (_path: string, options: { modifyScript(script: unknown): void }) => {
-    options.modifyScript({});
+  mockGlobal('defineContentScript', (definition: unknown) => definition);
+  mockGlobal(
+    'injectScript',
+    async (_path: string, options: { modifyScript(script: unknown): void }) => {
+      options.modifyScript({});
+    },
+  );
+  mockGlobal(
+    'createShadowRootUi',
+    mock(async () => ui),
+  );
+  mockGlobal('browser', {
+    runtime: {
+      onMessage: {
+        addListener: mock((callback: typeof listener) => {
+          listener = callback;
+        }),
+      },
+    },
   });
-  vi.stubGlobal('createShadowRootUi', vi.fn(async () => ui));
-  vi.stubGlobal('browser', { runtime: { onMessage: {
-    addListener: vi.fn((callback: typeof listener) => { listener = callback; }),
-  } } });
   const { default: content } = await import('../entrypoints/tradingview.content/index');
-  await content.main({ onInvalidated: vi.fn() } as never);
+  await content.main({ onInvalidated: mock() } as never);
 
   listener({ type: 'TOGGLE_UI' });
   expect(ui.shadowHost.style.display).toBe('none');

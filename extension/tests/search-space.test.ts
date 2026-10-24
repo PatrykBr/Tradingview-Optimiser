@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   conditionCandidatesFor,
@@ -6,10 +6,7 @@ import {
   defaultParameterConfig,
   type ParameterConfig,
 } from '../lib/optimisation/parameter-config';
-import {
-  buildBaselineParameters,
-  buildSearchSpace,
-} from '../lib/optimisation/search-space';
+import { buildBaselineParameters, buildSearchSpace } from '../lib/optimisation/search-space';
 import type { StrategyInput } from '../lib/tradingview/types';
 
 const inputs: StrategyInput[] = [
@@ -39,35 +36,23 @@ const inputs: StrategyInput[] = [
   },
 ];
 
-const configs = (): Record<string, ParameterConfig> =>
-  createParameterConfigs(inputs);
+const configs = (): Record<string, ParameterConfig> => createParameterConfigs(inputs);
 
-const requireInput = (
-  values: StrategyInput[],
-  index: number,
-): StrategyInput => {
+const requireInput = (values: StrategyInput[], index: number): StrategyInput => {
   const input = values[index];
 
   if (!input) {
-    throw new Error(
-      'Missing test input at index ' +
-        index,
-    );
+    throw new Error('Missing test input at index ' + index);
   }
 
   return input;
 };
 
-const requireConfig = (
-  configs: Record<string, ParameterConfig>,
-  id: string,
-): ParameterConfig => {
+const requireConfig = (configs: Record<string, ParameterConfig>, id: string): ParameterConfig => {
   const config = configs[id];
 
   if (!config) {
-    throw new Error(
-      'Missing test config: ' + id,
-    );
+    throw new Error('Missing test config: ' + id);
   }
 
   return config;
@@ -159,24 +144,14 @@ describe('buildSearchSpace', () => {
     ];
     const config = {
       in_0: {
-        ...defaultParameterConfig(
-          requireInput(
-            continuousInputs,
-            0,
-          ),
-        ),
+        ...defaultParameterConfig(requireInput(continuousInputs, 0)),
         enabled: true,
         low: '0.1',
         high: '3',
       },
     };
 
-    expect(
-      buildSearchSpace(
-        continuousInputs,
-        config,
-      )[0],
-    ).toEqual({
+    expect(buildSearchSpace(continuousInputs, config)[0]).toEqual({
       type: 'float',
       name: 'in_0',
       low: 0.1,
@@ -192,9 +167,7 @@ describe('buildSearchSpace', () => {
     requireConfig(config, 'in_2').high = '2.5';
     requireConfig(config, 'in_2').step = '0.25';
 
-    expect(
-      buildSearchSpace(inputs, config)[0],
-    ).toMatchObject({
+    expect(buildSearchSpace(inputs, config)[0]).toMatchObject({
       type: 'float',
       step: 0.25,
     });
@@ -216,9 +189,9 @@ describe('buildSearchSpace', () => {
   });
 
   it('omits an off-grid baseline instead of counting it as a reachable combination', () => {
-    expect(buildBaselineParameters(inputs, [
-      { type: 'int', name: 'in_1', low: 5, high: 30, step: 6 },
-    ])).toEqual({});
+    expect(
+      buildBaselineParameters(inputs, [{ type: 'int', name: 'in_1', low: 5, high: 30, step: 6 }]),
+    ).toEqual({});
   });
 
   it('allows a later dropdown to control an earlier parameter', () => {
@@ -241,10 +214,7 @@ describe('buildSearchSpace', () => {
       },
     ];
 
-    const config =
-      createParameterConfigs(
-        conditionalInputs,
-      );
+    const config = createParameterConfigs(conditionalInputs);
 
     requireConfig(config, 'in_0').enabled = true;
     requireConfig(config, 'in_1').enabled = true;
@@ -253,15 +223,9 @@ describe('buildSearchSpace', () => {
     requireConfig(config, 'in_0').conditionParameter = 'in_1';
     requireConfig(config, 'in_0').conditionValues = ['ATR Bars'];
 
-    const searchSpace = buildSearchSpace(
-      conditionalInputs,
-      config,
-    );
+    const searchSpace = buildSearchSpace(conditionalInputs, config);
 
-    expect(searchSpace.map((parameter) => parameter.name)).toEqual([
-      'in_1',
-      'in_0',
-    ]);
+    expect(searchSpace.map((parameter) => parameter.name)).toEqual(['in_1', 'in_0']);
     expect(searchSpace[1]).toMatchObject({
       condition: {
         parameter: 'in_1',
@@ -299,17 +263,10 @@ describe('buildSearchSpace', () => {
       },
     ];
 
-    const config =
-      createParameterConfigs(
-        candidateInputs,
-      );
+    const config = createParameterConfigs(candidateInputs);
 
     expect(
-      conditionCandidatesFor(
-        'in_0',
-        candidateInputs,
-        config,
-      ).map((input) => input.id),
+      conditionCandidatesFor('in_0', candidateInputs, config).map((input) => input.id),
     ).toEqual(['in_1', 'in_2']);
   });
 
@@ -328,10 +285,7 @@ describe('buildSearchSpace', () => {
         currentValue: false,
       },
     ];
-    const config =
-      createParameterConfigs(
-        conditionalInputs,
-      );
+    const config = createParameterConfigs(conditionalInputs);
     requireConfig(config, 'in_0').enabled = true;
     requireConfig(config, 'in_1').enabled = true;
 
@@ -340,12 +294,7 @@ describe('buildSearchSpace', () => {
     requireConfig(config, 'in_1').conditionParameter = 'in_0';
     requireConfig(config, 'in_1').conditionValues = [true];
 
-    expect(() =>
-      buildSearchSpace(
-        conditionalInputs,
-        config,
-      ),
-    ).toThrow(/contain a cycle/);
+    expect(() => buildSearchSpace(conditionalInputs, config)).toThrow(/contain a cycle/);
   });
 
   it('supports conditional dynamic search parameters', () => {
@@ -374,9 +323,7 @@ describe('buildSearchSpace', () => {
     requireConfig(config, 'in_2').log = true;
     requireConfig(config, 'in_2').step = '';
 
-    expect(() => buildSearchSpace(inputs, config)).toThrow(
-      /positive minimum/,
-    );
+    expect(() => buildSearchSpace(inputs, config)).toThrow(/positive minimum/);
   });
 
   it('requires at least two categorical choices', () => {
@@ -384,8 +331,6 @@ describe('buildSearchSpace', () => {
     requireConfig(config, 'in_0').enabled = true;
     requireConfig(config, 'in_0').choices = [true];
 
-    expect(() => buildSearchSpace(inputs, config)).toThrow(
-      /at least two selected choices/,
-    );
+    expect(() => buildSearchSpace(inputs, config)).toThrow(/at least two selected choices/);
   });
 });
