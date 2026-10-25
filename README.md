@@ -6,6 +6,14 @@ TradingView runs the backtests. The extension applies parameters and reads Strat
 
 [Get started](#get-started) · [Search settings](docs/optimisation.md) · [Research guide](docs/research.md) · [Development](docs/development.md)
 
+## Screenshots
+
+Extension panels rendered with illustrative sample data.
+
+| Parameter setup                                                                                                                       | Study results                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| <img src="docs/screenshots/parameters.png" width="410" alt="Parameter setup with numeric ranges, steps and moving-average choices" /> | <img src="docs/screenshots/results.png" width="410" alt="Completed study with best-result chart, metrics, trial history and export controls" /> |
+
 ## What you can do
 
 | Task            | Tools                                                                                         |
