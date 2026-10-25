@@ -11,10 +11,6 @@ import { splitResearchRange } from './research';
 import { parseDate } from './dates';
 import { buildWalkForwardPlan } from './walk-forward';
 
-export type OptimisationForm = OptimisationDraft;
-export type { FilterConfig };
-export const DEFAULT_OPTIMISATION_FORM = DEFAULT_OPTIMISATION_DRAFT;
-
 const numberOrThrow = (value: string, label: string): number => {
   if (!value.trim()) {
     throw new Error('Enter ' + label.toLowerCase());

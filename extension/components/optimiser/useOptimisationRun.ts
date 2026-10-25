@@ -16,7 +16,6 @@ import {
 import { subscribeMessages, type BackgroundMessage } from '../../lib/messages';
 import { runAuxiliaryStudy } from '../../lib/optimisation/auxiliary-study-runner';
 import { buildRunExport } from '../../lib/optimisation/export';
-import { compatibilityFailureReason } from '../../lib/optimisation/run-compatibility';
 import { isTerminalStatus, mergeRunUpdate } from '../../lib/optimisation/run-progress';
 import {
   createStudyTrialRunner,
@@ -38,7 +37,7 @@ import type { TradingViewAdapter } from '../../lib/tradingview/adapter';
 import { useBackendConnection } from './useBackendConnection';
 import type { PreparedOptimisationRun } from './useStrategyConfiguration';
 
-export interface CompatibilityWatchdog {
+interface CompatibilityWatchdog {
   status: 'idle' | 'healthy' | 'failed';
   lastSuccessfulTrialAt: number | null;
   lastFailure: string | null;
@@ -80,14 +79,11 @@ export function useOptimisationRun({
   const [clock, setClock] = useState(Date.now());
 
   const activeRunIdRef = useRef<string | null>(null);
-  const activeStrategyIdRef = useRef<string | null>(null);
-  const activeConfigRef = useRef<CreateRun | null>(null);
-  const originalParametersRef = useRef<Record<string, unknown> | null>(null);
   const trialRunnerRef = useRef<StudyTrialRunner | null>(null);
   const progressRef = useRef<RunProgress | null>(null);
   const finishingRunIdRef = useRef<string | null>(null);
   const recoveringBackendRef = useRef(false);
-  const activePersistenceRef = useRef<PersistedOptimisationRun | null>(null);
+  const runRef = useRef<PersistedOptimisationRun | null>(null);
 
   useEffect(
     () => () => {
@@ -97,10 +93,10 @@ export function useOptimisationRun({
   );
 
   const persistLifecycle = useCallback(
-    async (patch: Partial<Pick<PersistedOptimisationRun, 'intent' | 'phase' | 'strategyId'>>) => {
-      const current = activePersistenceRef.current;
+    async (patch: Partial<Pick<PersistedOptimisationRun, 'intent' | 'phase'>>) => {
+      const current = runRef.current;
 
-      if (!current) {
+      if (!current || current.config.run_id !== activeRunIdRef.current) {
         throw new Error('Active optimisation lifecycle state is missing');
       }
 
@@ -110,18 +106,15 @@ export function useOptimisationRun({
       };
 
       await saveActiveRun(next);
-      activePersistenceRef.current = next;
+      runRef.current = next;
     },
     [],
   );
 
   const clearActiveState = useCallback(async () => {
     await clearActiveRun();
-    activePersistenceRef.current = null;
+    runRef.current = null;
     activeRunIdRef.current = null;
-    activeStrategyIdRef.current = null;
-    activeConfigRef.current = null;
-    originalParametersRef.current = null;
     trialRunnerRef.current?.dispose();
     trialRunnerRef.current = null;
     progressRef.current = null;
@@ -136,7 +129,7 @@ export function useOptimisationRun({
 
   const assertCompatibility = useCallback(
     async (strategyId: string, config: CreateRun) => {
-      const reason = await compatibilityFailureReason(adapter, strategyId, config);
+      const reason = await adapter.compatibilityFailureReason(strategyId, config);
 
       if (reason) {
         setWatchdog({
@@ -161,11 +154,10 @@ export function useOptimisationRun({
   );
 
   const recoverBackendRun = useCallback(async () => {
-    const config = activeConfigRef.current;
+    const persisted = runRef.current;
     const runId = activeRunIdRef.current;
-    const persisted = activePersistenceRef.current;
 
-    if (!config || !runId || !persisted || recoveringBackendRef.current) {
+    if (!runId || !persisted || recoveringBackendRef.current) {
       return;
     }
 
@@ -185,7 +177,7 @@ export function useOptimisationRun({
 
       await sendRequest({
         type: 'CREATE_RUN',
-        payload: config,
+        payload: persisted.config,
       });
       await sendRequest({
         type: 'START_RUN',
@@ -341,6 +333,28 @@ export function useOptimisationRun({
     [clearActiveState, persistLifecycle, sendRequest],
   );
 
+  const activateRun = useCallback(
+    async (persisted: PersistedOptimisationRun) => {
+      // Persist first: a failed write must leave recovery available and send no backend commands.
+      await saveActiveRun(persisted);
+      runRef.current = persisted;
+      activeRunIdRef.current = persisted.config.run_id;
+      configureTrialRunner(persisted.strategyId, persisted.config, persisted.originalParameters);
+      setRunConfig(persisted.config);
+      setStartedAt(persisted.startedAt);
+      setFinishedAt(null);
+      setActiveRunId(persisted.config.run_id);
+      progressRef.current = persisted.lastProgress ?? null;
+      finishingRunIdRef.current = null;
+      setProgress(progressRef.current);
+      setCurrentTrial(null);
+      setResumeCandidate(null);
+      setStopChoiceVisible(false);
+      await startBackendRun(persisted);
+    },
+    [configureTrialRunner, startBackendRun],
+  );
+
   const beginPreparedRun = useCallback(
     async (prepared: PreparedOptimisationRun) => {
       await assertCompatibility(prepared.strategyId, prepared.config);
@@ -370,36 +384,9 @@ export function useOptimisationRun({
         },
       };
 
-      await saveActiveRun(persisted);
-      activePersistenceRef.current = persisted;
-
-      activeRunIdRef.current = prepared.config.run_id;
-      activeStrategyIdRef.current = prepared.strategyId;
-      activeConfigRef.current = prepared.config;
-      originalParametersRef.current = prepared.originalParameters;
-
-      configureTrialRunner(prepared.strategyId, prepared.config, prepared.originalParameters);
-
-      setRunConfig(prepared.config);
-      setStartedAt(now);
-      setFinishedAt(null);
-      setActiveRunId(prepared.config.run_id);
-      progressRef.current = null;
-      finishingRunIdRef.current = null;
-      setProgress(null);
-      setCurrentTrial(null);
-      setResumeCandidate(null);
-      setStopChoiceVisible(false);
-
-      await startBackendRun(persisted);
+      await activateRun(persisted);
     },
-    [
-      assertCompatibility,
-      backend.backendVersion,
-      backend.optunaVersion,
-      configureTrialRunner,
-      startBackendRun,
-    ],
+    [assertCompatibility, backend.backendVersion, backend.optunaVersion, activateRun],
   );
 
   const assertBackendReady = useCallback(() => {
@@ -438,19 +425,11 @@ export function useOptimisationRun({
     setStopChoiceVisible(false);
 
     try {
-      if (!connected) {
-        throw new Error(
-          pairingRequired
-            ? 'Pair the extension with the backend first'
-            : 'Start the backend before resuming',
-        );
-      }
+      assertBackendReady();
 
       const strategyId = await restorePersistedRun(candidate);
 
-      originalParametersRef.current = candidate.originalParameters;
-
-      await adapter.assertRunContext(strategyId, candidate.config, originalParametersRef.current);
+      await adapter.assertRunContext(strategyId, candidate.config, candidate.originalParameters);
       await assertCompatibility(strategyId, candidate.config);
 
       const persisted: PersistedOptimisationRun = {
@@ -461,41 +440,20 @@ export function useOptimisationRun({
         phase: 'starting',
       };
 
-      // Save the lifecycle change before showing the run as active. If saving
-      // fails, keep the resume candidate and send no backend request.
-      await saveActiveRun(persisted);
-      activePersistenceRef.current = persisted;
-
-      activeRunIdRef.current = candidate.config.run_id;
-      activeStrategyIdRef.current = strategyId;
-      activeConfigRef.current = candidate.config;
-
-      configureTrialRunner(strategyId, candidate.config, candidate.originalParameters);
-
-      setRunConfig(candidate.config);
-      progressRef.current = candidate.lastProgress ?? null;
-      finishingRunIdRef.current = null;
-      setProgress(candidate.lastProgress ?? null);
-      setStartedAt(candidate.startedAt);
-      setFinishedAt(null);
-      setActiveRunId(candidate.config.run_id);
-      setResumeCandidate(null);
-
-      await startBackendRun(persisted);
+      await activateRun(persisted);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
     }
   }, [
-    connected,
-    pairingRequired,
+    adapter,
+    assertBackendReady,
     assertCompatibility,
-    configureTrialRunner,
+    activateRun,
     restorePersistedRun,
     resumeCandidate,
     setError,
-    startBackendRun,
   ]);
 
   const discardResumeCandidate = useCallback(async () => {
@@ -567,7 +525,7 @@ export function useOptimisationRun({
 
   const applyParameters = useCallback(
     async (parameters: Record<string, unknown>) => {
-      const strategyId = activeStrategyIdRef.current || selectedStrategyId;
+      const strategyId = selectedStrategyId;
 
       if (!strategyId) {
         throw new Error('No TradingView strategy is selected');
@@ -595,7 +553,8 @@ export function useOptimisationRun({
   }, [applyParameters, progress, setError]);
 
   const restoreOriginalParameters = useCallback(async () => {
-    if (!originalParametersRef.current) {
+    const originalParameters = runRef.current?.originalParameters;
+    if (!originalParameters) {
       return;
     }
 
@@ -603,7 +562,7 @@ export function useOptimisationRun({
     setError(undefined);
 
     try {
-      await applyParameters(originalParametersRef.current);
+      await applyParameters(originalParameters);
       setStopChoiceVisible(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -638,24 +597,20 @@ export function useOptimisationRun({
   );
 
   const getRunAnalysis = useCallback(async (): Promise<RunAnalysis | null> => {
-    const runId = runConfig?.run_id ?? progress?.run_id;
-    if (!runId || !connected) return null;
-
-    const config = runConfig;
-    if (!config) return null;
+    if (!runConfig || !connected) return null;
 
     return sendRequest({
       type: 'GET_RUN_ANALYSIS',
       payload: {
-        run_id: runId,
-        config,
+        run_id: runConfig.run_id,
+        config: runConfig,
       },
     });
-  }, [connected, progress?.run_id, runConfig, sendRequest]);
+  }, [connected, runConfig, sendRequest]);
 
   const getOriginalParameters = useCallback(
     (): Record<string, unknown> | null =>
-      originalParametersRef.current ? { ...originalParametersRef.current } : null,
+      runRef.current ? { ...runRef.current.originalParameters } : null,
     [],
   );
 
@@ -674,9 +629,7 @@ export function useOptimisationRun({
   const clearDisplayedRun = useCallback(() => {
     if (activeRunIdRef.current) return;
 
-    activeStrategyIdRef.current = null;
-    activeConfigRef.current = null;
-    originalParametersRef.current = null;
+    runRef.current = null;
     progressRef.current = null;
     finishingRunIdRef.current = null;
     setProgress(null);
@@ -693,15 +646,15 @@ export function useOptimisationRun({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const initialisePersistedRun = async () => {
       const saved = await loadActiveRun();
+      if (cancelled || runRef.current) return;
       if (saved) {
-        activePersistenceRef.current = saved;
+        runRef.current = saved;
 
         if (saved.intent === 'stopped') {
           activeRunIdRef.current = saved.config.run_id;
-          activeStrategyIdRef.current = saved.strategyId;
-          activeConfigRef.current = saved.config;
         }
 
         setResumeCandidate(saved);
@@ -710,24 +663,27 @@ export function useOptimisationRun({
         setRunConfig(saved.config);
         setStartedAt(saved.startedAt);
         setFinishedAt(null);
-        originalParametersRef.current = saved.originalParameters;
         return;
       }
 
       const last = await loadLastRun();
+      if (cancelled || runRef.current) return;
       if (last?.lastProgress) {
+        runRef.current = last;
         progressRef.current = last.lastProgress;
         setProgress(last.lastProgress);
         setRunConfig(last.config);
         setStartedAt(last.startedAt);
         setFinishedAt(last.finishedAt ?? null);
-        originalParametersRef.current = last.originalParameters;
       }
     };
 
     void initialisePersistedRun().catch((cause) => {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
     });
+    return () => {
+      cancelled = true;
+    };
   }, [setError]);
 
   useEffect(() => {
@@ -774,7 +730,6 @@ export function useOptimisationRun({
           return;
         }
 
-        activePersistenceRef.current = null;
         activeRunIdRef.current = null;
         trialRunnerRef.current?.dispose();
         trialRunnerRef.current = null;

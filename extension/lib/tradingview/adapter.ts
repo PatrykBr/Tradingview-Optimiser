@@ -1,5 +1,5 @@
 import { OptimiserError, isOptimiserErrorCode } from '../errors';
-import type { CreateRun } from '../protocol/types';
+import type { BacktestRange, CreateRun } from '../protocol/types';
 import type { TradingViewBridge } from './bridge';
 import type { ClosedTradeSnapshot } from './trades';
 import type {
@@ -18,16 +18,21 @@ interface ApplyParametersResult {
   confirmed: Record<string, unknown>;
 }
 
-export interface TradingViewBacktestRange {
-  startDate: string;
-  endDate: string;
-}
-
 const expectedMetricSource = (deepBacktesting: boolean): TradingViewMetricSource =>
   deepBacktesting ? 'deep-visible' : 'internal';
 
 const safetyError = (message: string): OptimiserError =>
   new OptimiserError('TV_CONTEXT_CHANGED', message);
+
+const CRITICAL_CHECKS = new Set([
+  'chart-api',
+  'strategy-detection',
+  'inputs-readable',
+  'inputs-writable',
+  'report-source',
+  'metrics-readable',
+  'strategy-signature',
+]);
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -111,6 +116,17 @@ export class TradingViewAdapter {
     const payload = strategyId === undefined ? undefined : { strategyId };
 
     return this.bridge.request<TradingViewDiagnostics>('diagnostics', payload);
+  }
+
+  async compatibilityFailureReason(strategyId: string, config: CreateRun): Promise<string | null> {
+    const diagnostics = await this.diagnostics(strategyId);
+    const failures = diagnostics.checks
+      .filter((check) => CRITICAL_CHECKS.has(check.id) && !check.ok)
+      .map((check) => check.label + (check.detail ? ': ' + check.detail : ''));
+    if (config.backtest_range && !diagnostics.deepBacktesting.available) {
+      failures.push('Deep Backtesting: ' + (diagnostics.deepBacktesting.reason ?? 'Unavailable'));
+    }
+    return failures.length ? failures.join('; ') : null;
   }
 
   getRunContextSnapshot(strategyId: string): Promise<TradingViewRunContextSnapshot> {
@@ -207,18 +223,13 @@ export class TradingViewAdapter {
         config.backtest_range.end_date,
       );
 
-      this.#verifiedDeepRangeKey = verified
-        ? this.#rangeKey({
-            startDate: config.backtest_range.start_date,
-            endDate: config.backtest_range.end_date,
-          })
-        : null;
+      this.#verifiedDeepRangeKey = verified ? this.#rangeKey(config.backtest_range) : null;
     } else {
       this.#verifiedDeepRangeKey = null;
     }
   }
 
-  async prepareBacktest(strategyId: string, range: TradingViewBacktestRange | null): Promise<void> {
+  async prepareBacktest(strategyId: string, range: BacktestRange | null): Promise<void> {
     await this.ensureStrategyTester();
 
     if (!range) {
@@ -234,8 +245,8 @@ export class TradingViewAdapter {
 
     const verified = await this.#verifyDeepBacktestRange(
       strategyId,
-      range.startDate,
-      range.endDate,
+      range.start_date,
+      range.end_date,
     );
 
     this.#verifiedDeepRangeKey = verified ? this.#rangeKey(range) : null;
@@ -244,7 +255,7 @@ export class TradingViewAdapter {
   async evaluateParameters(
     strategyId: string,
     parameters: Record<string, unknown>,
-    range: TradingViewBacktestRange | null,
+    range: BacktestRange | null,
     signal?: AbortSignal,
   ): Promise<TradingViewMetrics> {
     signal?.throwIfAborted();
@@ -447,8 +458,8 @@ export class TradingViewAdapter {
     return true;
   }
 
-  #rangeKey(range: TradingViewBacktestRange): string {
-    return range.startDate + '|' + range.endDate;
+  #rangeKey(range: BacktestRange): string {
+    return range.start_date + '|' + range.end_date;
   }
 
   async #refreshDeepBacktest(): Promise<void> {
@@ -470,8 +481,8 @@ export class TradingViewAdapter {
     return (await this.readReportSnapshot(strategyId)).settingsSignature;
   }
 
-  async #applyDeepBacktestRange(range: TradingViewBacktestRange): Promise<void> {
-    const result = await this.configureDeepBacktestRange(range.startDate, range.endDate);
+  async #applyDeepBacktestRange(range: BacktestRange): Promise<void> {
+    const result = await this.configureDeepBacktestRange(range.start_date, range.end_date);
 
     if (!result.supported || !result.applied) {
       throw new OptimiserError(

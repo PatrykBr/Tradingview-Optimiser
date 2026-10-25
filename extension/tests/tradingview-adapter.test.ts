@@ -4,6 +4,7 @@ import { describe, expect, it, spyOn, jest } from 'bun:test';
 import type { CreateRun } from '../lib/protocol/types';
 import { TradingViewAdapter } from '../lib/tradingview/adapter';
 import type { TradingViewBridge } from '../lib/tradingview/bridge';
+import type { TradingViewDiagnostics } from '../lib/tradingview/types';
 
 const realSetImmediate = setImmediate;
 
@@ -36,7 +37,127 @@ const config: CreateRun = {
   },
 };
 
+describe('TradingView pre-flight compatibility', () => {
+  const adapterFor = (diagnostics: TradingViewDiagnostics) =>
+    new TradingViewAdapter({
+      request: async (action: string, payload: unknown) => {
+        expect(action).toBe('diagnostics');
+        expect(payload).toEqual({ strategyId: 'strategy-1' });
+        return diagnostics;
+      },
+    } as unknown as TradingViewBridge);
+
+  it('accepts successful critical checks and ignores optional failures', async () => {
+    const adapter = adapterFor({
+      checks: [
+        { id: 'chart-api', label: 'Chart API', ok: true },
+        { id: 'strategy-signature', label: 'Strategy signature', ok: true },
+        { id: 'trade-level-data', label: 'Closed trades', ok: false },
+      ],
+      deepBacktesting: { available: true, reason: null },
+    });
+    expect(await adapter.compatibilityFailureReason('strategy-1', config)).toBeNull();
+  });
+
+  it('combines critical and deep-backtesting failures', async () => {
+    const adapter = adapterFor({
+      checks: [{ id: 'metrics-readable', label: 'Metrics', ok: false, detail: 'report missing' }],
+      deepBacktesting: { available: false, reason: 'not available' },
+    });
+    expect(await adapter.compatibilityFailureReason('strategy-1', config)).toBe(
+      'Metrics: report missing; Deep Backtesting: not available',
+    );
+  });
+
+  it('permits chart backtesting when Deep Backtesting is unavailable', async () => {
+    const adapter = adapterFor({
+      checks: [{ id: 'chart-api', label: 'Chart API', ok: true }],
+      deepBacktesting: { available: false, reason: null },
+    });
+    expect(
+      await adapter.compatibilityFailureReason('strategy-1', { ...config, backtest_range: null }),
+    ).toBeNull();
+    expect(await adapter.compatibilityFailureReason('strategy-1', config)).toBe(
+      'Deep Backtesting: Unavailable',
+    );
+  });
+});
+
 describe('TradingView adapter run context', () => {
+  it.each([true, false])(
+    'uses the canonical Deep range and only caches verified dates (verified=%s)',
+    async (verified) => {
+      const calls: Array<{ action: string; payload: unknown; timeout: number | undefined }> = [];
+      const range = config.backtest_range!;
+      const bridge = {
+        request: async (action: string, payload: unknown, timeout?: number) => {
+          calls.push({ action, payload, timeout });
+          switch (action) {
+            case 'ensureStrategyTester':
+              return true;
+            case 'readReportPollSnapshot':
+              return {
+                metrics: { profitFactor: 2 },
+                token: 'report',
+                objectId: 1,
+                metricSource: 'deep-visible',
+                error: null,
+              };
+            case 'configureDeepBacktestRange':
+            case 'refreshDeepBacktestReport':
+              return { supported: true, applied: true, reason: null };
+            case 'readReportSnapshot':
+              return {
+                backtestRange: verified
+                  ? {
+                      from: Date.parse(range.start_date + 'T00:00:00Z'),
+                      to: Date.parse(range.end_date + 'T00:00:00Z'),
+                    }
+                  : null,
+              };
+            case 'applyParameters':
+              return { confirmed: { in_0: 15 } };
+            default:
+              throw new Error('Unexpected bridge request: ' + action);
+          }
+        },
+      } as unknown as TradingViewBridge;
+      const adapter = new TradingViewAdapter(bridge);
+      const wait = spyOn(adapter, 'waitForMetricsAfterChange').mockResolvedValue({
+        profitFactor: 2,
+      });
+      await adapter.prepareBacktest('strategy-1', range);
+      expect(await adapter.evaluateParameters('strategy-1', { in_0: 15 }, range)).toEqual({
+        profitFactor: 2,
+      });
+      const configurations = calls.filter((call) => call.action === 'configureDeepBacktestRange');
+      expect(configurations).toHaveLength(verified ? 1 : 2);
+      expect(configurations[0]).toEqual({
+        action: 'configureDeepBacktestRange',
+        payload: { startDate: '2024-01-01', endDate: '2024-12-31' },
+        timeout: 8_000,
+      });
+      expect(calls.filter((call) => call.action === 'refreshDeepBacktestReport')).toHaveLength(
+        verified ? 1 : 0,
+      );
+      expect(wait).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('prepares chart backtesting without configuring or polling a Deep range', async () => {
+    const actions: string[] = [];
+    const adapter = new TradingViewAdapter({
+      request: async (action: string) => {
+        actions.push(action);
+        if (action === 'ensureStrategyTester') return true;
+        if (action === 'resetToChartSession') return { reset: true, changed: false };
+        throw new Error('Unexpected bridge request: ' + action);
+      },
+    } as unknown as TradingViewBridge);
+    await adapter.prepareBacktest('strategy-1', null);
+    expect(actions).toEqual(['ensureStrategyTester', 'resetToChartSession']);
+  });
+
   it('validates a run with one consolidated page-world request', async () => {
     const actions: string[] = [];
     const bridge = {

@@ -1,6 +1,11 @@
-import type { TradingViewBacktestRange } from '../tradingview/adapter';
 import { isOptimiserErrorCode } from '../errors';
-import type { BackendCommand, CreateRun, NextTrial, TrialResult } from '../protocol/types';
+import type {
+  BacktestRange,
+  BackendCommand,
+  CreateRun,
+  NextTrial,
+  TrialResult,
+} from '../protocol/types';
 
 export interface StudyTrialFailure {
   reason: string;
@@ -222,7 +227,7 @@ export interface OptimisationTrialAdapter {
   evaluateParameters(
     strategyId: string,
     parameters: Record<string, unknown>,
-    range: TradingViewBacktestRange | null,
+    range: BacktestRange | null,
     signal?: AbortSignal,
   ): Promise<Record<string, number>>;
 }
@@ -244,14 +249,6 @@ interface EvaluateTrialRequest {
   signal?: AbortSignal;
   onPhase?: (update: TrialExecutionUpdate) => void;
 }
-
-const rangeFor = (config: CreateRun): TradingViewBacktestRange | null =>
-  config.backtest_range
-    ? {
-        startDate: config.backtest_range.start_date,
-        endDate: config.backtest_range.end_date,
-      }
-    : null;
 
 export const evaluateOptimisationTrial = async (
   request: EvaluateTrialRequest,
@@ -283,7 +280,7 @@ export const evaluateOptimisationTrial = async (
   const metrics = await request.adapter.evaluateParameters(
     request.strategyId,
     request.trial.parameters,
-    rangeFor(request.config),
+    request.config.backtest_range ?? null,
     request.signal,
   );
   const evaluationMs = Date.now() - evaluationStartedAt;

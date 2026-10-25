@@ -12,7 +12,7 @@ import { toOptimiserError } from '../../lib/errors';
 import { runResearchValidation } from '../../lib/optimisation/research-runner';
 import {
   deleteExperiment,
-  loadExperimentHistory,
+  watchExperimentHistory,
   updateExperimentAnalysis,
   updateExperimentResearch,
   type ExperimentRecord,
@@ -48,10 +48,6 @@ export function useResearchValidation({
     setAnalysisError(undefined);
   }, [run.runConfig?.run_id]);
 
-  const refreshHistory = useCallback(async () => {
-    setExperiments(await loadExperimentHistory());
-  }, []);
-
   useEffect(
     () => () => {
       validationAbortRef.current?.abort();
@@ -59,25 +55,13 @@ export function useResearchValidation({
     [],
   );
 
-  useEffect(() => {
-    void refreshHistory().catch((cause) => {
-      setError('Could not load experiment history: ' + toOptimiserError(cause).message);
-    });
-  }, [refreshHistory, setError]);
-
-  useEffect(() => {
-    if (!isTerminalStatus(run.progress?.status)) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      void refreshHistory().catch((cause) => {
-        setError('Could not refresh experiment history: ' + toOptimiserError(cause).message);
-      });
-    }, 150);
-
-    return () => clearTimeout(timer);
-  }, [refreshHistory, run.progress?.status, setError]);
+  useEffect(
+    () =>
+      watchExperimentHistory(setExperiments, (cause) => {
+        setError('Could not load experiment history: ' + toOptimiserError(cause).message);
+      }),
+    [setError],
+  );
 
   const currentExperiment = experiments.find(
     (experiment) => experiment.runId === run.runConfig?.run_id,
@@ -89,7 +73,7 @@ export function useResearchValidation({
     const status = run.progress?.status;
     const runId = run.runConfig?.run_id;
 
-    if (!runId || analysis || !isTerminalStatus(status) || !run.connected) {
+    if (!currentExperiment || !runId || analysis || !isTerminalStatus(status) || !run.connected) {
       return;
     }
 
@@ -112,10 +96,6 @@ export function useResearchValidation({
             result.parameter_importance_error ?? 'Parameter importance analysis failed',
           );
         }
-
-        if (!cancelled) {
-          await refreshHistory();
-        }
       } catch (cause) {
         if (!cancelled) {
           setAnalysisError(toOptimiserError(cause).message);
@@ -123,17 +103,14 @@ export function useResearchValidation({
       }
     };
 
-    const timer = setTimeout(() => {
-      void loadAnalysis();
-    }, 100);
+    void loadAnalysis();
 
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
   }, [
     analysis,
-    refreshHistory,
+    currentExperiment,
     run.connected,
     run.getRunAnalysis,
     run.progress?.status,
@@ -184,7 +161,6 @@ export function useResearchValidation({
       });
 
       await updateExperimentResearch(config.run_id, evaluation);
-      await refreshHistory();
     } catch (cause) {
       if (!isAbortError(cause)) {
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -200,7 +176,6 @@ export function useResearchValidation({
     }
   }, [
     adapter,
-    refreshHistory,
     run.getOriginalParameters,
     run.runAuxiliaryOptimisation,
     run.progress,
@@ -231,12 +206,11 @@ export function useResearchValidation({
     async (runId: string) => {
       try {
         await deleteExperiment(runId);
-        await refreshHistory();
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     },
-    [refreshHistory, setError],
+    [setError],
   );
 
   return {

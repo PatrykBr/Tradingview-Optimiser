@@ -43,6 +43,7 @@ class ReusableTrial:
 class ActiveRun:
     config: CreateRun
     study: optuna.Study
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     status: RunStatus = RunStatus.CREATED
     outstanding_trial: Trial | None = None
     termination_reason: str | None = None
@@ -51,9 +52,7 @@ class ActiveRun:
     failed_count: int = 0
     reused_count: int = 0
     summaries: list[TrialSummary] = field(default_factory=list)
-    reusable_by_signature: dict[ParameterSignature, ReusableTrial] = field(
-        default_factory=dict
-    )
+    reusable_by_signature: dict[ParameterSignature, ReusableTrial] = field(default_factory=dict)
     evaluated_signatures: set[ParameterSignature] = field(default_factory=set)
     convergence_best_values: list[float | None] = field(default_factory=list)
     best: BestTrial | None = None
@@ -72,7 +71,6 @@ class OptimisationManager:
         self._storage = optuna.storages.RDBStorage(storage_url)
         self._runs: dict[str, ActiveRun] = {}
         self._registry_lock = asyncio.Lock()
-        self._run_locks: dict[str, asyncio.Lock] = {}
 
     def close(self) -> None:
         self._storage.remove_session()
@@ -118,11 +116,7 @@ class OptimisationManager:
             # Load the persisted study once. Mark interrupted browser trials as
             # failed after a restart, then refresh the snapshot if any changed.
             study_trials = study.get_trials(deepcopy=False)
-            stale_running = [
-                trial
-                for trial in study_trials
-                if trial.state == TrialState.RUNNING
-            ]
+            stale_running = [trial for trial in study_trials if trial.state == TrialState.RUNNING]
             for stale_trial in stale_running:
                 study.tell(stale_trial.number, state=TrialState.FAIL)
 
@@ -137,10 +131,7 @@ class OptimisationManager:
 
             persisted_status = study.user_attrs.get("run_status")
             persisted_reason = study.user_attrs.get("termination_reason")
-            completed_trials = sum(
-                trial.state == TrialState.COMPLETE
-                for trial in study_trials
-            )
+            completed_trials = sum(trial.state == TrialState.COMPLETE for trial in study_trials)
             unique_evaluated = {
                 self._parameter_signature(trial.params)
                 for trial in study_trials
@@ -155,10 +146,10 @@ class OptimisationManager:
             if completed_trials >= config.target_trials:
                 status = RunStatus.COMPLETED
                 termination_reason = "target_trials"
-            elif (
-                persisted_status == RunStatus.COMPLETED.value
-                and persisted_reason in {"converged", "search_space_exhausted"}
-            ):
+            elif persisted_status == RunStatus.COMPLETED.value and persisted_reason in {
+                "converged",
+                "search_space_exhausted",
+            }:
                 status = RunStatus.COMPLETED
                 termination_reason = str(persisted_reason)
             elif (
@@ -184,12 +175,11 @@ class OptimisationManager:
             )
             self._rebuild_cache(run, study_trials)
             self._runs[config.run_id] = run
-            self._run_locks.setdefault(config.run_id, asyncio.Lock())
             self._persist_status(run)
             return self._progress(run)
 
     async def start(self, run_id: str) -> tuple[RunProgress, NextTrial | None]:
-        async with self._run_lock(run_id):
+        async with self._require(run_id).lock:
             run = self._require(run_id)
             if run.status in {RunStatus.COMPLETED, RunStatus.STOPPED}:
                 return self._progress(run), None
@@ -201,7 +191,7 @@ class OptimisationManager:
         self,
         result: TrialResult,
     ) -> tuple[RunUpdate, NextTrial | None]:
-        async with self._run_lock(result.run_id):
+        async with self._require(result.run_id).lock:
             run = self._require(result.run_id)
             trial = self._require_outstanding(run, result.trial_number)
             update_start = len(run.summaries)
@@ -215,9 +205,7 @@ class OptimisationManager:
                     # Assign no-trade results a poor finite objective so TPE
                     # avoids them. Keep them as completed strategy outcomes.
                     objective = (
-                        -1.0e12
-                        if run.config.direction == ObjectiveDirection.MAXIMIZE
-                        else 1.0e12
+                        -1.0e12 if run.config.direction == ObjectiveDirection.MAXIMIZE else 1.0e12
                     )
                     objective_fallback = "no_trades"
                     trial.set_user_attr("objective_fallback", objective_fallback)
@@ -239,8 +227,7 @@ class OptimisationManager:
                         violation = 1.0e12
                     else:
                         raise ValueError(
-                            f"constraint metric {metric_filter.metric!r} "
-                            "missing from trial metrics"
+                            f"constraint metric {metric_filter.metric!r} missing from trial metrics"
                         )
                 elif metric_filter.operator == "lte":
                     violation = actual - metric_filter.value
@@ -248,9 +235,7 @@ class OptimisationManager:
                     violation = metric_filter.value - actual
 
                 constraint_name = (
-                    f"{metric_filter.metric}:"
-                    f"{metric_filter.operator}:"
-                    f"{metric_filter.value}"
+                    f"{metric_filter.metric}:{metric_filter.operator}:{metric_filter.value}"
                 )
                 constraints[constraint_name] = violation
                 trial.set_constraint(
@@ -305,7 +290,7 @@ class OptimisationManager:
         self,
         failure: TrialFailure,
     ) -> tuple[RunUpdate, NextTrial | None]:
-        async with self._run_lock(failure.run_id):
+        async with self._require(failure.run_id).lock:
             run = self._require(failure.run_id)
             trial = self._require_outstanding(run, failure.trial_number)
             update_start = len(run.summaries)
@@ -327,7 +312,7 @@ class OptimisationManager:
             return self._update(run, update_start), next_trial
 
     async def stop(self, run_id: str) -> RunProgress:
-        async with self._run_lock(run_id):
+        async with self._require(run_id).lock:
             run = self._require(run_id)
             if run.status not in {RunStatus.RUNNING, RunStatus.STOP_REQUESTED}:
                 return self._progress(run)
@@ -345,7 +330,7 @@ class OptimisationManager:
 
     async def abort(self, run_id: str, reason: str) -> RunProgress:
         """Force-stop a run and fail any outstanding browser-owned trial."""
-        async with self._run_lock(run_id):
+        async with self._require(run_id).lock:
             run = self._require(run_id)
 
             if run.outstanding_trial is not None:
@@ -365,18 +350,17 @@ class OptimisationManager:
             return self._progress(run)
 
     async def progress(self, run_id: str) -> RunProgress:
-        async with self._run_lock(run_id):
+        async with self._require(run_id).lock:
             return self._progress(self._require(run_id))
 
     async def delete_run(self, run_id: str) -> None:
-        lock = self._run_lock(run_id)
-        async with lock:
+        async with self._require(run_id).lock:
             run = self._require(run_id)
 
-            if (
-                run.outstanding_trial is not None
-                or run.status in {RunStatus.RUNNING, RunStatus.STOP_REQUESTED}
-            ):
+            if run.outstanding_trial is not None or run.status in {
+                RunStatus.RUNNING,
+                RunStatus.STOP_REQUESTED,
+            }:
                 raise ValueError("cannot delete an active optimisation run")
 
             async with self._registry_lock:
@@ -385,10 +369,9 @@ class OptimisationManager:
                     storage=self._storage,
                 )
                 self._runs.pop(run_id, None)
-                self._run_locks.pop(run_id, None)
 
     async def analysis(self, run_id: str) -> RunAnalysis:
-        async with self._run_lock(run_id):
+        async with self._require(run_id).lock:
             run = self._require(run_id)
             completed = run.study.get_trials(
                 deepcopy=False,
@@ -397,8 +380,7 @@ class OptimisationManager:
             feasible = [
                 trial
                 for trial in completed
-                if trial.value is not None
-                and self._is_feasible_trial(trial)
+                if trial.value is not None and self._is_feasible_trial(trial)
             ]
             completed_count = len(completed)
             direction = run.config.direction.value
@@ -608,10 +590,7 @@ class OptimisationManager:
     def _parameter_signature(
         parameters: dict[str, Any],
     ) -> ParameterSignature:
-        return tuple(
-            (name, repr(value))
-            for name, value in sorted(parameters.items())
-        )
+        return tuple((name, repr(value)) for name, value in sorted(parameters.items()))
 
     @classmethod
     def _rebuild_cache(
@@ -623,65 +602,65 @@ class OptimisationManager:
             if trial.state not in {TrialState.COMPLETE, TrialState.FAIL}:
                 continue
 
-            summary = cls._summary_from_frozen(trial)
-            run.summaries.append(summary)
-
-            if trial.state == TrialState.FAIL:
-                run.failed_count += 1
-                continue
-
-            run.completed_count += 1
-            if summary.reused_from_trial is not None:
-                run.reused_count += 1
-
-            metrics = trial.user_attrs.get("metrics")
-            signature = cls._parameter_signature(trial.params)
-
-            if isinstance(metrics, dict):
-                run.evaluated_signatures.add(signature)
-
-                if trial.value is not None:
-                    run.reusable_by_signature.setdefault(
-                        signature,
-                        ReusableTrial(
-                            number=trial.number,
-                            value=float(trial.value),
-                            metrics={
-                                key: float(value)
-                                for key, value in metrics.items()
-                            },
-                            constraints=dict(trial.constraints),
-                            objective_fallback=(
-                                str(trial.user_attrs["objective_fallback"])
-                                if trial.user_attrs.get("objective_fallback")
-                                is not None
-                                else None
-                            ),
-                        ),
-                    )
-
-            feasible_value = (
-                float(trial.value)
-                if trial.value is not None
-                and cls._is_feasible_trial(trial)
-                else None
+            fallback = trial.user_attrs.get("objective_fallback")
+            cls._cache_trial(
+                run,
+                cls._summary_from_frozen(trial),
+                has_metrics=isinstance(trial.user_attrs.get("metrics"), dict),
+                objective_fallback=str(fallback) if fallback is not None else None,
             )
-            cls._append_convergence_value(run, feasible_value)
 
-            if feasible_value is not None and isinstance(metrics, dict):
-                cls._consider_best(
-                    run,
-                    BestTrial(
-                        trial_number=trial.number,
-                        objective_value=feasible_value,
-                        parameters=dict(trial.params),
-                        metrics={
-                            key: float(value)
-                            for key, value in metrics.items()
-                        },
-                        constraints=dict(trial.constraints),
+    @classmethod
+    def _cache_trial(
+        cls,
+        run: ActiveRun,
+        summary: TrialSummary,
+        *,
+        has_metrics: bool = True,
+        objective_fallback: str | None = None,
+    ) -> None:
+        """Apply a settled trial identically for live results and study restoration."""
+        run.summaries.append(summary)
+        if summary.state == "failed":
+            run.failed_count += 1
+            return
+
+        run.completed_count += 1
+        run.reused_count += summary.reused_from_trial is not None
+        objective = summary.objective_value
+        if has_metrics:
+            signature = cls._parameter_signature(summary.parameters)
+            run.evaluated_signatures.add(signature)
+            if objective is not None:
+                run.reusable_by_signature.setdefault(
+                    signature,
+                    ReusableTrial(
+                        number=summary.trial_number,
+                        value=objective,
+                        metrics=dict(summary.metrics),
+                        constraints=dict(summary.constraints),
+                        objective_fallback=objective_fallback,
                     ),
                 )
+
+        feasible = all(value <= 0 for value in summary.constraints.values())
+        cls._append_convergence_value(run, objective if feasible else None)
+        if not has_metrics or not feasible or objective is None:
+            return
+
+        current = run.best
+        if current is None or (
+            objective > current.objective_value
+            if run.config.direction == ObjectiveDirection.MAXIMIZE
+            else objective < current.objective_value
+        ):
+            run.best = BestTrial(
+                trial_number=summary.trial_number,
+                objective_value=objective,
+                parameters=summary.parameters,
+                metrics=summary.metrics,
+                constraints=summary.constraints,
+            )
 
     @staticmethod
     def _summary_from_frozen(
@@ -696,16 +675,8 @@ class OptimisationManager:
 
         return TrialSummary(
             trial_number=trial.number,
-            state=(
-                "complete"
-                if trial.state == TrialState.COMPLETE
-                else "failed"
-            ),
-            objective_value=(
-                float(trial.value)
-                if trial.value is not None
-                else None
-            ),
+            state=("complete" if trial.state == TrialState.COMPLETE else "failed"),
+            objective_value=(float(trial.value) if trial.value is not None else None),
             parameters=dict(trial.params),
             metrics=metrics_dict,
             constraints=dict(trial.constraints),
@@ -728,64 +699,31 @@ class OptimisationManager:
         reused_from_trial: int | None = None,
     ) -> None:
         parameters = dict(trial.params)
-        summary = TrialSummary(
-            trial_number=trial.number,
-            state="complete",
-            objective_value=objective,
-            parameters=parameters,
-            metrics=dict(metrics),
-            constraints=constraints,
-            failure_reason=None,
-            duration_ms=duration_ms,
-            reused_from_trial=reused_from_trial,
-        )
-        run.summaries.append(summary)
-        run.completed_count += 1
-        if reused_from_trial is not None:
-            run.reused_count += 1
-
-        signature = cls._parameter_signature(parameters)
-        run.evaluated_signatures.add(signature)
-        run.reusable_by_signature.setdefault(
-            signature,
-            ReusableTrial(
-                number=trial.number,
-                value=objective,
+        cls._cache_trial(
+            run,
+            TrialSummary(
+                trial_number=trial.number,
+                state="complete",
+                objective_value=objective,
+                parameters=parameters,
                 metrics=dict(metrics),
                 constraints=constraints,
-                objective_fallback=objective_fallback,
+                failure_reason=None,
+                duration_ms=duration_ms,
+                reused_from_trial=reused_from_trial,
             ),
+            objective_fallback=objective_fallback,
         )
 
-        feasible = all(
-            value <= 0
-            for value in constraints.values()
-        )
-        cls._append_convergence_value(
-            run,
-            objective if feasible else None,
-        )
-
-        if feasible:
-            cls._consider_best(
-                run,
-                BestTrial(
-                    trial_number=trial.number,
-                    objective_value=objective,
-                    parameters=parameters,
-                    metrics=dict(metrics),
-                    constraints=constraints,
-                ),
-            )
-
-    @staticmethod
+    @classmethod
     def _record_failed_trial(
+        cls,
         run: ActiveRun,
         trial: Trial,
         reason: str,
     ) -> None:
-        run.failed_count += 1
-        run.summaries.append(
+        cls._cache_trial(
+            run,
             TrialSummary(
                 trial_number=trial.number,
                 state="failed",
@@ -796,33 +734,8 @@ class OptimisationManager:
                 failure_reason=reason,
                 duration_ms=None,
                 reused_from_trial=None,
-            )
+            ),
         )
-
-    @classmethod
-    def _consider_best(
-        cls,
-        run: ActiveRun,
-        candidate: BestTrial,
-    ) -> None:
-        current = run.best
-        if current is None:
-            run.best = candidate
-            return
-
-        if run.config.direction == ObjectiveDirection.MAXIMIZE:
-            better = (
-                candidate.objective_value >
-                current.objective_value
-            )
-        else:
-            better = (
-                candidate.objective_value <
-                current.objective_value
-            )
-
-        if better:
-            run.best = candidate
 
     @classmethod
     def _search_space_exhausted(
@@ -830,10 +743,7 @@ class OptimisationManager:
         run: ActiveRun,
     ) -> bool:
         cardinality = run.search_space_cardinality
-        return (
-            cardinality is not None
-            and len(run.evaluated_signatures) >= cardinality
-        )
+        return cardinality is not None and len(run.evaluated_signatures) >= cardinality
 
     @classmethod
     def _reuse_completed_trial(
@@ -841,9 +751,7 @@ class OptimisationManager:
         run: ActiveRun,
         trial: Trial,
     ) -> bool:
-        duplicate = run.reusable_by_signature.get(
-            cls._parameter_signature(trial.params)
-        )
+        duplicate = run.reusable_by_signature.get(cls._parameter_signature(trial.params))
         if duplicate is None:
             return False
 
@@ -922,11 +830,7 @@ class OptimisationManager:
         run: ActiveRun,
         value: float | None,
     ) -> None:
-        previous = (
-            run.convergence_best_values[-1]
-            if run.convergence_best_values
-            else None
-        )
+        previous = run.convergence_best_values[-1] if run.convergence_best_values else None
 
         if value is None:
             current = previous
@@ -952,11 +856,7 @@ class OptimisationManager:
         if len(completed) < required:
             return False
 
-        baseline_index = (
-            len(completed) -
-            config.patience -
-            1
-        )
+        baseline_index = len(completed) - config.patience - 1
         baseline_best = completed[baseline_index]
         current_best = completed[-1]
 
@@ -996,18 +896,6 @@ class OptimisationManager:
                 "termination_reason",
                 run.termination_reason,
             )
-
-    def _run_lock(self, run_id: str) -> asyncio.Lock:
-        lock = self._run_locks.get(run_id)
-        if lock is not None:
-            return lock
-
-        if run_id not in self._runs:
-            raise UnknownRunError(f"unknown run_id: {run_id}")
-
-        lock = asyncio.Lock()
-        self._run_locks[run_id] = lock
-        return lock
 
     def _require(self, run_id: str) -> ActiveRun:
         try:

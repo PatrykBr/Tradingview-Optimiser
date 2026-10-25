@@ -3,27 +3,26 @@ import {
   runResearchValidation,
   type ResearchBacktestAdapter,
 } from '../lib/optimisation/research-runner';
-import type { CreateRun, RunProgress } from '../lib/protocol/types';
-import type { TradingViewBacktestRange } from '../lib/tradingview/adapter';
+import type { BacktestRange, CreateRun, RunProgress } from '../lib/protocol/types';
 
 class FakeResearchAdapter implements ResearchBacktestAdapter {
   readonly evaluations: Array<{
     parameters: Record<string, unknown>;
-    range: TradingViewBacktestRange | null;
+    range: BacktestRange | null;
   }> = [];
-  readonly prepared: Array<TradingViewBacktestRange | null> = [];
+  readonly prepared: Array<BacktestRange | null> = [];
   readonly applied: Array<Record<string, unknown>> = [];
   failRestore = false;
   async assertRunContext() {}
   async evaluateParameters(
     _strategyId: string,
     parameters: Record<string, unknown>,
-    range: TradingViewBacktestRange | null,
+    range: BacktestRange | null,
   ) {
     this.evaluations.push({ parameters, range });
     return { profitFactor: 1.8, maxDrawdownPercent: 4, totalTrades: 120 };
   }
-  async prepareBacktest(_strategyId: string, range: TradingViewBacktestRange | null) {
+  async prepareBacktest(_strategyId: string, range: BacktestRange | null) {
     if (this.failRestore) throw new Error('restore failed');
     this.prepared.push(range);
   }
@@ -125,7 +124,9 @@ describe('research workflow', () => {
     expect(result.robustness?.winnerTrialNumber).toBe(0);
     expect(result.robustness?.candidates[0]?.validationObjective).toBe(1.8);
     expect(run.adapter.evaluations).toHaveLength(1);
-    expect(run.adapter.prepared).toEqual([{ startDate: '2020-01-01', endDate: '2022-06-30' }]);
+    expect(run.adapter.prepared).toEqual([
+      { mode: 'deep', start_date: '2020-01-01', end_date: '2022-06-30' },
+    ]);
     expect(run.adapter.applied).toEqual([{ length: 14 }]);
   });
 
@@ -173,8 +174,9 @@ describe('research workflow', () => {
     const result = await runResearchValidation(run);
     const windows = result.robustness!.validationWindows;
     expect(run.adapter.evaluations.at(-1)?.range).toEqual({
-      startDate: windows[0]!.startDate,
-      endDate: windows.at(-1)!.endDate,
+      mode: 'deep',
+      start_date: windows[0]!.startDate,
+      end_date: windows.at(-1)!.endDate,
     });
     expect(result.monteCarlo).toMatchObject({ available: true, source: 'oos', sampleSize: 5 });
     expect(run.adapter.prepared).toHaveLength(1);
@@ -245,7 +247,11 @@ describe('research workflow', () => {
         },
       }),
     ).rejects.toThrow('child failed');
-    expect(run.adapter.prepared.at(-1)).toEqual({ startDate: '2020-01-01', endDate: '2022-06-30' });
+    expect(run.adapter.prepared.at(-1)).toEqual({
+      mode: 'deep',
+      start_date: '2020-01-01',
+      end_date: '2022-06-30',
+    });
     expect(run.adapter.applied).toEqual([{ length: 14 }]);
   });
 });

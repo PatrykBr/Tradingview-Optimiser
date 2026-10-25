@@ -58,7 +58,15 @@ The background worker owns the paired backend connection and tab routing. It for
 
 Research has one entry point, `runResearchValidation`. It runs enabled stages in order against the shared chart, verifies each evaluation and restores the parent range and selected parameters once in `finally`. The React hook handles presentation, cancellation and saving the result. Walk-forward children omit parent research settings and use the backend's disabled defaults.
 
-Normal starts and history reruns share one start operation. It owns preparation, the busy state, error reporting and backend startup, so a history rerun is locked while its configuration is being prepared.
+Normal starts and history reruns share one start operation. It owns preparation, the busy state, error reporting and backend startup, so a history rerun is locked while its configuration is being prepared. New runs and resumes share one activation operation, which saves recovery state before starting trials. The lifecycle keeps one run snapshot for its configuration and original parameters. TradingView actions use the current chart's selected strategy ID rather than a potentially stale saved ID.
+
+History loading, rerunning and resuming share configuration loading. Editing stays locked until the strategy, inputs and saved presets have loaded. A late initial recovery read cannot replace a run that has already been activated.
+
+Configuration, trial execution, research and the TradingView adapter use the same `BacktestRange` model. Date fields are translated only when calling the page bridge. The adapter owns pre-flight compatibility checks alongside chart-context validation.
+
+Experiment history follows `browser.storage.onChanged`. Initial loading cannot overwrite a newer storage event, and listeners stop on unmount. Research results, analysis and deletions appear after their storage write, without timers or explicit refresh calls.
+
+Each backend run owns its lock. Live results and persisted Optuna trials pass through the same cache update operation for counts, reuse, convergence and the best feasible result. Restoring a study applies the same rules as processing it live.
 
 The design uses typed contracts, native promises, `AbortSignal` and explicit resource scopes. A distributed workflow engine would still need to coordinate the same mutable TradingView chart and add deployment and recovery concerns. Parallel research stages would interfere with each other's parameters and date ranges. Sequential stages with one restoration scope fit the current application.
 

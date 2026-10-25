@@ -4,7 +4,14 @@ from unittest.mock import patch
 import optuna
 import pytest
 
-from app.models import ChartContext, CreateRun, MetricFilter, ObjectiveDirection, TrialResult
+from app.models import (
+    ChartContext,
+    CreateRun,
+    MetricFilter,
+    ObjectiveDirection,
+    TrialFailure,
+    TrialResult,
+)
 from app.optimisation.manager import OptimisationManager
 
 
@@ -834,9 +841,66 @@ async def test_deleted_run_releases_per_run_lock(tmp_path: Path) -> None:
 
     assert progress.status == "completed"
     assert next_trial is None
-    assert config.run_id in manager._run_locks
+    previous_lock = manager._runs[config.run_id].lock
 
     await manager.delete_run(config.run_id)
 
-    assert config.run_id not in manager._run_locks
+    with pytest.raises(KeyError, match="unknown run_id"):
+        await manager.progress(config.run_id)
+    await manager.create_run(config)
+    assert manager._runs[config.run_id].lock is not previous_lock
+    _, replacement = await manager.start(config.run_id)
+    assert replacement is not None
+    assert replacement.trial_number == 0
+    await manager.abort(config.run_id, "test complete")
+    manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direction", [ObjectiveDirection.MAXIMIZE, ObjectiveDirection.MINIMIZE])
+async def test_live_and_restored_trial_caches_match(
+    tmp_path: Path, direction: ObjectiveDirection,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'cache.db'}"
+    config = make_config("cache-parity-test", target_trials=8)
+    config.direction = direction
+    manager = OptimisationManager(database_url)
+    await manager.create_run(config)
+    study = manager._runs[config.run_id].study
+    # Include successful, filtered, failed and reused trials in one persisted history.
+    for length in [5, 6, 7, 8, 5]:
+        study.enqueue_trial({"length": length, "risk": 1.0, "filter": True})
+    _, active = await manager.start(config.run_id)
+    for metrics in [
+        {"profitFactor": 2.0, "maxDrawdownPercent": 4.0, "totalTrades": 150.0},
+        {"profitFactor": 3.0, "maxDrawdownPercent": 12.0, "totalTrades": 150.0},
+        None,
+        {"profitFactor": 1.5, "maxDrawdownPercent": 3.0, "totalTrades": 120.0},
+    ]:
+        assert active is not None
+        if metrics is None:
+            _, active = await manager.submit_failure(TrialFailure(
+                run_id=config.run_id, trial_number=active.trial_number, reason="strategy failed",
+            ))
+        else:
+            _, active = await manager.submit_result(TrialResult(
+                run_id=config.run_id, trial_number=active.trial_number,
+                metrics=metrics, duration_ms=50,
+            ))
+    expected = await manager.abort(config.run_id, "user stopped")
+    assert expected.completed_trials == 4
+    assert expected.failed_trials == 2
+    assert expected.reused_trials == 1
+    assert expected.best is not None
+    expected_best = 2.0 if direction == ObjectiveDirection.MAXIMIZE else 1.5
+    assert expected.best.objective_value == expected_best
+    convergence = manager._runs[config.run_id].convergence_best_values.copy()
+    manager.close()
+
+    restored = OptimisationManager(database_url)
+    try:
+        assert await restored.create_run(config) == expected
+        assert restored._runs[config.run_id].convergence_best_values == convergence
+    finally:
+        restored.close()
 

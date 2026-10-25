@@ -340,10 +340,7 @@ export const loadLastRun = async (): Promise<PersistedOptimisationRun | null> =>
   return parsePersistedRun(value, 'Last optimisation state');
 };
 
-export const loadExperimentHistory = async (): Promise<ExperimentRecord[]> => {
-  const stored = await browser.storage.local.get(EXPERIMENTS_KEY);
-  const value = stored[EXPERIMENTS_KEY];
-
+const parseExperimentHistory = (value: unknown): ExperimentRecord[] => {
   if (value === undefined) {
     return [];
   }
@@ -359,6 +356,42 @@ export const loadExperimentHistory = async (): Promise<ExperimentRecord[]> => {
   }
 
   return [...value].sort((left, right) => right.finishedAt - left.finishedAt);
+};
+
+export const loadExperimentHistory = async (): Promise<ExperimentRecord[]> => {
+  const stored = await browser.storage.local.get(EXPERIMENTS_KEY);
+  return parseExperimentHistory(stored[EXPERIMENTS_KEY]);
+};
+
+export const watchExperimentHistory = (
+  onChange: (history: ExperimentRecord[]) => void,
+  onError: (cause: unknown) => void,
+): (() => void) => {
+  let disposed = false;
+  let changed = false;
+  const listener: Parameters<typeof browser.storage.onChanged.addListener>[0] = (changes, area) => {
+    if (disposed || area !== 'local' || !(EXPERIMENTS_KEY in changes)) return;
+    changed = true;
+    try {
+      onChange(parseExperimentHistory(changes[EXPERIMENTS_KEY]?.newValue));
+    } catch (cause) {
+      onError(cause);
+    }
+  };
+  browser.storage.onChanged.addListener(listener);
+  // Subscribe before reading, and never replace a newer event with the initial snapshot.
+  void loadExperimentHistory().then(
+    (history) => {
+      if (!disposed && !changed) onChange(history);
+    },
+    (cause: unknown) => {
+      if (!disposed && !changed) onError(cause);
+    },
+  );
+  return () => {
+    disposed = true;
+    browser.storage.onChanged.removeListener(listener);
+  };
 };
 
 const updateExperiment = async (

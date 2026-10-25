@@ -32,17 +32,19 @@ import type {
   TradingViewDiagnostics,
 } from '../../lib/tradingview/types';
 import type { PersistedOptimisationRun } from '../../lib/optimisation/storage';
-import { cloneOptimisationDraft } from '../../lib/optimisation/draft';
+import {
+  cloneOptimisationDraft,
+  DEFAULT_OPTIMISATION_DRAFT,
+  type FilterConfig,
+  type OptimisationDraft,
+} from '../../lib/optimisation/draft';
 import {
   buildMetricFilters,
   buildResearchPlan,
-  DEFAULT_OPTIMISATION_FORM,
   formFromRun,
   parameterConfigsFromRun,
   parseTargetTrials,
   sameChart,
-  type FilterConfig,
-  type OptimisationForm,
 } from '../../lib/optimisation/run-config';
 
 export interface PreparedOptimisationRun {
@@ -59,17 +61,9 @@ const prepareTradingViewRun = async (
   config: CreateRun,
   inputs: StrategyInput[],
 ): Promise<PreparedOptimisationRun> => {
-  const range = config.backtest_range;
+  const range = config.backtest_range ?? null;
 
-  await adapter.prepareBacktest(
-    strategyId,
-    range
-      ? {
-          startDate: range.start_date,
-          endDate: range.end_date,
-        }
-      : null,
-  );
+  await adapter.prepareBacktest(strategyId, range);
 
   const initialMetrics = await adapter.waitForMetricsAfterChange(
     strategyId,
@@ -115,7 +109,7 @@ export function useStrategyConfiguration(adapter: TradingViewAdapter, setError: 
   const selectedStrategyIdRef = useRef('');
   const [inputs, setInputs] = useState<StrategyInput[]>([]);
   const [parameterConfigs, setParameterConfigs] = useState<Record<string, ParameterConfig>>({});
-  const [form, setForm] = useState<OptimisationForm>(DEFAULT_OPTIMISATION_FORM);
+  const [form, setForm] = useState<OptimisationDraft>(DEFAULT_OPTIMISATION_DRAFT);
 
   const currentStrategySignatureRef = useRef<string | undefined>(undefined);
   const [savedPresets, setSavedPresets] = useState<SavedOptimisationPreset[]>([]);
@@ -183,7 +177,7 @@ export function useStrategyConfiguration(adapter: TradingViewAdapter, setError: 
   );
 
   const loadInputs = useCallback(
-    async (strategyId: string, restoreConfig?: CreateRun): Promise<void> => {
+    async (strategyId: string, restoreConfig?: CreateRun): Promise<StrategyInput[]> => {
       const detectedInputs = await adapter.readStrategyInputs(strategyId);
 
       setInputs(detectedInputs);
@@ -196,6 +190,7 @@ export function useStrategyConfiguration(adapter: TradingViewAdapter, setError: 
       if (restoreConfig) {
         setForm(formFromRun(restoreConfig));
       }
+      return detectedInputs;
     },
     [adapter],
   );
@@ -363,7 +358,7 @@ export function useStrategyConfiguration(adapter: TradingViewAdapter, setError: 
     [inputs],
   );
 
-  const updateForm = useCallback((patch: Partial<OptimisationForm>) => {
+  const updateForm = useCallback((patch: Partial<OptimisationDraft>) => {
     setForm((current) => ({
       ...current,
       ...patch,
@@ -467,34 +462,28 @@ export function useStrategyConfiguration(adapter: TradingViewAdapter, setError: 
   );
 
   const loadExperimentConfiguration = useCallback(
-    async (config: CreateRun): Promise<string> => {
-      const resolved = await resolveStrategyForConfig(config);
-
-      setStrategies(resolved.detected);
-      selectedStrategyIdRef.current = resolved.strategy.id;
-      setSelectedStrategyId(resolved.strategy.id);
-
-      await loadInputs(resolved.strategy.id, config);
-      await refreshStrategyPresets(resolved.strategy.id);
-
-      return resolved.strategy.id;
+    async (config: CreateRun): Promise<{ strategy: DetectedStrategy; inputs: StrategyInput[] }> => {
+      setBusy(true);
+      try {
+        const resolved = await resolveStrategyForConfig(config);
+        setStrategies(resolved.detected);
+        selectedStrategyIdRef.current = resolved.strategy.id;
+        setSelectedStrategyId(resolved.strategy.id);
+        const inputs = await loadInputs(resolved.strategy.id, config);
+        await refreshStrategyPresets(resolved.strategy.id);
+        return { strategy: resolved.strategy, inputs };
+      } finally {
+        setBusy(false);
+      }
     },
     [loadInputs, refreshStrategyPresets, resolveStrategyForConfig],
   );
 
   const prepareExperimentRerun = useCallback(
     async (source: CreateRun): Promise<PreparedOptimisationRun> => {
-      const resolved = await resolveStrategyForConfig(source);
+      const resolved = await loadExperimentConfiguration(source);
       const strategyId = resolved.strategy.id;
-      const detectedInputs = await adapter.readStrategyInputs(strategyId);
-
-      setStrategies(resolved.detected);
-      selectedStrategyIdRef.current = strategyId;
-      setSelectedStrategyId(strategyId);
-      setInputs(detectedInputs);
-      setParameterConfigs(parameterConfigsFromRun(detectedInputs, source));
-      setForm(formFromRun(source));
-      await refreshStrategyPresets(strategyId);
+      const detectedInputs = resolved.inputs;
 
       const chart = await adapter.getChartContext();
       const strategySignature = await adapter.getStrategySignature(strategyId);
@@ -515,22 +504,14 @@ export function useStrategyConfiguration(adapter: TradingViewAdapter, setError: 
 
       return prepareTradingViewRun(adapter, strategyId, config, detectedInputs);
     },
-    [adapter, refreshStrategyPresets, resolveStrategyForConfig],
+    [adapter, loadExperimentConfiguration],
   );
 
   const restorePersistedRun = useCallback(
     async (candidate: PersistedOptimisationRun): Promise<string> => {
-      const strategyId = await loadExperimentConfiguration(candidate.config);
+      const strategyId = (await loadExperimentConfiguration(candidate.config)).strategy.id;
 
-      await adapter.prepareBacktest(
-        strategyId,
-        candidate.config.backtest_range
-          ? {
-              startDate: candidate.config.backtest_range.start_date,
-              endDate: candidate.config.backtest_range.end_date,
-            }
-          : null,
-      );
+      await adapter.prepareBacktest(strategyId, candidate.config.backtest_range ?? null);
 
       return strategyId;
     },

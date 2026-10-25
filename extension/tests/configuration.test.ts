@@ -4,11 +4,11 @@ import {
   buildBacktestRange,
   buildMetricFilters,
   buildResearchPlan,
-  DEFAULT_OPTIMISATION_FORM,
   formFromRun,
   parameterConfigsFromRun,
   parseTargetTrials,
 } from '../lib/optimisation/run-config';
+import { DEFAULT_OPTIMISATION_DRAFT } from '../lib/optimisation/draft';
 import type { CreateRun } from '../lib/protocol/types';
 import type { StrategyInput } from '../lib/tradingview/types';
 
@@ -143,7 +143,7 @@ describe('optimisation configuration', () => {
     expect(() => parseTargetTrials('0')).toThrow(/between 1 and 100,000/);
     expect(() =>
       buildBacktestRange({
-        ...DEFAULT_OPTIMISATION_FORM,
+        ...DEFAULT_OPTIMISATION_DRAFT,
         dateRangeEnabled: true,
         startDate: '2025-01-01',
         endDate: '2024-01-01',
@@ -154,7 +154,7 @@ describe('optimisation configuration', () => {
   it('rejects blank values for enabled metric filters', () => {
     expect(() =>
       buildMetricFilters({
-        ...DEFAULT_OPTIMISATION_FORM,
+        ...DEFAULT_OPTIMISATION_DRAFT,
         maxDrawdownFilter: {
           enabled: true,
           value: '',
@@ -164,9 +164,9 @@ describe('optimisation configuration', () => {
   });
 
   it('keeps disabled research inert for small runs', () => {
-    expect(() => buildResearchPlan(DEFAULT_OPTIMISATION_FORM, 5)).not.toThrow();
+    expect(() => buildResearchPlan(DEFAULT_OPTIMISATION_DRAFT, 5)).not.toThrow();
 
-    const plan = buildResearchPlan(DEFAULT_OPTIMISATION_FORM, 5);
+    const plan = buildResearchPlan(DEFAULT_OPTIMISATION_DRAFT, 5);
     expect(plan.research.convergence.enabled).toBe(false);
     expect(plan.research.robustness.enabled).toBe(false);
     expect(plan.research.stability.enabled).toBe(false);
@@ -177,7 +177,7 @@ describe('optimisation configuration', () => {
   it('persists full date range for advanced research modes', () => {
     const plan = buildResearchPlan(
       {
-        ...DEFAULT_OPTIMISATION_FORM,
+        ...DEFAULT_OPTIMISATION_DRAFT,
         dateRangeEnabled: true,
         startDate: '2020-01-01',
         endDate: '2025-12-31',
@@ -213,7 +213,7 @@ describe('optimisation configuration', () => {
   it('reserves OOS data when robustness is enabled', () => {
     const plan = buildResearchPlan(
       {
-        ...DEFAULT_OPTIMISATION_FORM,
+        ...DEFAULT_OPTIMISATION_DRAFT,
         dateRangeEnabled: true,
         startDate: '2020-01-01',
         endDate: '2024-12-31',

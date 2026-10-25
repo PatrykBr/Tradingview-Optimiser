@@ -1,6 +1,6 @@
 import { combineFailures } from '../errors';
 import type { BacktestRange, CreateRun, RunProgress } from '../protocol/types';
-import type { TradingViewAdapter, TradingViewBacktestRange } from '../tradingview/adapter';
+import type { TradingViewAdapter } from '../tradingview/adapter';
 import { runTradeMonteCarlo } from './monte-carlo';
 import {
   buildStabilityVariants,
@@ -48,9 +48,6 @@ interface ResearchValidationRequest {
   onPhase?: (phase: string) => void;
 }
 
-const adapterRange = (range: BacktestRange | null | undefined): TradingViewBacktestRange | null =>
-  range ? { startDate: range.start_date, endDate: range.end_date } : null;
-
 const validationRange = (evaluation: ResearchEvaluation): BacktestRange | null => {
   const first = evaluation.robustness?.validationWindows[0];
   const last = evaluation.robustness?.validationWindows.at(-1);
@@ -89,12 +86,7 @@ export async function runResearchValidation(
     );
   const evaluate = async (parameters: Record<string, unknown>, range: BacktestRange | null) => {
     signal?.throwIfAborted();
-    const metrics = await adapter.evaluateParameters(
-      strategyId,
-      parameters,
-      adapterRange(range),
-      signal,
-    );
+    const metrics = await adapter.evaluateParameters(strategyId, parameters, range, signal);
     signal?.throwIfAborted();
     await assertContext(range);
     signal?.throwIfAborted();
@@ -263,7 +255,7 @@ export async function runResearchValidation(
         };
         // Omit parent research settings; the backend supplies disabled defaults.
         delete child.research;
-        await adapter.prepareBacktest(strategyId, adapterRange(fold.trainingRange));
+        await adapter.prepareBacktest(strategyId, fold.trainingRange);
         const childProgress = await request.runStudy(
           child,
           strategyId,
@@ -320,7 +312,7 @@ export async function runResearchValidation(
     throw cause;
   } finally {
     try {
-      await adapter.prepareBacktest(strategyId, adapterRange(config.backtest_range));
+      await adapter.prepareBacktest(strategyId, config.backtest_range ?? null);
       await adapter.applyParameters(strategyId, restoreParameters);
     } catch (restoreFailure) {
       if (primaryFailure === undefined) throw restoreFailure;
