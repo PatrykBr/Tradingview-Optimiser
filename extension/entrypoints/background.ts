@@ -26,7 +26,7 @@ export default defineBackground(() => {
 
     for (const [runId, tabId] of Object.entries(owners as Record<string, unknown>)) {
       if (typeof tabId !== 'number') {
-        throw new Error('Persisted optimiser run ownership is corrupted for ' + runId);
+        throw new TypeError('Persisted optimiser run ownership is corrupted for ' + runId);
       }
       runOwners.set(runId, tabId);
     }
@@ -101,8 +101,8 @@ export default defineBackground(() => {
     } catch (cause) {
       try {
         await clearRunOwner(runId);
-      } catch (ownerFailure) {
-        console.error('Failed to clear stale optimiser run ownership', ownerFailure);
+      } catch (error_) {
+        console.error('Failed to clear stale optimiser run ownership', error_);
       }
 
       if (!critical) {
@@ -117,12 +117,12 @@ export default defineBackground(() => {
 
       try {
         await backend.request({ type: 'ABORT_RUN', payload: { run_id: runId, reason } });
-      } catch (abortFailure) {
+      } catch (error_) {
         await broadcast({
           type: 'BACKEND_ERROR',
           message: combineFailures(
             deliveryError,
-            abortFailure,
+            error_,
             'Trial delivery failed and the backend run could not be aborted',
           ).message,
         });
@@ -211,13 +211,12 @@ export default defineBackground(() => {
     }
   });
 
-  browser.action.onClicked.addListener(async (tab) => {
+  browser.action.onClicked.addListener((tab) => {
     if (tab.id === undefined) return;
-    try {
-      await sendToTab(tab.id, { type: 'TOGGLE_UI' });
-    } catch (cause) {
-      console.warn('Could not toggle optimiser UI in the selected tab', cause);
-    }
+    runTask(
+      sendToTab(tab.id, { type: 'TOGGLE_UI' }),
+      'Could not toggle optimiser UI in the selected tab',
+    );
   });
 
   browser.runtime.onMessage.addListener(
@@ -259,10 +258,10 @@ export default defineBackground(() => {
                       reason: 'Run ownership could not be persisted',
                     },
                   });
-                } catch (abortFailure) {
+                } catch (error_) {
                   throw combineFailures(
                     cause,
-                    abortFailure,
+                    error_,
                     'Could not persist run ownership and could not stop the unowned backend run',
                   );
                 }

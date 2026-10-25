@@ -72,7 +72,7 @@ const makeDraggable = (element: HTMLElement): (() => void) => {
   };
 
   const onPointerMove = (event: PointerEvent) => {
-    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (event.pointerId !== drag?.pointerId) return;
 
     const width = element.offsetWidth;
     const height = element.offsetHeight;
@@ -87,7 +87,7 @@ const makeDraggable = (element: HTMLElement): (() => void) => {
   };
 
   const stopDragging = (event: PointerEvent) => {
-    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (event.pointerId !== drag?.pointerId) return;
     drag = null;
   };
 

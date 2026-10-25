@@ -20,7 +20,8 @@ export const asRecord = (value: unknown): UnknownRecord =>
   value !== null && typeof value === 'object' ? (value as UnknownRecord) : {};
 
 const inferInputType = (meta: UnknownRecord, value: unknown): StrategyInputType => {
-  const declared = String(meta.type ?? meta.inputType ?? '').toLowerCase();
+  const declaredType = meta.type ?? meta.inputType;
+  const declared = typeof declaredType === 'string' ? declaredType.toLowerCase() : '';
   const options = meta.options ?? meta.values;
 
   if (Array.isArray(options) && options.length > 0) {
@@ -74,7 +75,7 @@ export const normalisePineInputs = (
     if (typeof record.id !== 'string') continue;
 
     metaById.set(record.id, {
-      ...(metaById.get(record.id) ?? {}),
+      ...metaById.get(record.id),
       ...record,
     });
   }
@@ -82,7 +83,7 @@ export const normalisePineInputs = (
   return pineInputs.map((input) => {
     const inputMeta: UnknownRecord = {
       ...asRecord(input),
-      ...(metaById.get(input.id) ?? {}),
+      ...metaById.get(input.id),
     };
 
     const optionsCandidate = inputMeta.options ?? inputMeta.values;
@@ -200,8 +201,9 @@ export const stableStringify = (value: unknown): string => {
 
 export const hashString = (value: string): string => {
   let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
+  // Hash UTF-16 units to preserve signatures already saved by earlier versions.
+  for (const character of value.split('')) {
+    hash ^= character.codePointAt(0)!;
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16).padStart(8, '0');

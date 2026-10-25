@@ -346,7 +346,7 @@ const parseExperimentHistory = (value: unknown): ExperimentRecord[] => {
   }
 
   if (!Array.isArray(value)) {
-    throw new Error('Experiment history is corrupted');
+    throw new TypeError('Experiment history is corrupted');
   }
 
   for (const item of value) {

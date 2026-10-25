@@ -26,8 +26,8 @@ const REQUEST_TIMEOUT_MS = 15_000;
 export class BackendClient {
   #socket: WebSocket | null = null;
   #connecting: Promise<void> | null = null;
-  #listeners = new Set<Listener>();
-  #pendingRequests = new Map<string, PendingRequest>();
+  readonly #listeners = new Set<Listener>();
+  readonly #pendingRequests = new Map<string, PendingRequest>();
   #heartbeat: ReturnType<typeof setInterval> | null = null;
   #reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   #token: string | null = null;
@@ -52,7 +52,7 @@ export class BackendClient {
   }
 
   connect(): Promise<void> {
-    if (this.#connecting) return this.#connecting;
+    if (this.#connecting !== null) return this.#connecting;
 
     if (
       this.#socket?.readyState === WebSocket.OPEN ||

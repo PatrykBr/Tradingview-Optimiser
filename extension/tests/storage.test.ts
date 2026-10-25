@@ -182,6 +182,10 @@ const progress = (completedTrials: number): RunProgress => ({
 });
 
 describe('active run checkpoints', () => {
+  afterEach(() => {
+    mock.restore();
+  });
+
   it('orders checkpoints, stop intent and completion without resurrecting a finished run', async () => {
     const stored: Record<string, unknown> = {};
     const pause = Promise.withResolvers<void>();
@@ -255,10 +259,6 @@ describe('active run checkpoints', () => {
     };
     await expect(saveActiveRun(run)).rejects.toThrow('quota');
     await expect(saveActiveRun(run)).resolves.toBeUndefined();
-  });
-
-  afterEach(() => {
-    mock.restore();
   });
 
   it('migrates v1 active state explicitly and rejects corrupted state', async () => {

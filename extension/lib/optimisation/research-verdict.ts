@@ -67,12 +67,9 @@ const robustnessArea = (research: ResearchEvaluation): EvidenceArea | null => {
   const passRate = winner.totalWindows > 0 ? winner.passedWindows / winner.totalWindows : 0;
   const degradation = winner.degradationPercent;
 
-  const rating: EvidenceRating =
-    passRate === 1 && degradation !== null && degradation <= 20
-      ? 'strong'
-      : passRate >= 0.67 && (degradation === null || degradation <= 40)
-        ? 'moderate'
-        : 'weak';
+  let rating: EvidenceRating = 'weak';
+  if (passRate === 1 && degradation !== null && degradation <= 20) rating = 'strong';
+  else if (passRate >= 0.67 && (degradation === null || degradation <= 40)) rating = 'moderate';
 
   return {
     id: 'robustness',
@@ -94,23 +91,18 @@ const stabilityArea = (research: ResearchEvaluation): EvidenceArea | null => {
 
   if (!result) return null;
 
-  const rating: EvidenceRating =
-    result.overallRating === 'strong'
-      ? 'strong'
-      : result.overallRating === 'moderate'
-        ? 'moderate'
-        : 'weak';
+  const rating: EvidenceRating = result.overallRating === 'fragile' ? 'weak' : result.overallRating;
+  const details = {
+    strong: 'Nearby numeric parameter values retained similar performance.',
+    moderate: 'Some nearby parameter values reduced performance.',
+    fragile: 'Small parameter changes caused large degradation or filter failures.',
+  };
 
   return {
     id: 'stability',
     label: 'Parameter stability',
     rating,
-    detail:
-      result.overallRating === 'strong'
-        ? 'Nearby numeric parameter values retained similar performance.'
-        : result.overallRating === 'moderate'
-          ? 'Some nearby parameter values reduced performance.'
-          : 'Small parameter changes caused large degradation or filter failures.',
+    detail: details[result.overallRating],
   };
 };
 
@@ -121,8 +113,9 @@ const walkForwardArea = (research: ResearchEvaluation): EvidenceArea | null => {
 
   const passRate = result.totalFolds > 0 ? result.passedFolds / result.totalFolds : 0;
 
-  const rating: EvidenceRating =
-    passRate >= 0.75 ? 'strong' : passRate >= 0.5 ? 'moderate' : 'weak';
+  let rating: EvidenceRating = 'weak';
+  if (passRate >= 0.75) rating = 'strong';
+  else if (passRate >= 0.5) rating = 'moderate';
 
   return {
     id: 'walk-forward',
@@ -161,8 +154,9 @@ const monteCarloArea = (research: ResearchEvaluation): EvidenceArea | null => {
     };
   }
 
-  const rawRating: EvidenceRating =
-    lossProbability <= 0.05 ? 'strong' : lossProbability <= 0.2 ? 'moderate' : 'weak';
+  let rawRating: EvidenceRating = 'weak';
+  if (lossProbability <= 0.05) rawRating = 'strong';
+  else if (lossProbability <= 0.2) rawRating = 'moderate';
   const rating: EvidenceRating =
     result.source === 'optimisation' && rawRating === 'strong' ? 'moderate' : rawRating;
 

@@ -1,3 +1,5 @@
+import { formatValue } from './format-value';
+
 export interface SerializedOptimiserError {
   code: string;
   message: string;
@@ -16,8 +18,8 @@ export class OptimiserError extends Error {
   }
 }
 
-const messageFor = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : String(cause);
+export const errorMessage = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : formatValue(cause);
 
 export const toOptimiserError = (
   cause: unknown,
@@ -28,7 +30,7 @@ export const toOptimiserError = (
     return cause;
   }
 
-  const message = messageFor(cause);
+  const message = errorMessage(cause);
 
   // Browsers report extension replacement as an error message without a code.
   // Convert that message to a typed error here.

@@ -203,10 +203,17 @@ class CreateRun(BaseModel):
             raise ValueError("parameter names must be unique")
 
         by_name: dict[str, SearchParameter] = {
-            parameter.name: parameter
-            for parameter in self.parameters
+            parameter.name: parameter for parameter in self.parameters
         }
 
+        self._validate_conditions(by_name)
+        self._order_parameters(by_name)
+        self._validate_baseline(names)
+        self._validate_research()
+
+        return self
+
+    def _validate_conditions(self, by_name: dict[str, SearchParameter]) -> None:
         for parameter in self.parameters:
             if parameter.condition is None:
                 continue
@@ -230,17 +237,14 @@ class CreateRun(BaseModel):
                     "a categorical parameter"
                 )
 
-            invalid = [
-                value
-                for value in parameter.condition.values
-                if value not in parent.choices
-            ]
+            invalid = [value for value in parameter.condition.values if value not in parent.choices]
             if invalid:
                 raise ValueError(
                     f"condition for {parameter.name!r} contains values "
                     f"outside parent choices: {invalid!r}"
                 )
 
+    def _order_parameters(self, by_name: dict[str, SearchParameter]) -> None:
         visiting: set[str] = set()
         visited: set[str] = set()
         ordered: list[SearchParameter] = []
@@ -266,6 +270,24 @@ class CreateRun(BaseModel):
 
         self.parameters = ordered
 
+    @staticmethod
+    def _valid_baseline_value(parameter: SearchParameter, value: Primitive) -> bool:
+        if isinstance(parameter, CategoricalParameter):
+            valid = value in parameter.choices
+        elif isinstance(value, bool) or not isinstance(value, int | float):
+            valid = False
+        else:
+            valid = parameter.low <= value <= parameter.high
+            if isinstance(parameter, IntParameter):
+                valid = valid and float(value).is_integer()
+            if parameter.step is not None:
+                index = (Decimal(str(value)) - Decimal(str(parameter.low))) / Decimal(
+                    str(parameter.step)
+                )
+                valid = valid and abs(index - round(index)) <= Decimal("1e-8")
+        return valid
+
+    def _validate_baseline(self, names: list[str]) -> None:
         unknown_baseline = set(self.baseline_parameters) - set(names)
         if unknown_baseline:
             raise ValueError(
@@ -277,24 +299,13 @@ class CreateRun(BaseModel):
             if parameter.name not in self.baseline_parameters:
                 continue
             value = self.baseline_parameters[parameter.name]
-            if isinstance(parameter, CategoricalParameter):
-                valid = value in parameter.choices
-            elif isinstance(value, bool) or not isinstance(value, int | float):
-                valid = False
-            else:
-                valid = parameter.low <= value <= parameter.high
-                if isinstance(parameter, IntParameter):
-                    valid = valid and float(value).is_integer()
-                if parameter.step is not None:
-                    index = (Decimal(str(value)) - Decimal(str(parameter.low))) / Decimal(
-                        str(parameter.step)
-                    )
-                    valid = valid and abs(index - round(index)) <= Decimal("1e-8")
+            valid = self._valid_baseline_value(parameter, value)
             if not valid:
                 raise ValueError(
                     f"baseline value for {parameter.name!r} is outside the search space"
                 )
 
+    def _validate_research(self) -> None:
         convergence = self.research.convergence
         if convergence.enabled:
             if convergence.min_trials > self.target_trials:
@@ -306,13 +317,8 @@ class CreateRun(BaseModel):
         if robustness.enabled and robustness.full_range is None:
             raise ValueError("robustness validation requires a full Deep Backtesting range")
 
-        if (
-            self.research.walk_forward.enabled
-            and self.research.walk_forward.full_range is None
-        ):
+        if self.research.walk_forward.enabled and self.research.walk_forward.full_range is None:
             raise ValueError("walk-forward validation requires a full Deep Backtesting range")
-
-        return self
 
 
 class TrialResult(BaseModel):
@@ -364,12 +370,15 @@ class RunProgress(BaseModel):
     failed_trials: int
     reused_trials: int = 0
     best: BestTrial | None
-    termination_reason: Literal[
-        "target_trials",
-        "converged",
-        "search_space_exhausted",
-        "user",
-    ] | None = None
+    termination_reason: (
+        Literal[
+            "target_trials",
+            "converged",
+            "search_space_exhausted",
+            "user",
+        ]
+        | None
+    ) = None
     trials: list[TrialSummary] = Field(default_factory=list)
 
 
@@ -381,12 +390,15 @@ class RunUpdate(BaseModel):
     failed_trials: int
     reused_trials: int = 0
     best: BestTrial | None
-    termination_reason: Literal[
-        "target_trials",
-        "converged",
-        "search_space_exhausted",
-        "user",
-    ] | None = None
+    termination_reason: (
+        Literal[
+            "target_trials",
+            "converged",
+            "search_space_exhausted",
+            "user",
+        ]
+        | None
+    ) = None
     trial_updates: list[TrialSummary] = Field(default_factory=list)
 
 

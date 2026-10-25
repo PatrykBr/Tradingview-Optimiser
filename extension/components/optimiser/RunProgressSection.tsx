@@ -1,3 +1,4 @@
+import { formatValue } from '../../lib/format-value';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import BestSoFarChart from '../BestSoFarChart';
@@ -94,7 +95,7 @@ export default function RunProgressSection({
   inputLabel,
   fallbackTargetTrials,
   busy,
-}: RunProgressSectionProps) {
+}: Readonly<RunProgressSectionProps>) {
   const [trialFilter, setTrialFilter] = useState<TrialFilter>('all');
   const [trialSort, setTrialSort] = useState<TrialSort>('trial-desc');
   const [selectedTrialNumber, setSelectedTrialNumber] = useState<number | null>(null);
@@ -119,12 +120,16 @@ export default function RunProgressSection({
   const reusedTrials = run.progress?.reused_trials ?? 0;
   const completionReason = terminationLabel(run.progress?.termination_reason);
 
-  const completion =
-    run.progress?.status === 'completed'
-      ? 100
-      : run.progress && run.progress.target_trials > 0
-        ? Math.min(100, (run.progress.completed_trials / run.progress.target_trials) * 100)
-        : 0;
+  let completion = 0;
+  if (run.progress?.status === 'completed') completion = 100;
+  else if (run.progress && run.progress.target_trials > 0) {
+    completion = Math.min(100, (run.progress.completed_trials / run.progress.target_trials) * 100);
+  }
+  const phaseLabels = {
+    checking: 'checking chart',
+    recalculating: 'running TradingView backtest',
+    submitting: 'submitting result',
+  };
 
   const selectedTrial: TrialSummary | null =
     selectedTrialNumber === null
@@ -217,7 +222,7 @@ export default function RunProgressSection({
 
   const eta = useMemo(
     () =>
-      run.progress && run.progress.status === 'running'
+      run.progress?.status === 'running'
         ? estimateRemainingMs(
             run.progress.trials,
             run.progress.completed_trials,
@@ -308,12 +313,7 @@ export default function RunProgressSection({
 
           {run.currentTrial && (
             <div className="currentTrial">
-              Trial #{run.currentTrial.number} ·{' '}
-              {run.currentTrial.phase === 'checking'
-                ? 'checking chart'
-                : run.currentTrial.phase === 'recalculating'
-                  ? 'running TradingView backtest'
-                  : 'submitting result'}
+              Trial #{run.currentTrial.number} · {phaseLabels[run.currentTrial.phase]}
             </div>
           )}
 
@@ -358,7 +358,7 @@ export default function RunProgressSection({
                 {Object.entries(best.parameters).map(([id, value]) => (
                   <div key={id}>
                     <span>{inputLabel(id)}</span>
-                    <code>{String(value)}</code>
+                    <code>{formatValue(value)}</code>
                   </div>
                 ))}
               </div>
@@ -395,6 +395,8 @@ export default function RunProgressSection({
               <div className="trialList">
                 {visibleTrials.map((trial) => {
                   const feasible = isFeasibleTrial(trial);
+                  const stateClass = feasible ? 'trialState feasible' : 'trialState constrained';
+                  const stateLabel = feasible ? 'valid' : 'filtered';
 
                   return (
                     <button
@@ -411,16 +413,8 @@ export default function RunProgressSection({
                           ? 'Failed'
                           : formatMetric(objective.key, trial.objective_value)}
                       </strong>
-                      <span
-                        className={
-                          trial.state === 'failed'
-                            ? 'trialState failed'
-                            : feasible
-                              ? 'trialState feasible'
-                              : 'trialState constrained'
-                        }
-                      >
-                        {trial.state === 'failed' ? 'failed' : feasible ? 'valid' : 'filtered'}
+                      <span className={trial.state === 'failed' ? 'trialState failed' : stateClass}>
+                        {trial.state === 'failed' ? 'failed' : stateLabel}
                       </span>
                     </button>
                   );
@@ -479,7 +473,7 @@ export default function RunProgressSection({
                 {Object.entries(selectedTrial.parameters).map(([key, value]) => (
                   <div key={key}>
                     <span>{inputLabel(key)}</span>
-                    <code>{String(value)}</code>
+                    <code>{formatValue(value)}</code>
                   </div>
                 ))}
               </div>

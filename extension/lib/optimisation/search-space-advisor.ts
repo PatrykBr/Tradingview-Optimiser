@@ -50,6 +50,101 @@ const capProduct = (left: number, right: number): number => {
   return Number.isSafeInteger(product) ? Math.min(product, 1_000_000_000) : 1_000_000_000;
 };
 
+const addConditionAdvice = (
+  input: StrategyInput,
+  config: ParameterConfig,
+  configs: Record<string, ParameterConfig>,
+  targetTrials: number,
+  items: SearchSpaceAdviceItem[],
+): void => {
+  const controller = configs[config.conditionParameter];
+  if (!controller || controller.choices.length === 0) return;
+  const activeFraction = config.conditionValues.length / controller.choices.length;
+  const expectedActive = targetTrials * activeFraction;
+
+  if (activeFraction > 0 && expectedActive < 20) {
+    items.push({
+      severity: 'warning',
+      title: input.label + ' may be under-sampled',
+      detail:
+        'Its condition is expected to be active in roughly ' +
+        Math.round(activeFraction * 100) +
+        '% of trials, giving only about ' +
+        Math.round(expectedActive) +
+        ' active trials at the current budget.',
+    });
+  }
+};
+
+const addRangeAdvice = (
+  input: StrategyInput,
+  config: ParameterConfig,
+  low: number,
+  high: number,
+  items: SearchSpaceAdviceItem[],
+): void => {
+  if (
+    typeof input.currentValue === 'number' &&
+    (input.currentValue < low || input.currentValue > high)
+  ) {
+    items.push({
+      severity: 'warning',
+      title: input.label + ' excludes the current value',
+      detail:
+        'The current value is outside the search range. It cannot be the baseline for this parameter.',
+    });
+  }
+
+  if (!config.log && low > 0 && high / low >= 100) {
+    items.push({
+      severity: 'info',
+      title: input.label + ' has a maximum at least 100 times its minimum',
+      detail:
+        'Consider logarithmic search if ratios matter more than fixed increments for this parameter.',
+    });
+  }
+
+  const currentMagnitude =
+    typeof input.currentValue === 'number' ? Math.max(Math.abs(input.currentValue), 1) : 1;
+  if (Math.abs(high - low) / currentMagnitude > 1_000) {
+    items.push({
+      severity: 'warning',
+      title: input.label + ' has an unusually broad range',
+      detail:
+        "The range width exceeds 1,000 times the larger of 1 and the current value's magnitude. Check the limits before starting.",
+    });
+  }
+};
+
+const analyseNumericParameter = (
+  input: StrategyInput,
+  config: ParameterConfig,
+  items: SearchSpaceAdviceItem[],
+) => {
+  const low = finite(config.low);
+  const high = finite(config.high);
+  const step = automaticStep(input, config);
+
+  if (low === null || high === null || low >= high) {
+    items.push({
+      severity: 'warning',
+      title: input.label + ' needs a valid range',
+      detail: 'Set numeric limits with the minimum below the maximum.',
+    });
+    return { continuous: false, count: null };
+  }
+
+  addRangeAdvice(input, config, low, high, items);
+
+  if (input.type === 'float' && step === null) {
+    return { continuous: true, count: null };
+  }
+
+  if (step === null || step <= 0) return { continuous: false, count: null };
+  const count = Math.floor((high - low) / step) + 1;
+  return { continuous: false, count: count > 0 ? count : 1 };
+};
+
 export const analyseSearchSpace = (
   inputs: StrategyInput[],
   configs: Record<string, ParameterConfig>,
@@ -65,31 +160,13 @@ export const analyseSearchSpace = (
   let fullyDiscrete = true;
   const items: SearchSpaceAdviceItem[] = [];
 
-  for (const input of enabled) {
+  enabled.forEach((input) => {
     const config = configs[input.id];
-    if (!config) continue;
+    if (!config) return;
 
     if (config.conditionParameter) {
       conditionalParameters += 1;
-
-      const controller = configs[config.conditionParameter];
-      if (controller && controller.choices.length > 0) {
-        const activeFraction = config.conditionValues.length / controller.choices.length;
-        const expectedActive = targetTrials * activeFraction;
-
-        if (activeFraction > 0 && expectedActive < 20) {
-          items.push({
-            severity: 'warning',
-            title: input.label + ' may be under-sampled',
-            detail:
-              'Its condition is expected to be active in roughly ' +
-              Math.round(activeFraction * 100) +
-              '% of trials, giving only about ' +
-              Math.round(expectedActive) +
-              ' active trials at the current budget.',
-          });
-        }
-      }
+      addConditionAdvice(input, config, configs, targetTrials, items);
     }
 
     if (input.type === 'boolean' || input.type === 'categorical') {
@@ -99,75 +176,18 @@ export const analyseSearchSpace = (
       if (count >= 2) {
         discreteCombinations = capProduct(discreteCombinations, count);
       }
-      continue;
+      return;
     }
 
     if (input.type !== 'integer' && input.type !== 'float') {
-      continue;
+      return;
     }
 
-    const low = finite(config.low);
-    const high = finite(config.high);
-    const step = automaticStep(input, config);
-
-    if (low === null || high === null || low >= high) {
-      items.push({
-        severity: 'warning',
-        title: input.label + ' needs a valid range',
-        detail: 'Set numeric limits with the minimum below the maximum.',
-      });
-      fullyDiscrete = false;
-      continue;
-    }
-
-    if (
-      typeof input.currentValue === 'number' &&
-      (input.currentValue < low || input.currentValue > high)
-    ) {
-      items.push({
-        severity: 'warning',
-        title: input.label + ' excludes the current value',
-        detail:
-          'The current value is outside the search range. It cannot be the baseline for this parameter.',
-      });
-    }
-
-    if (!config.log && low > 0 && high / low >= 100) {
-      items.push({
-        severity: 'info',
-        title: input.label + ' has a maximum at least 100 times its minimum',
-        detail:
-          'Consider logarithmic search if ratios matter more than fixed increments for this parameter.',
-      });
-    }
-
-    const currentMagnitude =
-      typeof input.currentValue === 'number' ? Math.max(Math.abs(input.currentValue), 1) : 1;
-    if (Math.abs(high - low) / currentMagnitude > 1_000) {
-      items.push({
-        severity: 'warning',
-        title: input.label + ' has an unusually broad range',
-        detail:
-          "The range width exceeds 1,000 times the larger of 1 and the current value's magnitude. Check the limits before starting.",
-      });
-    }
-
-    if (input.type === 'float' && step === null) {
-      continuousParameters += 1;
-      fullyDiscrete = false;
-      continue;
-    }
-
-    if (step !== null && step > 0) {
-      const count = Math.floor((high - low) / step) + 1;
-
-      if (count > 0) {
-        discreteCombinations = capProduct(discreteCombinations, count);
-      }
-    } else {
-      fullyDiscrete = false;
-    }
-  }
+    const numeric = analyseNumericParameter(input, config, items);
+    continuousParameters += Number(numeric.continuous);
+    if (numeric.count === null) fullyDiscrete = false;
+    else discreteCombinations = capProduct(discreteCombinations, numeric.count);
+  });
 
   const selectedParameters = enabled.length;
   const complexity =

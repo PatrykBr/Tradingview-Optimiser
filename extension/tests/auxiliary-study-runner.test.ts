@@ -136,6 +136,44 @@ class FakeAdapter implements OptimisationTrialAdapter {
 }
 
 describe('auxiliary study runner', () => {
+  it('attempts every cleanup step and preserves start and cleanup failures', async () => {
+    const requests: string[] = [];
+    let unsubscribed = false;
+    const transport: AuxiliaryStudyTransport = {
+      async request(message) {
+        requests.push(message.type);
+        if (message.type === 'START_RUN') throw new Error('start failed');
+        if (message.type === 'ABORT_RUN') throw new Error('abort failed');
+        if (message.type === 'DELETE_RUN') throw new Error('delete failed');
+      },
+      subscribe() {
+        return () => {
+          unsubscribed = true;
+        };
+      },
+    };
+    await expect(
+      runAuxiliaryStudy({
+        transport,
+        adapter: new FakeAdapter(),
+        strategyId: 'strategy-1',
+        config,
+        originalParameters: null,
+      }),
+    ).rejects.toMatchObject({
+      code: 'CLEANUP_FAILED',
+      message: expect.stringContaining('start failed'),
+    });
+    expect(requests).toEqual([
+      'CREATE_RUN',
+      'START_RUN',
+      'ABORT_RUN',
+      'DELETE_RUN',
+      'CLEAR_RUN_OWNER',
+    ]);
+    expect(unsubscribed).toBe(true);
+  });
+
   it('runs a temporary study through the shared trial runner and cleans it up', async () => {
     const transport = new FakeTransport();
     const adapter = new FakeAdapter();

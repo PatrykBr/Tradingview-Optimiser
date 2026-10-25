@@ -14,7 +14,7 @@ interface AppProps {
   bridge: TradingViewBridge;
 }
 
-export default function App({ bridge }: AppProps) {
+export default function App({ bridge }: Readonly<AppProps>) {
   const adapter = useMemo(() => new TradingViewAdapter(bridge), [bridge]);
   const [error, setError] = useState<string>();
 

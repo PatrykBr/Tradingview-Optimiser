@@ -10,7 +10,7 @@ export default function ParameterImportance({
   analysis,
   loadError,
   inputLabel,
-}: ParameterImportanceProps) {
+}: Readonly<ParameterImportanceProps>) {
   const entries = Object.entries(analysis?.parameter_importance ?? {})
     .sort(([, left], [, right]) => right - left)
     .slice(0, 8);

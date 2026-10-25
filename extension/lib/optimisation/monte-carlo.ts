@@ -1,3 +1,4 @@
+import { forEachSequential } from '../async';
 import type { BacktestRange } from '../protocol/types';
 import type { ClosedTrade, ClosedTradeSnapshot } from '../tradingview/trades';
 
@@ -36,8 +37,8 @@ const hashTrades = (trades: ClosedTrade[]): number => {
   for (const trade of trades) {
     for (const value of [trade.pnl, trade.pnlPercent ?? 0]) {
       const text = value.toPrecision(12);
-      for (let index = 0; index < text.length; index += 1) {
-        hash ^= text.charCodeAt(index);
+      for (const character of text) {
+        hash ^= character.codePointAt(0)!;
         hash = Math.imul(hash, 16777619);
       }
     }
@@ -130,6 +131,37 @@ const yieldToBrowser = (): Promise<void> =>
     setTimeout(resolve, 0);
   });
 
+const simulateTrades = (trades: ClosedTrade[], random: () => number) => {
+  let cumulativePnl = 0;
+  let peakPnl = 0;
+  let maxDrawdown = 0;
+  let grossProfit = 0;
+  let grossLoss = 0;
+
+  for (let remaining = trades.length; remaining > 0; remaining -= 1) {
+    const sampledIndex = Math.min(trades.length - 1, Math.floor(random() * trades.length));
+    const sampledTrade = trades[sampledIndex];
+
+    if (!sampledTrade) continue;
+
+    const pnl = sampledTrade.pnl;
+    cumulativePnl += pnl;
+
+    if (cumulativePnl > peakPnl) {
+      peakPnl = cumulativePnl;
+    }
+
+    maxDrawdown = Math.max(maxDrawdown, peakPnl - cumulativePnl);
+
+    if (pnl > 0) {
+      grossProfit += pnl;
+    } else if (pnl < 0) {
+      grossLoss += Math.abs(pnl);
+    }
+  }
+  return { cumulativePnl, maxDrawdown, grossProfit, grossLoss };
+};
+
 export const runTradeMonteCarlo = async (
   snapshot: ClosedTradeSnapshot,
   requestedSimulations: number,
@@ -170,54 +202,32 @@ export const runTradeMonteCarlo = async (
   const profitFactors: number[] = [];
   let losingSimulations = 0;
 
-  for (let simulation = 0; simulation < simulations; simulation += 1) {
-    if (signal?.aborted) {
-      throw new DOMException('Operation aborted', 'AbortError');
-    }
-
-    let cumulativePnl = 0;
-    let peakPnl = 0;
-    let maxDrawdown = 0;
-    let grossProfit = 0;
-    let grossLoss = 0;
-
-    for (let index = 0; index < trades.length; index += 1) {
-      const sampledIndex = Math.min(trades.length - 1, Math.floor(random() * trades.length));
-      const sampledTrade = trades[sampledIndex];
-
-      if (!sampledTrade) continue;
-
-      const pnl = sampledTrade.pnl;
-      cumulativePnl += pnl;
-
-      if (cumulativePnl > peakPnl) {
-        peakPnl = cumulativePnl;
+  const batchStarts = Array.from(
+    { length: Math.ceil(simulations / 250) },
+    (_, index) => index * 250,
+  );
+  await forEachSequential(batchStarts, async (start) => {
+    const end = Math.min(simulations, start + 250);
+    for (let simulation = start; simulation < end; simulation += 1) {
+      if (signal?.aborted) {
+        throw new DOMException('Operation aborted', 'AbortError');
       }
 
-      maxDrawdown = Math.max(maxDrawdown, peakPnl - cumulativePnl);
+      const { cumulativePnl, maxDrawdown, grossProfit, grossLoss } = simulateTrades(trades, random);
 
-      if (pnl > 0) {
-        grossProfit += pnl;
-      } else if (pnl < 0) {
-        grossLoss += Math.abs(pnl);
+      totals.push(cumulativePnl);
+      drawdowns.push(maxDrawdown);
+
+      if (cumulativePnl < 0) {
+        losingSimulations += 1;
+      }
+
+      if (grossLoss > 0) {
+        profitFactors.push(grossProfit / grossLoss);
       }
     }
-
-    totals.push(cumulativePnl);
-    drawdowns.push(maxDrawdown);
-
-    if (cumulativePnl < 0) {
-      losingSimulations += 1;
-    }
-
-    if (grossLoss > 0) {
-      profitFactors.push(grossProfit / grossLoss);
-    }
-
-    if (simulation > 0 && simulation % 250 === 0) {
-      await yieldToBrowser();
-    }
-  }
+    if (end < simulations) await yieldToBrowser();
+  });
 
   const sortedDrawdowns = [...drawdowns].sort((left, right) => left - right);
   const medianDrawdown = quantile(sortedDrawdowns, 0.5);

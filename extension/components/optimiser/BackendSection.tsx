@@ -5,7 +5,9 @@ interface BackendSectionProps {
   busy: boolean;
 }
 
-export default function BackendSection({ run, busy }: BackendSectionProps) {
+export default function BackendSection({ run, busy }: Readonly<BackendSectionProps>) {
+  let statusLabel = run.pairingRequired ? 'Pair backend' : 'Backend offline';
+  if (run.connected) statusLabel = 'Optuna ' + (run.optunaVersion ?? 'connected');
   return (
     <>
       <header data-drag-handle title="Drag optimiser">
@@ -13,13 +15,7 @@ export default function BackendSection({ run, busy }: BackendSectionProps) {
           <div className="eyebrow">TRADINGVIEW</div>
           <h1>Optuna Optimiser</h1>
         </div>
-        <span className={run.connected ? 'status connected' : 'status'}>
-          {run.connected
-            ? 'Optuna ' + (run.optunaVersion ?? 'connected')
-            : run.pairingRequired
-              ? 'Pair backend'
-              : 'Backend offline'}
-        </span>
+        <span className={run.connected ? 'status connected' : 'status'}>{statusLabel}</span>
       </header>
 
       {run.watchdog.status !== 'idle' && (

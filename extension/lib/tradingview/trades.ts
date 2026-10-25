@@ -22,7 +22,7 @@ const PERCENT_KEYS = [
   'return_percent',
 ];
 
-const TRADE_CONTAINER_KEYS = [
+const TRADE_CONTAINER_KEYS = new Set([
   'trades',
   'tradeList',
   'trade_list',
@@ -31,7 +31,7 @@ const TRADE_CONTAINER_KEYS = [
   'closed_trades',
   'tradesList',
   'trades_list',
-];
+]);
 
 const finiteNumber = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -60,13 +60,47 @@ const parseTrade = (value: unknown): ClosedTrade | null => {
   return pnlPercent === undefined ? { pnl } : { pnl, pnlPercent };
 };
 
+interface TradeContainer {
+  record: UnknownRecord;
+  depth: number;
+}
+
+const collectTradeChildren = (
+  current: TradeContainer,
+  arrays: unknown[][],
+  queue: TradeContainer[],
+): void => {
+  for (const [key, child] of Object.entries(current.record)) {
+    if (TRADE_CONTAINER_KEYS.has(key) && Array.isArray(child)) {
+      arrays.push(child);
+      continue;
+    }
+
+    if (/trade/i.test(key) && child && typeof child === 'object') {
+      if (Array.isArray(child)) {
+        arrays.push(child);
+      } else {
+        queue.push({
+          record: asRecord(child),
+          depth: current.depth + 1,
+        });
+      }
+      continue;
+    }
+
+    if (child && typeof child === 'object' && !Array.isArray(child) && current.depth < 2) {
+      queue.push({
+        record: asRecord(child),
+        depth: current.depth + 1,
+      });
+    }
+  }
+};
+
 const candidateArrays = (value: unknown): unknown[][] => {
   const root = asRecord(value);
   const arrays: unknown[][] = [];
-  const queue: Array<{
-    record: UnknownRecord;
-    depth: number;
-  }> = [{ record: root, depth: 0 }];
+  const queue: TradeContainer[] = [{ record: root, depth: 0 }];
   const seen = new Set<object>();
 
   while (queue.length > 0) {
@@ -78,31 +112,7 @@ const candidateArrays = (value: unknown): unknown[][] => {
     }
     seen.add(current.record);
 
-    for (const [key, child] of Object.entries(current.record)) {
-      if (TRADE_CONTAINER_KEYS.includes(key) && Array.isArray(child)) {
-        arrays.push(child);
-        continue;
-      }
-
-      if (/trade/i.test(key) && child && typeof child === 'object') {
-        if (Array.isArray(child)) {
-          arrays.push(child);
-        } else {
-          queue.push({
-            record: asRecord(child),
-            depth: current.depth + 1,
-          });
-        }
-        continue;
-      }
-
-      if (child && typeof child === 'object' && !Array.isArray(child) && current.depth < 2) {
-        queue.push({
-          record: asRecord(child),
-          depth: current.depth + 1,
-        });
-      }
-    }
+    collectTradeChildren(current, arrays, queue);
   }
 
   return arrays;

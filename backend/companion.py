@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import sys
 from pathlib import Path
@@ -42,7 +43,7 @@ def _run_packaged_storage_self_test() -> None:
             trial.suggest_int("value", 1, 2)
             study.tell(trial, 1.0)
 
-            if study.best_value != 1.0:
+            if not math.isclose(study.best_value, 1.0):
                 raise RuntimeError(
                     "Optuna packaged storage self-test produced an unexpected result"
                 )

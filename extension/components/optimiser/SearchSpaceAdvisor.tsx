@@ -7,7 +7,7 @@ interface SearchSpaceAdvisorProps {
   model: StrategyConfigurationModel;
 }
 
-export default function SearchSpaceAdvisor({ model }: SearchSpaceAdvisorProps) {
+export default function SearchSpaceAdvisor({ model }: Readonly<SearchSpaceAdvisorProps>) {
   const advice = useMemo(
     () => analyseSearchSpace(model.inputs, model.parameterConfigs, model.form.targetTrials),
     [model.inputs, model.parameterConfigs, model.form.targetTrials],

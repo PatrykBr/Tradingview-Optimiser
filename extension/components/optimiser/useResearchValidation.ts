@@ -124,8 +124,7 @@ export function useResearchValidation({
 
     if (
       !config ||
-      !progress ||
-      !progress.best ||
+      !progress?.best ||
       !isTerminalStatus(progress.status) ||
       !settings ||
       (!settings.robustness.enabled &&

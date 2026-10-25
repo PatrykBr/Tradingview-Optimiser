@@ -1,20 +1,19 @@
 import type { CreateRun, RunProgress, TrialSummary } from '../protocol/types';
+import { formatValue } from '../format-value';
 
 const csvCell = (value: unknown): string => {
-  const text =
-    value === null || value === undefined
-      ? ''
-      : typeof value === 'object'
-        ? JSON.stringify(value)
-        : String(value);
+  const text = value === null || value === undefined ? '' : formatValue(value);
 
-  return '"' + text.replace(/"/g, '""') + '"';
+  return '"' + text.replaceAll('"', '""') + '"';
 };
 
 const collectKeys = (
   trials: TrialSummary[],
   selector: (trial: TrialSummary) => Record<string, unknown>,
-): string[] => [...new Set(trials.flatMap((trial) => Object.keys(selector(trial))))].sort();
+): string[] =>
+  [...new Set(trials.flatMap((trial) => Object.keys(selector(trial))))].sort((left, right) =>
+    left.localeCompare(right),
+  );
 
 export const buildTrialsCsv = (config: CreateRun, progress: RunProgress): string => {
   const parameterKeys = collectKeys(progress.trials, (trial) => trial.parameters);
@@ -86,11 +85,14 @@ interface RunExport {
   content: string;
 }
 
-const safeFilename = (value: string): string =>
-  value
-    .replace(/[^a-z0-9._-]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || 'optimisation';
+const safeFilename = (value: string): string => {
+  const cleaned = value.replaceAll(/[^a-z0-9._-]+/gi, '-');
+  let start = 0;
+  let end = cleaned.length;
+  while (start < end && cleaned[start] === '-') start += 1;
+  while (end > start && cleaned[end - 1] === '-') end -= 1;
+  return cleaned.slice(start, end).slice(0, 80) || 'optimisation';
+};
 
 export const buildRunExport = (
   config: CreateRun,

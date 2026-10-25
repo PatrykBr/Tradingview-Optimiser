@@ -39,7 +39,7 @@ const canAppendUpdates = (existing: TrialSummary[], updates: TrialSummary[]): bo
 };
 
 export const mergeRunUpdate = (current: RunProgress | null, update: RunUpdate): RunProgress => {
-  if (!current || current.run_id !== update.run_id) {
+  if (current?.run_id !== update.run_id) {
     return progressFromUpdate(update, orderedTrials(update.trial_updates));
   }
 

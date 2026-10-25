@@ -14,10 +14,28 @@ const primitiveOptions = (input: StrategyConfigurationModel['inputs'][number]): 
   return (input.options ?? []).filter(isPrimitive);
 };
 
+const stepDescription = (input: StrategyConfigurationModel['inputs'][number]): string => {
+  if (input.step !== undefined) {
+    return (
+      "Leave blank to use Pine's declared step of " +
+      input.step +
+      '. Enter a value to use a different step.'
+    );
+  }
+  if (input.type === 'integer')
+    return 'Leave blank to use step 1. Enter a value to use a different step.';
+  return 'Leave blank for continuous sampling. Enter a step to use fixed increments.';
+};
+
+const stepPlaceholder = (input: StrategyConfigurationModel['inputs'][number]): string => {
+  if (input.step !== undefined) return 'Auto (' + input.step + ')';
+  return input.type === 'integer' ? 'Auto (1)' : 'Auto (continuous)';
+};
+
 export default function ParameterSearchSpaceSection({
   model,
   locked,
-}: ParameterSearchSpaceSectionProps) {
+}: Readonly<ParameterSearchSpaceSectionProps>) {
   return (
     <section>
       <div className="rowLabel">
@@ -47,7 +65,7 @@ export default function ParameterSearchSpaceSection({
               className={'parameterCard' + (enabled ? ' parameterCardEnabled' : '')}
               key={input.id}
             >
-              <label className="parameterHeading">
+              <label className="parameterHeading" aria-label={input.label}>
                 <input
                   type="checkbox"
                   disabled={locked}
@@ -105,35 +123,13 @@ export default function ParameterSearchSpaceSection({
                         }
                       />
                     </label>
-                    <label
-                      title={
-                        input.type === 'integer'
-                          ? input.step !== undefined
-                            ? "Leave blank to use Pine's declared step of " +
-                              input.step +
-                              '. Enter a value to use a different step.'
-                            : 'Leave blank to use step 1. Enter a value to use a different step.'
-                          : input.step !== undefined
-                            ? "Leave blank to use Pine's declared step of " +
-                              input.step +
-                              '. Enter a value to use a different step.'
-                            : 'Leave blank for continuous sampling. Enter a step to use fixed increments.'
-                      }
-                    >
+                    <label title={stepDescription(input)}>
                       <span>Step (optional)</span>
                       <input
                         type="number"
                         value={config.step}
                         disabled={locked || config.log}
-                        placeholder={
-                          input.type === 'integer'
-                            ? input.step !== undefined
-                              ? 'Auto (' + input.step + ')'
-                              : 'Auto (1)'
-                            : input.step !== undefined
-                              ? 'Auto (' + input.step + ')'
-                              : 'Auto (continuous)'
-                        }
+                        placeholder={stepPlaceholder(input)}
                         onChange={(event) =>
                           model.editParameterConfig({
                             type: 'field',
@@ -162,7 +158,7 @@ export default function ParameterSearchSpaceSection({
                         })
                       }
                     />
-                    Logarithmic search
+                    <span>Logarithmic search</span>
                   </label>
                 </>
               )}
@@ -174,7 +170,7 @@ export default function ParameterSearchSpaceSection({
                       <input
                         type="checkbox"
                         disabled={locked}
-                        checked={config.choices.some((value) => value === choice)}
+                        checked={config.choices.includes(choice)}
                         onChange={() =>
                           model.editParameterConfig({
                             type: 'choice',
@@ -228,7 +224,7 @@ export default function ParameterSearchSpaceSection({
                             <input
                               type="checkbox"
                               disabled={locked}
-                              checked={config.conditionValues.some((value) => value === choice)}
+                              checked={config.conditionValues.includes(choice)}
                               onChange={() =>
                                 model.editParameterConfig({
                                   type: 'condition-value',

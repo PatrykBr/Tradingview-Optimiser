@@ -63,7 +63,7 @@ const parsePreset = (value: unknown): SavedOptimisationPreset => {
     typeof value.updatedAt !== 'number' ||
     !Number.isFinite(value.updatedAt)
   ) {
-    throw new Error('Saved configuration metadata is corrupted');
+    throw new TypeError('Saved configuration metadata is corrupted');
   }
 
   const parameterConfigs = parseParameterConfigs(value.parameterConfigs);
@@ -105,7 +105,7 @@ const readAllPresets = async (): Promise<SavedOptimisationPreset[]> => {
   }
 
   if (!Array.isArray(value)) {
-    throw new Error('Saved configuration storage is corrupted');
+    throw new TypeError('Saved configuration storage is corrupted');
   }
 
   return value.map(parsePreset);

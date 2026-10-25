@@ -118,6 +118,54 @@ const runStudy = mock(async (child: CreateRun): Promise<RunProgress> => ({
 }));
 
 describe('research workflow', () => {
+  it('finishes each candidate backtest before changing candidates or validation windows', async () => {
+    const run = request();
+    run.config.research!.robustness.folds = 2;
+    run.config.research!.robustness.top_candidates = 2;
+    run.progress = {
+      ...progress,
+      trials: [
+        ...progress.trials,
+        {
+          ...progress.trials[0]!,
+          trial_number: 1,
+          objective_value: 2.2,
+          parameters: { length: 15 },
+        },
+      ],
+    };
+    let active = false;
+    const calls: Array<{ length: unknown; range: BacktestRange | null }> = [];
+    run.adapter.evaluateParameters = async (_id, parameters, range) => {
+      expect(active).toBe(false);
+      active = true;
+      calls.push({ length: parameters.length, range });
+      await Promise.resolve();
+      active = false;
+      return { profitFactor: 1.8, maxDrawdownPercent: 4, totalTrades: 120 };
+    };
+    const result = await runResearchValidation(run);
+    expect(calls.map((call) => call.length)).toEqual([14, 15, 14, 15]);
+    expect(calls[0]?.range).toEqual(calls[1]?.range);
+    expect(calls[2]?.range).toEqual(calls[3]?.range);
+    expect(calls[0]?.range).not.toEqual(calls[2]?.range);
+    expect(result.robustness?.candidates).toHaveLength(2);
+  });
+
+  it('preserves validation and restoration failures together', async () => {
+    const run = request();
+    const original = new Error('validation failed');
+    run.adapter.evaluateParameters = async () => {
+      throw original;
+    };
+    run.adapter.failRestore = true;
+    await expect(runResearchValidation(run)).rejects.toMatchObject({
+      code: 'CLEANUP_FAILED',
+      message:
+        'Research validation failed and TradingView state could not be restored: validation failed. Cleanup/restoration also failed: restore failed',
+    });
+  });
+
   it('runs OOS validation and restores the optimisation chart state', async () => {
     const run = request();
     const result = await runResearchValidation(run);

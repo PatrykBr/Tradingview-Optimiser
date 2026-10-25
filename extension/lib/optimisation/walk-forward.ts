@@ -127,17 +127,13 @@ export const summariseWalkForward = (
     parameterConsistency[parameter.name] = consistencyFor(values, parameter);
   }
 
+  const worstValue = direction === 'maximize' ? Math.min(...testValues) : Math.max(...testValues);
   return {
     folds,
     passedFolds: folds.filter((fold) => fold.passedFilters).length,
     totalFolds: folds.length,
     medianTestObjective: median(testValues),
-    worstTestObjective:
-      testValues.length === 0
-        ? null
-        : direction === 'maximize'
-          ? Math.min(...testValues)
-          : Math.max(...testValues),
+    worstTestObjective: testValues.length === 0 ? null : worstValue,
     parameterConsistency,
   };
 };

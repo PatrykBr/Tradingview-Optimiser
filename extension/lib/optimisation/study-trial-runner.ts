@@ -1,4 +1,4 @@
-import { isOptimiserErrorCode } from '../errors';
+import { errorMessage as describeError, isOptimiserErrorCode } from '../errors';
 import type {
   BacktestRange,
   BackendCommand,
@@ -35,11 +35,7 @@ const isAbortError = (cause: unknown): boolean =>
   cause instanceof DOMException && cause.name === 'AbortError';
 
 const errorMessage = (cause: unknown): string =>
-  isAbortError(cause)
-    ? 'Trial cancelled by user'
-    : cause instanceof Error
-      ? cause.message
-      : String(cause);
+  isAbortError(cause) ? 'Trial cancelled by user' : describeError(cause);
 
 const isBackendTransportError = (cause: unknown): boolean =>
   isOptimiserErrorCode(
@@ -110,6 +106,45 @@ export const createStudyTrialRunner = (options: StudyTrialRunnerOptions): StudyT
     }
   };
 
+  const handleTrialFailure = async (trial: NextTrial, cause: unknown): Promise<void> => {
+    const reason = errorMessage(cause);
+    const aborted = isAbortError(cause);
+
+    if (isBackendTransportError(cause)) {
+      pendingTrial = null;
+      options.onTransportError?.(reason);
+      return;
+    }
+
+    if (isStaleTrialError(cause)) {
+      pendingTrial = null;
+      options.onStaleTrial?.(reason);
+      return;
+    }
+
+    const runtimeError = isOptimiserErrorCode(cause, 'TV_STRATEGY_RUNTIME');
+
+    if (!runtimeError && !aborted) {
+      consecutiveIntegrationFailures += 1;
+    }
+
+    const fatal = isFatalIntegrationFailure(cause, consecutiveIntegrationFailures);
+
+    if (fatal || aborted) {
+      pendingTrial = null;
+    }
+
+    const reported = await reportFailure(trial, reason, fatal);
+
+    if (reported) {
+      options.onFailure?.({
+        reason,
+        aborted,
+        fatal,
+      });
+    }
+  };
+
   const execute = async (trial: NextTrial): Promise<void> => {
     if (disposed || trial.run_id !== options.runId) {
       return;
@@ -126,42 +161,7 @@ export const createStudyTrialRunner = (options: StudyTrialRunnerOptions): StudyT
       consecutiveIntegrationFailures = 0;
       options.onSuccess?.(trial);
     } catch (cause) {
-      const reason = errorMessage(cause);
-      const aborted = isAbortError(cause);
-
-      if (isBackendTransportError(cause)) {
-        pendingTrial = null;
-        options.onTransportError?.(reason);
-        return;
-      }
-
-      if (isStaleTrialError(cause)) {
-        pendingTrial = null;
-        options.onStaleTrial?.(reason);
-        return;
-      }
-
-      const runtimeError = isOptimiserErrorCode(cause, 'TV_STRATEGY_RUNTIME');
-
-      if (!runtimeError && !aborted) {
-        consecutiveIntegrationFailures += 1;
-      }
-
-      const fatal = isFatalIntegrationFailure(cause, consecutiveIntegrationFailures);
-
-      if (fatal || aborted) {
-        pendingTrial = null;
-      }
-
-      const reported = await reportFailure(trial, reason, fatal);
-
-      if (reported) {
-        options.onFailure?.({
-          reason,
-          aborted,
-          fatal,
-        });
-      }
+      await handleTrialFailure(trial, cause);
     } finally {
       if (currentTrialNumber === trial.trial_number) {
         currentTrialNumber = null;

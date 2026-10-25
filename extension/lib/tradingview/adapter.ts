@@ -52,6 +52,30 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 
+const assertReportSnapshot = (
+  snapshot: TradingViewReportPollSnapshot,
+  expectedDeepBacktesting: boolean,
+): void => {
+  if (snapshot.error) {
+    throw new OptimiserError(
+      'TV_STRATEGY_RUNTIME',
+      'TradingView strategy runtime error: ' + snapshot.error,
+    );
+  }
+
+  if (!snapshot.metrics || !snapshot.token) return;
+  const expectedSource = expectedMetricSource(expectedDeepBacktesting);
+  if (snapshot.metricSource !== expectedSource) {
+    throw new OptimiserError(
+      'TV_METRIC_SOURCE_CHANGED',
+      'TradingView metric source changed or became ambiguous. Expected ' +
+        expectedSource +
+        ', got ' +
+        String(snapshot.metricSource),
+    );
+  }
+};
+
 export class TradingViewAdapter {
   #verifiedDeepRangeKey: string | null = null;
 
@@ -181,21 +205,7 @@ export class TradingViewAdapter {
       );
     }
 
-    if (originalParameters) {
-      const optimisedIds = new Set(config.parameters.map((parameter) => parameter.name));
-
-      for (const input of snapshot.inputs) {
-        if (optimisedIds.has(input.id) || !(input.id in originalParameters)) {
-          continue;
-        }
-
-        if (JSON.stringify(input.currentValue) !== JSON.stringify(originalParameters[input.id])) {
-          throw safetyError(
-            'SAFETY: Fixed strategy input "' + input.label + '" changed during the optimisation.',
-          );
-        }
-      }
-    }
+    if (originalParameters) this.#assertFixedInputs(snapshot, config, originalParameters);
 
     const expectedMode = config.backtest_range ? 'deep' : 'chart';
 
@@ -226,6 +236,26 @@ export class TradingViewAdapter {
       this.#verifiedDeepRangeKey = verified ? this.#rangeKey(config.backtest_range) : null;
     } else {
       this.#verifiedDeepRangeKey = null;
+    }
+  }
+
+  #assertFixedInputs(
+    snapshot: TradingViewRunContextSnapshot,
+    config: CreateRun,
+    originalParameters: Record<string, unknown>,
+  ): void {
+    const optimisedIds = new Set(config.parameters.map((parameter) => parameter.name));
+
+    for (const input of snapshot.inputs) {
+      if (optimisedIds.has(input.id) || !(input.id in originalParameters)) {
+        continue;
+      }
+
+      if (JSON.stringify(input.currentValue) !== JSON.stringify(originalParameters[input.id])) {
+        throw safetyError(
+          'SAFETY: Fixed strategy input "' + input.label + '" changed during the optimisation.',
+        );
+      }
     }
   }
 
@@ -265,24 +295,7 @@ export class TradingViewAdapter {
     await this.applyParameters(strategyId, parameters);
     signal?.throwIfAborted();
 
-    if (range) {
-      const rangeKey = this.#rangeKey(range);
-
-      if (this.#verifiedDeepRangeKey === rangeKey) {
-        try {
-          await this.#refreshDeepBacktest();
-        } catch (cause) {
-          if (!isOptimiserErrorCode(cause, 'TV_DEEP_BACKTEST_UNAVAILABLE')) {
-            throw cause;
-          }
-
-          this.#verifiedDeepRangeKey = null;
-          await this.#applyDeepBacktestRange(range);
-        }
-      } else {
-        await this.#applyDeepBacktestRange(range);
-      }
-    }
+    if (range) await this.#refreshOrApplyDeepRange(range);
 
     try {
       return await this.waitForMetricsAfterChange(
@@ -316,6 +329,25 @@ export class TradingViewAdapter {
     }
   }
 
+  async #refreshOrApplyDeepRange(range: BacktestRange): Promise<void> {
+    const rangeKey = this.#rangeKey(range);
+
+    if (this.#verifiedDeepRangeKey === rangeKey) {
+      try {
+        await this.#refreshDeepBacktest();
+      } catch (cause) {
+        if (!isOptimiserErrorCode(cause, 'TV_DEEP_BACKTEST_UNAVAILABLE')) {
+          throw cause;
+        }
+
+        this.#verifiedDeepRangeKey = null;
+        await this.#applyDeepBacktestRange(range);
+      }
+    } else {
+      await this.#applyDeepBacktestRange(range);
+    }
+  }
+
   async waitForMetricsAfterChange(
     strategyId: string,
     before: TradingViewReportPollSnapshot | null,
@@ -335,37 +367,38 @@ export class TradingViewAdapter {
     // stable reads before accepting a new report revision.
     await sleep(125, signal);
 
-    while (Date.now() - startedAt < timeoutMs) {
+    const poll = async (): Promise<TradingViewMetrics> => {
+      if (Date.now() - startedAt >= timeoutMs) {
+        if (lastMetrics) {
+          throw new OptimiserError(
+            'TV_REPORT_AMBIGUOUS',
+            'TradingView report remained ambiguous after ' +
+              Math.round(timeoutMs / 1000) +
+              ' seconds',
+            true,
+          );
+        }
+
+        throw new OptimiserError(
+          'TV_REPORT_TIMEOUT',
+          'Timed out waiting for TradingView Strategy Tester to recalculate',
+          true,
+        );
+      }
       if (signal?.aborted) {
         throw new DOMException('Operation aborted', 'AbortError');
       }
 
       const snapshot = await this.readReportPollSnapshot(strategyId, expectedDeepBacktesting);
 
-      if (snapshot.error) {
-        throw new OptimiserError(
-          'TV_STRATEGY_RUNTIME',
-          'TradingView strategy runtime error: ' + snapshot.error,
-        );
-      }
+      assertReportSnapshot(snapshot, expectedDeepBacktesting);
 
       if (!snapshot.metrics || !snapshot.token) {
         sawReportChange = true;
         stableReads = 0;
         lastRevision = null;
         await sleep(150, signal);
-        continue;
-      }
-
-      const expectedSource = expectedMetricSource(expectedDeepBacktesting);
-      if (snapshot.metricSource !== expectedSource) {
-        throw new OptimiserError(
-          'TV_METRIC_SOURCE_CHANGED',
-          'TradingView metric source changed or became ambiguous. Expected ' +
-            expectedSource +
-            ', got ' +
-            String(snapshot.metricSource),
-        );
+        return poll();
       }
 
       lastMetrics = snapshot.metrics;
@@ -403,21 +436,9 @@ export class TradingViewAdapter {
       }
 
       await sleep(elapsed < 1_500 ? 125 : 250, signal);
-    }
-
-    if (lastMetrics) {
-      throw new OptimiserError(
-        'TV_REPORT_AMBIGUOUS',
-        'TradingView report remained ambiguous after ' + Math.round(timeoutMs / 1000) + ' seconds',
-        true,
-      );
-    }
-
-    throw new OptimiserError(
-      'TV_REPORT_TIMEOUT',
-      'Timed out waiting for TradingView Strategy Tester to recalculate',
-      true,
-    );
+      return poll();
+    };
+    return poll();
   }
 
   async #verifyDeepBacktestRange(
