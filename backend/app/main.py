@@ -18,7 +18,10 @@ async def lifespan(app: FastAPI):
         configured_token=settings.extension_token,
     )
     app.state.optimisation_manager = OptimisationManager(settings.database_url)
-    yield
+    try:
+        yield
+    finally:
+        app.state.optimisation_manager.close()
 
 
 app = FastAPI(

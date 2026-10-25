@@ -1,16 +1,7 @@
-import {
-  describe,
-  expect,
-  it,
-} from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
-import {
-  mergeRunUpdate,
-} from '../lib/optimisation/run-progress';
-import type {
-  RunProgress,
-  RunUpdate,
-} from '../lib/protocol/types';
+import { mergeRunUpdate } from '../lib/optimisation/run-progress';
+import type { RunProgress, RunUpdate } from '../lib/protocol/types';
 
 const progress: RunProgress = {
   run_id: 'run-1',
@@ -74,55 +65,31 @@ describe('incremental run progress', () => {
       trial_updates: [nextTrial],
     };
 
-    const merged =
-      mergeRunUpdate(
-        progress,
-        update,
-      );
+    const merged = mergeRunUpdate(progress, update);
 
-    expect(
-      merged.trials.map(
-        (trial) =>
-          trial.trial_number,
-      ),
-    ).toEqual([0, 1]);
+    expect(merged.trials.map((trial) => trial.trial_number)).toEqual([0, 1]);
     expect(merged.best?.trial_number).toBe(1);
 
-    const repeated =
-      mergeRunUpdate(
-        merged,
-        update,
-      );
+    const repeated = mergeRunUpdate(merged, update);
 
-    expect(
-      repeated.trials,
-    ).toHaveLength(2);
+    expect(repeated.trials).toHaveLength(2);
   });
 
   it('uses the append-only path for normal ordered trial updates', () => {
-    const merged =
-      mergeRunUpdate(
-        progress,
-        {
-          run_id: 'run-1',
-          status: 'running',
-          completed_trials: 2,
-          target_trials: 3,
-          failed_trials: 0,
-          reused_trials: 0,
-          best: progress.best,
-          termination_reason: null,
-          trial_updates: [nextTrial],
-        },
-      );
+    const merged = mergeRunUpdate(progress, {
+      run_id: 'run-1',
+      status: 'running',
+      completed_trials: 2,
+      target_trials: 3,
+      failed_trials: 0,
+      reused_trials: 0,
+      best: progress.best,
+      termination_reason: null,
+      trial_updates: [nextTrial],
+    });
 
-    expect(merged.trials).toEqual([
-      progress.trials[0],
-      nextTrial,
-    ]);
-    expect(merged.trials[0]).toBe(
-      progress.trials[0],
-    );
+    expect(merged.trials).toEqual([progress.trials[0]!, nextTrial]);
+    expect(merged.trials[0]).toBe(progress.trials[0]);
   });
 
   it('can recover a usable snapshot from an update alone', () => {
@@ -133,17 +100,11 @@ describe('incremental run progress', () => {
       target_trials: 1,
       failed_trials: 0,
       best: null,
-      termination_reason:
-        'target_trials',
+      termination_reason: 'target_trials',
       trial_updates: [],
     };
 
-    expect(
-      mergeRunUpdate(
-        null,
-        update,
-      ),
-    ).toMatchObject({
+    expect(mergeRunUpdate(null, update)).toMatchObject({
       run_id: 'run-2',
       status: 'completed',
       completed_trials: 1,

@@ -1,47 +1,28 @@
 import { OptimiserError } from '../errors';
-import type {
-  DeepBacktestResult,
-  TradingViewMetrics,
-} from './types';
+import type { DeepBacktestResult, TradingViewMetrics } from './types';
 
-const normaliseText = (value: string): string =>
-  value.replace(/\s+/g, ' ').trim();
+const normaliseText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
-const parseUiNumber = (
-  value: string,
-  preferPercent = false,
-): number | undefined => {
-  const matches = value.match(
-    /[−-]?\d[\d\s,.]*(?:\.\d+)?%?/g,
-  );
+const parseUiNumber = (value: string, preferPercent = false): number | undefined => {
+  const matches = value.match(/[−-]?\d[\d\s,.]*(?:\.\d+)?%?/g);
   if (!matches) return undefined;
 
   const candidates = matches
     .map((raw) => {
       const percent = raw.includes('%');
-      const cleaned = raw
-        .replace(/−/g, '-')
-        .replace(/%/g, '')
-        .replace(/\s/g, '');
+      const cleaned = raw.replace(/−/g, '-').replace(/%/g, '').replace(/\s/g, '');
 
       let normalised = cleaned;
       if (cleaned.includes(',') && cleaned.includes('.')) {
         normalised = cleaned.replace(/,/g, '');
-      } else if (
-        cleaned.includes(',') &&
-        !cleaned.includes('.')
-      ) {
+      } else if (cleaned.includes(',') && !cleaned.includes('.')) {
         const parts = cleaned.split(',');
         normalised =
-          parts.at(-1)?.length === 3
-            ? cleaned.replace(/,/g, '')
-            : cleaned.replace(',', '.');
+          parts.at(-1)?.length === 3 ? cleaned.replace(/,/g, '') : cleaned.replace(',', '.');
       }
 
       const numeric = Number(normalised);
-      return Number.isFinite(numeric)
-        ? { numeric, percent }
-        : null;
+      return Number.isFinite(numeric) ? { numeric, percent } : null;
     })
     .filter(
       (
@@ -54,15 +35,12 @@ const parseUiNumber = (
 
   const preferred = preferPercent
     ? candidates.find((candidate) => candidate.percent)
-    : candidates.find((candidate) => !candidate.percent) ??
-      candidates[0];
+    : (candidates.find((candidate) => !candidate.percent) ?? candidates[0]);
 
   return preferred?.numeric;
 };
 
-const findClickableByText = (
-  pattern: RegExp,
-): HTMLElement | null => {
+const findClickableByText = (pattern: RegExp): HTMLElement | null => {
   const candidates = document.querySelectorAll<HTMLElement>(
     'button, [role="button"], [role="tab"]',
   );
@@ -70,11 +48,7 @@ const findClickableByText = (
   for (const candidate of candidates) {
     if (candidate.offsetParent === null) continue;
 
-    const text = normaliseText(
-      candidate.textContent ??
-        candidate.getAttribute('aria-label') ??
-        '',
-    );
+    const text = normaliseText(candidate.textContent ?? candidate.getAttribute('aria-label') ?? '');
     if (pattern.test(text)) return candidate;
   }
 
@@ -98,10 +72,7 @@ const VISIBLE_METRIC_SPECS: VisibleMetricSpec[] = [
   },
   {
     key: 'percentProfitable',
-    labels: [
-      /^profitable trades$/i,
-      /^percent profitable$/i,
-    ],
+    labels: [/^profitable trades$/i, /^percent profitable$/i],
     preferPercent: true,
   },
   {
@@ -111,10 +82,7 @@ const VISIBLE_METRIC_SPECS: VisibleMetricSpec[] = [
   },
   {
     key: 'maxDrawdownPercent',
-    labels: [
-      /^max equity drawdown$/i,
-      /^max(?:imum)? drawdown$/i,
-    ],
+    labels: [/^max equity drawdown$/i, /^max(?:imum)? drawdown$/i],
     preferPercent: true,
   },
   {
@@ -129,36 +97,20 @@ const VISIBLE_METRIC_SPECS: VisibleMetricSpec[] = [
 
 const cachedMetricLabels = new Map<string, HTMLElement>();
 
-const readMetricFromLabel = (
-  element: HTMLElement,
-  spec: VisibleMetricSpec,
-): number | undefined => {
-  if (
-    !element.isConnected ||
-    element.offsetParent === null
-  ) {
+const readMetricFromLabel = (element: HTMLElement, spec: VisibleMetricSpec): number | undefined => {
+  if (!element.isConnected || element.offsetParent === null) {
     cachedMetricLabels.delete(spec.key);
     return undefined;
   }
 
   let container: HTMLElement | null = element;
-  for (
-    let depth = 0;
-    depth < 4 && container;
-    depth += 1
-  ) {
-    const text = normaliseText(
-      container.textContent ?? '',
-    );
+  for (let depth = 0; depth < 4 && container; depth += 1) {
+    const text = normaliseText(container.textContent ?? '');
     const withoutLabel = spec.labels.reduce(
-      (current, pattern) =>
-        current.replace(pattern, ' '),
+      (current, pattern) => current.replace(pattern, ' '),
       text,
     );
-    const value = parseUiNumber(
-      withoutLabel,
-      spec.preferPercent ?? false,
-    );
+    const value = parseUiNumber(withoutLabel, spec.preferPercent ?? false);
     if (value !== undefined) return value;
     container = container.parentElement;
   }
@@ -166,73 +118,51 @@ const readMetricFromLabel = (
   return undefined;
 };
 
-export const readVisibleStrategyReportMetrics =
-  (): TradingViewMetrics | null => {
-    const metrics: TradingViewMetrics = {};
-    const unresolved = new Map(
-      VISIBLE_METRIC_SPECS.map(
-        (spec) => [spec.key, spec] as const,
-      ),
-    );
+export const readVisibleStrategyReportMetrics = (): TradingViewMetrics | null => {
+  const metrics: TradingViewMetrics = {};
+  const unresolved = new Map(VISIBLE_METRIC_SPECS.map((spec) => [spec.key, spec] as const));
 
-    // TradingView usually updates values without replacing their label nodes.
-    // Reuse the nodes while polling. Scan again if a cached node is missing or stale.
-    for (const spec of VISIBLE_METRIC_SPECS) {
-      const cached =
-        cachedMetricLabels.get(spec.key);
-      if (!cached) continue;
+  // TradingView usually updates values without replacing their label nodes.
+  // Reuse the nodes while polling. Scan again if a cached node is missing or stale.
+  for (const spec of VISIBLE_METRIC_SPECS) {
+    const cached = cachedMetricLabels.get(spec.key);
+    if (!cached) continue;
 
-      const value =
-        readMetricFromLabel(cached, spec);
-      if (value === undefined) continue;
+    const value = readMetricFromLabel(cached, spec);
+    if (value === undefined) continue;
 
-      metrics[spec.key] = value;
-      unresolved.delete(spec.key);
-    }
+    metrics[spec.key] = value;
+    unresolved.delete(spec.key);
+  }
 
-    if (unresolved.size > 0) {
-      const elements =
-        document.querySelectorAll<HTMLElement>(
-          'span, div, td, th',
-        );
+  if (unresolved.size > 0) {
+    const elements = document.querySelectorAll<HTMLElement>('span, div, td, th');
 
-      for (const element of elements) {
-        if (unresolved.size === 0) break;
-        if (element.offsetParent === null) continue;
+    for (const element of elements) {
+      if (unresolved.size === 0) break;
+      if (element.offsetParent === null) continue;
 
-        const ownText = normaliseText(
-          element.textContent ?? '',
-        );
-        if (ownText.length > 80) continue;
+      const ownText = normaliseText(element.textContent ?? '');
+      if (ownText.length > 80) continue;
 
-        for (const spec of unresolved.values()) {
-          if (
-            !spec.labels.some(
-              (pattern) => pattern.test(ownText),
-            )
-          ) {
-            continue;
-          }
-
-          const value =
-            readMetricFromLabel(element, spec);
-          if (value === undefined) continue;
-
-          cachedMetricLabels.set(
-            spec.key,
-            element,
-          );
-          metrics[spec.key] = value;
-          unresolved.delete(spec.key);
-          break;
+      for (const spec of unresolved.values()) {
+        if (!spec.labels.some((pattern) => pattern.test(ownText))) {
+          continue;
         }
+
+        const value = readMetricFromLabel(element, spec);
+        if (value === undefined) continue;
+
+        cachedMetricLabels.set(spec.key, element);
+        metrics[spec.key] = value;
+        unresolved.delete(spec.key);
+        break;
       }
     }
+  }
 
-    return Object.keys(metrics).length > 0
-      ? metrics
-      : null;
-  };
+  return Object.keys(metrics).length > 0 ? metrics : null;
+};
 
 export const isDeepBacktestingActive = (): boolean =>
   findClickableByText(/reset to chart session/i) !== null;
@@ -244,10 +174,9 @@ export const deepBacktestingCapability = () => {
 
   return {
     available,
-    reason:
-      available
-        ? null
-        : 'Deep Backtesting control was not found. It may be unavailable on this TradingView plan or build.',
+    reason: available
+      ? null
+      : 'Deep Backtesting control was not found. It may be unavailable on this TradingView plan or build.',
   };
 };
 
@@ -262,27 +191,18 @@ export const ensureStrategyTester = (): boolean => {
     }
   ).TradingView;
 
-  let apiFailure:
-    | unknown
-    | undefined;
+  let apiFailure: unknown | undefined;
 
-  if (
-    typeof tradingView?.bottomWidgetBar?.showWidget ===
-    'function'
-  ) {
+  if (typeof tradingView?.bottomWidgetBar?.showWidget === 'function') {
     try {
-      tradingView.bottomWidgetBar.showWidget(
-        'backtesting',
-      );
+      tradingView.bottomWidgetBar.showWidget('backtesting');
       return true;
     } catch (cause) {
       apiFailure = cause;
     }
   }
 
-  const button = findClickableByText(
-    /strategy (?:tester|report)/i,
-  );
+  const button = findClickableByText(/strategy (?:tester|report)/i);
   if (button) {
     try {
       button.click();
@@ -291,9 +211,7 @@ export const ensureStrategyTester = (): boolean => {
       throw new OptimiserError(
         'TV_STRATEGY_TESTER_UNAVAILABLE',
         'TradingView Strategy Tester button could not be activated: ' +
-          (cause instanceof Error
-            ? cause.message
-            : String(cause)),
+          (cause instanceof Error ? cause.message : String(cause)),
       );
     }
   }
@@ -302,17 +220,14 @@ export const ensureStrategyTester = (): boolean => {
     throw new OptimiserError(
       'TV_STRATEGY_TESTER_UNAVAILABLE',
       'TradingView Strategy Tester API failed and no safe UI fallback was available: ' +
-        (apiFailure instanceof Error
-          ? apiFailure.message
-          : String(apiFailure)),
+        (apiFailure instanceof Error ? apiFailure.message : String(apiFailure)),
     );
   }
 
   return false;
 };
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const waitForValue = async <T>(
   read: () => T | null,
@@ -332,22 +247,13 @@ const waitForValue = async <T>(
   return null;
 };
 
-const waitForClickable = (
-  pattern: RegExp,
-  timeoutMs: number,
-): Promise<HTMLElement | null> =>
-  waitForValue(
-    () => findClickableByText(pattern),
-    timeoutMs,
-  );
+const waitForClickable = (pattern: RegExp, timeoutMs: number): Promise<HTMLElement | null> =>
+  waitForValue(() => findClickableByText(pattern), timeoutMs);
 
 export const resetToChartSession = async () => {
   ensureStrategyTester();
 
-  const resetButton = await waitForClickable(
-    /reset to chart session/i,
-    300,
-  );
+  const resetButton = await waitForClickable(/reset to chart session/i, 300);
   if (!resetButton) {
     return { reset: true, changed: false };
   }
@@ -356,26 +262,15 @@ export const resetToChartSession = async () => {
   // Wait for the mode change within the timeout, then let the adapter validate
   // the run context. Continue as soon as TradingView changes mode.
   await waitForValue(
-    () =>
-      findClickableByText(
-        /reset to chart session/i,
-      ) === null
-        ? true
-        : null,
+    () => (findClickableByText(/reset to chart session/i) === null ? true : null),
     700,
   );
 
   return { reset: true, changed: true };
 };
 
-const setNativeInputValue = (
-  input: HTMLInputElement,
-  value: string,
-): void => {
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    'value',
-  )?.set;
+const setNativeInputValue = (input: HTMLInputElement, value: string): void => {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
 
   if (setter) setter.call(input, value);
   else input.value = value;
@@ -387,16 +282,12 @@ const setNativeInputValue = (
       data: value,
     }),
   );
-  input.dispatchEvent(
-    new Event('change', { bubbles: true }),
-  );
+  input.dispatchEvent(new Event('change', { bubbles: true }));
   input.blur();
 };
 
 const visibleDateInputs = (): HTMLInputElement[] => {
-  const candidates = [
-    ...document.querySelectorAll<HTMLInputElement>('input'),
-  ];
+  const candidates = [...document.querySelectorAll<HTMLInputElement>('input')];
 
   const score = (input: HTMLInputElement): number => {
     if (input.offsetParent === null) return -1;
@@ -425,117 +316,80 @@ const visibleDateInputs = (): HTMLInputElement[] => {
     .map(({ input }) => input);
 };
 
-const waitForDateInputs = async (
-  timeoutMs: number,
-): Promise<HTMLInputElement[] | null> =>
-  waitForValue(
-    () => {
-      const inputs = visibleDateInputs();
-      return inputs.length >= 2
-        ? inputs
-        : null;
-    },
-    timeoutMs,
-  );
+const waitForDateInputs = async (timeoutMs: number): Promise<HTMLInputElement[] | null> =>
+  waitForValue(() => {
+    const inputs = visibleDateInputs();
+    return inputs.length >= 2 ? inputs : null;
+  }, timeoutMs);
 
 const findReportButton = (): HTMLElement | null => {
-  const specific = findClickableByText(
-    /generate report|update report|calculate/i,
-  );
+  const specific = findClickableByText(/generate report|update report|calculate/i);
   if (specific) return specific;
 
   // Match "Apply" only while the Deep Backtesting date controls are visible.
   // Other page controls use the same label.
-  return visibleDateInputs().length >= 2
-    ? findClickableByText(/^apply$/i)
-    : null;
+  return visibleDateInputs().length >= 2 ? findClickableByText(/^apply$/i) : null;
 };
 
-const waitForReportButton = (
-  timeoutMs: number,
-): Promise<HTMLElement | null> =>
-  waitForValue(
-    findReportButton,
-    timeoutMs,
-  );
+const waitForReportButton = (timeoutMs: number): Promise<HTMLElement | null> =>
+  waitForValue(findReportButton, timeoutMs);
 
-export const refreshDeepBacktestReport =
-  async (): Promise<DeepBacktestResult> => {
-    ensureStrategyTester();
+export const refreshDeepBacktestReport = async (): Promise<DeepBacktestResult> => {
+  ensureStrategyTester();
 
-    let updateButton = await waitForReportButton(
-      120,
-    );
+  let updateButton = await waitForReportButton(120);
 
-    if (!updateButton) {
-      const deepButton = await waitForClickable(
-        /deep backtesting/i,
-        300,
-      );
-      if (!deepButton) {
-        return {
-          supported: false,
-          applied: false,
-          reason:
-            'Deep Backtesting is not available in the current TradingView interface.',
-        };
-      }
-
-      deepButton.click();
-      updateButton = await waitForReportButton(
-        600,
-      );
-    }
-
-    if (!updateButton) {
+  if (!updateButton) {
+    const deepButton = await waitForClickable(/deep backtesting/i, 300);
+    if (!deepButton) {
       return {
-        supported: true,
+        supported: false,
         applied: false,
-        reason:
-          'Could not locate the Deep Backtesting report button.',
+        reason: 'Deep Backtesting is not available in the current TradingView interface.',
       };
     }
 
-    updateButton.click();
+    deepButton.click();
+    updateButton = await waitForReportButton(600);
+  }
 
+  if (!updateButton) {
     return {
       supported: true,
-      applied: true,
-      reason: null,
+      applied: false,
+      reason: 'Could not locate the Deep Backtesting report button.',
     };
+  }
+
+  updateButton.click();
+
+  return {
+    supported: true,
+    applied: true,
+    reason: null,
   };
+};
 
 export const configureDeepBacktestRange = async (
   startDate: string,
   endDate: string,
 ): Promise<DeepBacktestResult> => {
-  if (
-    !/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(endDate)
-  ) {
-    throw new Error(
-      'Backtest dates must use YYYY-MM-DD',
-    );
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    throw new Error('Backtest dates must use YYYY-MM-DD');
   }
 
   if (startDate >= endDate) {
-    throw new Error(
-      'Backtest start date must be before the end date',
-    );
+    throw new Error('Backtest start date must be before the end date');
   }
 
   ensureStrategyTester();
 
-  const deepButton = await waitForClickable(
-    /deep backtesting/i,
-    500,
-  );
+  const deepButton = await waitForClickable(/deep backtesting/i, 500);
   if (!deepButton) {
     return {
       supported: false,
       applied: false,
-      reason:
-        'Deep Backtesting is not available in the current TradingView interface.',
+      reason: 'Deep Backtesting is not available in the current TradingView interface.',
     };
   }
 
@@ -546,23 +400,19 @@ export const configureDeepBacktestRange = async (
     return {
       supported: true,
       applied: false,
-      reason:
-        'Could not locate TradingView Deep Backtesting date fields.',
+      reason: 'Could not locate TradingView Deep Backtesting date fields.',
     };
   }
 
   setNativeInputValue(inputs[0]!, startDate);
   setNativeInputValue(inputs[1]!, endDate);
 
-  const updateButton = await waitForReportButton(
-    500,
-  );
+  const updateButton = await waitForReportButton(500);
   if (!updateButton) {
     return {
       supported: true,
       applied: false,
-      reason:
-        'Could not locate the Deep Backtesting report button.',
+      reason: 'Could not locate the Deep Backtesting report button.',
     };
   }
 

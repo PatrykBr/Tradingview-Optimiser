@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   bestSoFar,
@@ -35,25 +35,18 @@ describe('result utilities', () => {
   ];
 
   it('filters valid, constrained and failed trials', () => {
-    expect(filterTrials(trials, 'valid').map((item) => item.trial_number))
-      .toEqual([0, 2]);
-    expect(filterTrials(trials, 'filtered').map((item) => item.trial_number))
-      .toEqual([1]);
-    expect(filterTrials(trials, 'failed').map((item) => item.trial_number))
-      .toEqual([3]);
+    expect(filterTrials(trials, 'valid').map((item) => item.trial_number)).toEqual([0, 2]);
+    expect(filterTrials(trials, 'filtered').map((item) => item.trial_number)).toEqual([1]);
+    expect(filterTrials(trials, 'failed').map((item) => item.trial_number)).toEqual([3]);
   });
 
   it('sorts objectives in the study direction', () => {
     expect(
-      sortTrials(trials, 'objective-best', 'maximize').map(
-        (item) => item.trial_number,
-      ),
+      sortTrials(trials, 'objective-best', 'maximize').map((item) => item.trial_number),
     ).toEqual([1, 2, 0, 3]);
 
     expect(
-      sortTrials(trials, 'objective-best', 'minimize').map(
-        (item) => item.trial_number,
-      ),
+      sortTrials(trials, 'objective-best', 'minimize').map((item) => item.trial_number),
     ).toEqual([0, 2, 1, 3]);
   });
 
@@ -65,23 +58,10 @@ describe('result utilities', () => {
   });
 
   it('extends best-so-far history without recomputing prior trials', () => {
-    const initial = bestSoFar(
-      trials.slice(0, 2),
-      'maximize',
-    );
-    const extended =
-      extendBestSoFar(
-        initial,
-        trials.slice(2),
-        'maximize',
-      );
+    const initial = bestSoFar(trials.slice(0, 2), 'maximize');
+    const extended = extendBestSoFar(initial, trials.slice(2), 'maximize');
 
-    expect(extended).toEqual(
-      bestSoFar(
-        trials,
-        'maximize',
-      ),
-    );
+    expect(extended).toEqual(bestSoFar(trials, 'maximize'));
   });
 
   it('estimates remaining time from recent durations', () => {

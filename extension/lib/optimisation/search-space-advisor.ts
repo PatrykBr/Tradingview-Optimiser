@@ -1,10 +1,7 @@
 import type { StrategyInput } from '../tradingview/types';
 import type { ParameterConfig } from './parameter-config';
 
-type AdviceSeverity =
-  | 'good'
-  | 'info'
-  | 'warning';
+type AdviceSeverity = 'good' | 'info' | 'warning';
 
 interface SearchSpaceAdviceItem {
   severity: AdviceSeverity;
@@ -25,24 +22,15 @@ interface SearchSpaceAdvice {
   items: SearchSpaceAdviceItem[];
 }
 
-const finite = (
-  value: string,
-): number | null => {
+const finite = (value: string): number | null => {
   if (!value.trim()) return null;
   const parsed = Number(value);
-  return Number.isFinite(parsed)
-    ? parsed
-    : null;
+  return Number.isFinite(parsed) ? parsed : null;
 };
 
-const automaticStep = (
-  input: StrategyInput,
-  config: ParameterConfig,
-): number | null => {
+const automaticStep = (input: StrategyInput, config: ParameterConfig): number | null => {
   if (config.log) {
-    return input.type === 'integer'
-      ? 1
-      : null;
+    return input.type === 'integer' ? 1 : null;
   }
 
   const manual = finite(config.step);
@@ -50,26 +38,16 @@ const automaticStep = (
     return manual;
   }
 
-  if (
-    typeof input.step === 'number' &&
-    input.step > 0
-  ) {
+  if (typeof input.step === 'number' && input.step > 0) {
     return input.step;
   }
 
-  return input.type === 'integer'
-    ? 1
-    : null;
+  return input.type === 'integer' ? 1 : null;
 };
 
-const capProduct = (
-  left: number,
-  right: number,
-): number => {
+const capProduct = (left: number, right: number): number => {
   const product = left * right;
-  return Number.isSafeInteger(product)
-    ? Math.min(product, 1_000_000_000)
-    : 1_000_000_000;
+  return Number.isSafeInteger(product) ? Math.min(product, 1_000_000_000) : 1_000_000_000;
 };
 
 export const analyseSearchSpace = (
@@ -77,17 +55,8 @@ export const analyseSearchSpace = (
   configs: Record<string, ParameterConfig>,
   targetTrialsRaw: string,
 ): SearchSpaceAdvice => {
-  const enabled = inputs.filter(
-    (input) =>
-      configs[input.id]?.enabled,
-  );
-  const targetTrials =
-    Math.max(
-      1,
-      Math.floor(
-        Number(targetTrialsRaw) || 1,
-      ),
-    );
+  const enabled = inputs.filter((input) => configs[input.id]?.enabled);
+  const targetTrials = Math.max(1, Math.floor(Number(targetTrialsRaw) || 1));
 
   let continuousParameters = 0;
   let categoricalParameters = 0;
@@ -103,29 +72,15 @@ export const analyseSearchSpace = (
     if (config.conditionParameter) {
       conditionalParameters += 1;
 
-      const controller =
-        configs[
-          config.conditionParameter
-        ];
-      if (
-        controller &&
-        controller.choices.length > 0
-      ) {
-        const activeFraction =
-          config.conditionValues.length /
-          controller.choices.length;
-        const expectedActive =
-          targetTrials * activeFraction;
+      const controller = configs[config.conditionParameter];
+      if (controller && controller.choices.length > 0) {
+        const activeFraction = config.conditionValues.length / controller.choices.length;
+        const expectedActive = targetTrials * activeFraction;
 
-        if (
-          activeFraction > 0 &&
-          expectedActive < 20
-        ) {
+        if (activeFraction > 0 && expectedActive < 20) {
           items.push({
             severity: 'warning',
-            title:
-              input.label +
-              ' may be under-sampled',
+            title: input.label + ' may be under-sampled',
             detail:
               'Its condition is expected to be active in roughly ' +
               Math.round(activeFraction * 100) +
@@ -137,178 +92,105 @@ export const analyseSearchSpace = (
       }
     }
 
-    if (
-      input.type === 'boolean' ||
-      input.type === 'categorical'
-    ) {
+    if (input.type === 'boolean' || input.type === 'categorical') {
       categoricalParameters += 1;
-      const count =
-        config.choices.length;
+      const count = config.choices.length;
 
       if (count >= 2) {
-        discreteCombinations =
-          capProduct(
-            discreteCombinations,
-            count,
-          );
+        discreteCombinations = capProduct(discreteCombinations, count);
       }
       continue;
     }
 
-    if (
-      input.type !== 'integer' &&
-      input.type !== 'float'
-    ) {
+    if (input.type !== 'integer' && input.type !== 'float') {
       continue;
     }
 
     const low = finite(config.low);
     const high = finite(config.high);
-    const step =
-      automaticStep(input, config);
+    const step = automaticStep(input, config);
 
-    if (
-      low === null ||
-      high === null ||
-      low >= high
-    ) {
+    if (low === null || high === null || low >= high) {
       items.push({
         severity: 'warning',
-        title:
-          input.label +
-          ' needs a valid range',
-        detail:
-          'Set numeric limits with the minimum below the maximum.',
+        title: input.label + ' needs a valid range',
+        detail: 'Set numeric limits with the minimum below the maximum.',
       });
       fullyDiscrete = false;
       continue;
     }
 
     if (
-      typeof input.currentValue ===
-        'number' &&
-      (input.currentValue < low ||
-        input.currentValue > high)
+      typeof input.currentValue === 'number' &&
+      (input.currentValue < low || input.currentValue > high)
     ) {
       items.push({
         severity: 'warning',
-        title:
-          input.label +
-          ' excludes the current value',
+        title: input.label + ' excludes the current value',
         detail:
           'The current value is outside the search range. It cannot be the baseline for this parameter.',
       });
     }
 
-    if (
-      !config.log &&
-      low > 0 &&
-      high / low >= 100
-    ) {
+    if (!config.log && low > 0 && high / low >= 100) {
       items.push({
         severity: 'info',
-        title:
-          input.label +
-          ' has a maximum at least 100 times its minimum',
+        title: input.label + ' has a maximum at least 100 times its minimum',
         detail:
           'Consider logarithmic search if ratios matter more than fixed increments for this parameter.',
       });
     }
 
     const currentMagnitude =
-      typeof input.currentValue ===
-        'number'
-        ? Math.max(
-            Math.abs(input.currentValue),
-            1,
-          )
-        : 1;
-    if (
-      Math.abs(high - low) /
-        currentMagnitude >
-      1_000
-    ) {
+      typeof input.currentValue === 'number' ? Math.max(Math.abs(input.currentValue), 1) : 1;
+    if (Math.abs(high - low) / currentMagnitude > 1_000) {
       items.push({
         severity: 'warning',
-        title:
-          input.label +
-          ' has an unusually broad range',
+        title: input.label + ' has an unusually broad range',
         detail:
-          'The range width exceeds 1,000 times the larger of 1 and the current value\'s magnitude. Check the limits before starting.',
+          "The range width exceeds 1,000 times the larger of 1 and the current value's magnitude. Check the limits before starting.",
       });
     }
 
-    if (
-      input.type === 'float' &&
-      step === null
-    ) {
+    if (input.type === 'float' && step === null) {
       continuousParameters += 1;
       fullyDiscrete = false;
       continue;
     }
 
-    if (
-      step !== null &&
-      step > 0
-    ) {
-      const count =
-        Math.floor(
-          (high - low) / step,
-        ) + 1;
+    if (step !== null && step > 0) {
+      const count = Math.floor((high - low) / step) + 1;
 
       if (count > 0) {
-        discreteCombinations =
-          capProduct(
-            discreteCombinations,
-            count,
-          );
+        discreteCombinations = capProduct(discreteCombinations, count);
       }
     } else {
       fullyDiscrete = false;
     }
   }
 
-  const selectedParameters =
-    enabled.length;
+  const selectedParameters = enabled.length;
   const complexity =
     selectedParameters * 22 +
     continuousParameters * 35 +
     categoricalParameters * 12 +
     conditionalParameters * 18;
 
-  let recommendedMinimum = Math.max(
-    20,
-    Math.round(40 + complexity),
-  );
+  let recommendedMinimum = Math.max(20, Math.round(40 + complexity));
 
-  if (
-    fullyDiscrete &&
-    discreteCombinations > 0
-  ) {
-    recommendedMinimum = Math.min(
-      recommendedMinimum,
-      discreteCombinations,
-    );
+  if (fullyDiscrete && discreteCombinations > 0) {
+    recommendedMinimum = Math.min(recommendedMinimum, discreteCombinations);
   }
 
   const comfortable = Math.min(
     100_000,
-    Math.max(
-      recommendedMinimum,
-      Math.round(
-        recommendedMinimum * 1.75,
-      ),
-    ),
+    Math.max(recommendedMinimum, Math.round(recommendedMinimum * 1.75)),
   );
 
-  if (
-    selectedParameters > 0 &&
-    targetTrials < recommendedMinimum
-  ) {
+  if (selectedParameters > 0 && targetTrials < recommendedMinimum) {
     items.unshift({
       severity: 'warning',
-      title:
-        'Trial budget is below the estimate for this search space',
+      title: 'Trial budget is below the estimate for this search space',
       detail:
         'The current budget is ' +
         targetTrials +
@@ -321,22 +203,15 @@ export const analyseSearchSpace = (
   } else if (selectedParameters > 0) {
     items.unshift({
       severity: 'good',
-      title:
-        'Trial budget meets the estimate',
-      detail:
-        'The budget is at or above the estimated minimum for the selected parameters.',
+      title: 'Trial budget meets the estimate',
+      detail: 'The budget is at or above the estimated minimum for the selected parameters.',
     });
   }
 
-  if (
-    fullyDiscrete &&
-    discreteCombinations > 0 &&
-    targetTrials >= discreteCombinations
-  ) {
+  if (fullyDiscrete && discreteCombinations > 0 && targetTrials >= discreteCombinations) {
     items.push({
       severity: 'info',
-      title:
-        'Trial budget can cover the whole discrete space',
+      title: 'Trial budget can cover the whole discrete space',
       detail:
         'There are approximately ' +
         discreteCombinations.toLocaleString() +
@@ -349,10 +224,7 @@ export const analyseSearchSpace = (
     continuousParameters,
     categoricalParameters,
     conditionalParameters,
-    discreteCombinations:
-      fullyDiscrete
-        ? discreteCombinations
-        : null,
+    discreteCombinations: fullyDiscrete ? discreteCombinations : null,
     recommendedTrials: {
       minimum: recommendedMinimum,
       comfortable,

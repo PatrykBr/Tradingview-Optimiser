@@ -49,7 +49,7 @@ class PairingManager:
             raise PairingError("too many invalid pairing attempts; use the new backend code")
 
         normalised = code.strip().upper()
-        if not hmac.compare_digest(normalised, self._pairing_code):
+        if not normalised.isascii() or not hmac.compare_digest(normalised, self._pairing_code):
             raise PairingError("invalid pairing code")
 
         token = self._token
@@ -57,7 +57,9 @@ class PairingManager:
         return token
 
     def verify_token(self, token: str | None) -> bool:
-        return token is not None and hmac.compare_digest(token, self._token)
+        return token is not None and hmac.compare_digest(
+            token.encode("utf-8"), self._token.encode("utf-8")
+        )
 
     def _load_or_create_token(self) -> str:
         self._token_path.parent.mkdir(parents=True, exist_ok=True)

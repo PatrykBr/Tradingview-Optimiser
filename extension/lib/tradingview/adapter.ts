@@ -1,8 +1,5 @@
-import {
-  OptimiserError,
-  isOptimiserErrorCode,
-} from '../errors';
-import type { CreateRun } from '../protocol/types';
+import { OptimiserError, isOptimiserErrorCode } from '../errors';
+import type { BacktestRange, CreateRun } from '../protocol/types';
 import type { TradingViewBridge } from './bridge';
 import type { ClosedTradeSnapshot } from './trades';
 import type {
@@ -21,25 +18,21 @@ interface ApplyParametersResult {
   confirmed: Record<string, unknown>;
 }
 
-export interface TradingViewBacktestRange {
-  startDate: string;
-  endDate: string;
-}
+const expectedMetricSource = (deepBacktesting: boolean): TradingViewMetricSource =>
+  deepBacktesting ? 'deep-visible' : 'internal';
 
-const expectedMetricSource = (
-  deepBacktesting: boolean,
-): TradingViewMetricSource =>
-  deepBacktesting
-    ? 'deep-visible'
-    : 'internal';
+const safetyError = (message: string): OptimiserError =>
+  new OptimiserError('TV_CONTEXT_CHANGED', message);
 
-const safetyError = (
-  message: string,
-): OptimiserError =>
-  new OptimiserError(
-    'TV_CONTEXT_CHANGED',
-    message,
-  );
+const CRITICAL_CHECKS = new Set([
+  'chart-api',
+  'strategy-detection',
+  'inputs-readable',
+  'inputs-writable',
+  'report-source',
+  'metrics-readable',
+  'strategy-signature',
+]);
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -48,15 +41,15 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
       return;
     }
 
-    const timeout = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timeout);
-        reject(new DOMException('Operation aborted', 'AbortError'));
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new DOMException('Operation aborted', 'AbortError'));
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 
 export class TradingViewAdapter {
@@ -78,13 +71,10 @@ export class TradingViewAdapter {
     strategyId: string,
     parameters: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    const result = await this.bridge.request<ApplyParametersResult>(
-      'applyParameters',
-      {
-        strategyId,
-        parameters,
-      },
-    );
+    const result = await this.bridge.request<ApplyParametersResult>('applyParameters', {
+      strategyId,
+      parameters,
+    });
     return result.confirmed;
   }
 
@@ -92,46 +82,28 @@ export class TradingViewAdapter {
     strategyId: string,
     expectedDeepBacktesting?: boolean,
   ): Promise<TradingViewMetrics | null> {
-    return this.bridge.request<TradingViewMetrics | null>(
-      'readMetrics',
-      {
-        strategyId,
-        ...(expectedDeepBacktesting === undefined
-          ? {}
-          : { expectedDeepBacktesting }),
-      },
-    );
+    return this.bridge.request<TradingViewMetrics | null>('readMetrics', {
+      strategyId,
+      ...(expectedDeepBacktesting === undefined ? {} : { expectedDeepBacktesting }),
+    });
   }
 
   readReportPollSnapshot(
     strategyId: string,
     expectedDeepBacktesting = false,
   ): Promise<TradingViewReportPollSnapshot> {
-    return this.bridge.request<TradingViewReportPollSnapshot>(
-      'readReportPollSnapshot',
-      {
-        strategyId,
-        expectedDeepBacktesting,
-      },
-    );
+    return this.bridge.request<TradingViewReportPollSnapshot>('readReportPollSnapshot', {
+      strategyId,
+      expectedDeepBacktesting,
+    });
   }
 
-  readReportSnapshot(
-    strategyId: string,
-  ): Promise<TradingViewReportSnapshot> {
-    return this.bridge.request<TradingViewReportSnapshot>(
-      'readReportSnapshot',
-      { strategyId },
-    );
+  readReportSnapshot(strategyId: string): Promise<TradingViewReportSnapshot> {
+    return this.bridge.request<TradingViewReportSnapshot>('readReportSnapshot', { strategyId });
   }
 
-  readClosedTrades(
-    strategyId: string,
-  ): Promise<ClosedTradeSnapshot> {
-    return this.bridge.request<ClosedTradeSnapshot>(
-      'readClosedTrades',
-      { strategyId },
-    );
+  readClosedTrades(strategyId: string): Promise<ClosedTradeSnapshot> {
+    return this.bridge.request<ClosedTradeSnapshot>('readClosedTrades', { strategyId });
   }
 
   getStrategySignature(strategyId: string): Promise<string> {
@@ -140,27 +112,27 @@ export class TradingViewAdapter {
     });
   }
 
-  diagnostics(
-    strategyId?: string,
-  ): Promise<TradingViewDiagnostics> {
-    const payload =
-      strategyId === undefined
-        ? undefined
-        : { strategyId };
+  diagnostics(strategyId?: string): Promise<TradingViewDiagnostics> {
+    const payload = strategyId === undefined ? undefined : { strategyId };
 
-    return this.bridge.request<TradingViewDiagnostics>(
-      'diagnostics',
-      payload,
-    );
+    return this.bridge.request<TradingViewDiagnostics>('diagnostics', payload);
   }
 
-  getRunContextSnapshot(
-    strategyId: string,
-  ): Promise<TradingViewRunContextSnapshot> {
-    return this.bridge.request<TradingViewRunContextSnapshot>(
-      'getRunContextSnapshot',
-      { strategyId },
-    );
+  async compatibilityFailureReason(strategyId: string, config: CreateRun): Promise<string | null> {
+    const diagnostics = await this.diagnostics(strategyId);
+    const failures = diagnostics.checks
+      .filter((check) => CRITICAL_CHECKS.has(check.id) && !check.ok)
+      .map((check) => check.label + (check.detail ? ': ' + check.detail : ''));
+    if (config.backtest_range && !diagnostics.deepBacktesting.available) {
+      failures.push('Deep Backtesting: ' + (diagnostics.deepBacktesting.reason ?? 'Unavailable'));
+    }
+    return failures.length ? failures.join('; ') : null;
+  }
+
+  getRunContextSnapshot(strategyId: string): Promise<TradingViewRunContextSnapshot> {
+    return this.bridge.request<TradingViewRunContextSnapshot>('getRunContextSnapshot', {
+      strategyId,
+    });
   }
 
   async resetToChartSession(): Promise<void> {
@@ -171,10 +143,7 @@ export class TradingViewAdapter {
     );
   }
 
-  configureDeepBacktestRange(
-    startDate: string,
-    endDate: string,
-  ): Promise<DeepBacktestResult> {
+  configureDeepBacktestRange(startDate: string, endDate: string): Promise<DeepBacktestResult> {
     return this.bridge.request<DeepBacktestResult>(
       'configureDeepBacktestRange',
       { startDate, endDate },
@@ -183,9 +152,7 @@ export class TradingViewAdapter {
   }
 
   async ensureStrategyTester(): Promise<void> {
-    const opened = await this.bridge.request<boolean>(
-      'ensureStrategyTester',
-    );
+    const opened = await this.bridge.request<boolean>('ensureStrategyTester');
     if (!opened) {
       throw new OptimiserError(
         'TV_STRATEGY_TESTER_UNAVAILABLE',
@@ -199,17 +166,9 @@ export class TradingViewAdapter {
     config: CreateRun,
     originalParameters: Record<string, unknown> | null,
   ): Promise<void> {
-    const snapshot =
-      await this.getRunContextSnapshot(
-        strategyId,
-      );
+    const snapshot = await this.getRunContextSnapshot(strategyId);
 
-    if (
-      config.chart.symbol !==
-        snapshot.symbol ||
-      config.chart.timeframe !==
-        snapshot.timeframe
-    ) {
+    if (config.chart.symbol !== snapshot.symbol || config.chart.timeframe !== snapshot.timeframe) {
       throw safetyError(
         'SAFETY: TradingView chart changed. Expected ' +
           config.chart.symbol +
@@ -223,99 +182,54 @@ export class TradingViewAdapter {
     }
 
     if (originalParameters) {
-      const optimisedIds = new Set(
-        config.parameters.map(
-          (parameter) => parameter.name,
-        ),
-      );
+      const optimisedIds = new Set(config.parameters.map((parameter) => parameter.name));
 
       for (const input of snapshot.inputs) {
-        if (
-          optimisedIds.has(input.id) ||
-          !(input.id in originalParameters)
-        ) {
+        if (optimisedIds.has(input.id) || !(input.id in originalParameters)) {
           continue;
         }
 
-        if (
-          JSON.stringify(input.currentValue) !==
-          JSON.stringify(
-            originalParameters[input.id],
-          )
-        ) {
+        if (JSON.stringify(input.currentValue) !== JSON.stringify(originalParameters[input.id])) {
           throw safetyError(
-            'SAFETY: Fixed strategy input "' +
-              input.label +
-              '" changed during the optimisation.',
+            'SAFETY: Fixed strategy input "' + input.label + '" changed during the optimisation.',
           );
         }
       }
     }
 
-    const expectedMode = config.backtest_range
-      ? 'deep'
-      : 'chart';
+    const expectedMode = config.backtest_range ? 'deep' : 'chart';
 
-    if (
-      snapshot.backtestMode !==
-      expectedMode
-    ) {
+    if (snapshot.backtestMode !== expectedMode) {
       this.#verifiedDeepRangeKey = null;
-      throw safetyError(
-        'SAFETY: TradingView backtest mode changed during the optimisation.',
-      );
+      throw safetyError('SAFETY: TradingView backtest mode changed during the optimisation.');
     }
 
-    if (
-      snapshot.strategySignature !==
-      config.chart.strategy_signature
-    ) {
+    if (snapshot.strategySignature !== config.chart.strategy_signature) {
       throw safetyError(
         'SAFETY: The TradingView strategy or its input structure changed during the optimisation.',
       );
     }
 
-    const expectedSettingsSignature =
-      config.chart.strategy_settings_signature;
+    const expectedSettingsSignature = config.chart.strategy_settings_signature;
 
-    if (
-      expectedSettingsSignature &&
-      snapshot.settingsSignature !==
-        expectedSettingsSignature
-    ) {
-      throw safetyError(
-        'SAFETY: TradingView strategy properties changed during the optimisation.',
-      );
+    if (expectedSettingsSignature && snapshot.settingsSignature !== expectedSettingsSignature) {
+      throw safetyError('SAFETY: TradingView strategy properties changed during the optimisation.');
     }
 
     if (config.backtest_range) {
-      const verified =
-        this.#assertSnapshotDeepRange(
-          snapshot.backtestRange,
-          config.backtest_range.start_date,
-          config.backtest_range.end_date,
-        );
+      const verified = this.#assertSnapshotDeepRange(
+        snapshot.backtestRange,
+        config.backtest_range.start_date,
+        config.backtest_range.end_date,
+      );
 
-      this.#verifiedDeepRangeKey =
-        verified
-          ? this.#rangeKey({
-              startDate:
-                config.backtest_range
-                  .start_date,
-              endDate:
-                config.backtest_range
-                  .end_date,
-            })
-          : null;
+      this.#verifiedDeepRangeKey = verified ? this.#rangeKey(config.backtest_range) : null;
     } else {
       this.#verifiedDeepRangeKey = null;
     }
   }
 
-  async prepareBacktest(
-    strategyId: string,
-    range: TradingViewBacktestRange | null,
-  ): Promise<void> {
+  async prepareBacktest(strategyId: string, range: BacktestRange | null): Promise<void> {
     await this.ensureStrategyTester();
 
     if (!range) {
@@ -324,83 +238,49 @@ export class TradingViewAdapter {
       return;
     }
 
-    const before =
-      await this.readReportPollSnapshot(
-        strategyId,
-        true,
-      );
-    await this.#applyDeepBacktestRange(
-      range,
-    );
+    const before = await this.readReportPollSnapshot(strategyId, true);
+    await this.#applyDeepBacktestRange(range);
 
-    await this.waitForMetricsAfterChange(
+    await this.waitForMetricsAfterChange(strategyId, before, undefined, 30_000, true);
+
+    const verified = await this.#verifyDeepBacktestRange(
       strategyId,
-      before,
-      undefined,
-      30_000,
-      true,
+      range.start_date,
+      range.end_date,
     );
 
-    const verified =
-      await this.#verifyDeepBacktestRange(
-        strategyId,
-        range.startDate,
-        range.endDate,
-      );
-
-    this.#verifiedDeepRangeKey =
-      verified
-        ? this.#rangeKey(range)
-        : null;
+    this.#verifiedDeepRangeKey = verified ? this.#rangeKey(range) : null;
   }
 
   async evaluateParameters(
     strategyId: string,
     parameters: Record<string, unknown>,
-    range: TradingViewBacktestRange | null,
+    range: BacktestRange | null,
     signal?: AbortSignal,
   ): Promise<TradingViewMetrics> {
-    const expectedDeepBacktesting =
-      range !== null;
-    const before =
-      await this.readReportPollSnapshot(
-        strategyId,
-        expectedDeepBacktesting,
-      );
-    await this.applyParameters(
-      strategyId,
-      parameters,
-    );
+    signal?.throwIfAborted();
+    const expectedDeepBacktesting = range !== null;
+    const before = await this.readReportPollSnapshot(strategyId, expectedDeepBacktesting);
+    signal?.throwIfAborted();
+    await this.applyParameters(strategyId, parameters);
+    signal?.throwIfAborted();
 
     if (range) {
-      const rangeKey =
-        this.#rangeKey(range);
+      const rangeKey = this.#rangeKey(range);
 
-      if (
-        this.#verifiedDeepRangeKey ===
-        rangeKey
-      ) {
+      if (this.#verifiedDeepRangeKey === rangeKey) {
         try {
           await this.#refreshDeepBacktest();
         } catch (cause) {
-          if (
-            !isOptimiserErrorCode(
-              cause,
-              'TV_DEEP_BACKTEST_UNAVAILABLE',
-            )
-          ) {
+          if (!isOptimiserErrorCode(cause, 'TV_DEEP_BACKTEST_UNAVAILABLE')) {
             throw cause;
           }
 
           this.#verifiedDeepRangeKey = null;
-          await this.#applyDeepBacktestRange(
-            range,
-          );
+          await this.#applyDeepBacktestRange(range);
         }
       } else {
-        await this.#applyDeepBacktestRange(
-          range,
-        );
+        await this.#applyDeepBacktestRange(range);
       }
     }
 
@@ -413,32 +293,17 @@ export class TradingViewAdapter {
         expectedDeepBacktesting,
       );
     } catch (cause) {
-      if (
-        !isOptimiserErrorCode(
-          cause,
-          'TV_REPORT_TIMEOUT',
-          'TV_REPORT_AMBIGUOUS',
-        )
-      ) {
+      if (!isOptimiserErrorCode(cause, 'TV_REPORT_TIMEOUT', 'TV_REPORT_AMBIGUOUS')) {
         throw cause;
       }
 
       await this.ensureStrategyTester();
-      const retryBefore =
-        await this.readReportPollSnapshot(
-          strategyId,
-          expectedDeepBacktesting,
-        );
-      await this.applyParameters(
-        strategyId,
-        parameters,
-      );
+      const retryBefore = await this.readReportPollSnapshot(strategyId, expectedDeepBacktesting);
+      await this.applyParameters(strategyId, parameters);
 
       if (range) {
         this.#verifiedDeepRangeKey = null;
-        await this.#applyDeepBacktestRange(
-          range,
-        );
+        await this.#applyDeepBacktestRange(range);
       }
 
       return this.waitForMetricsAfterChange(
@@ -475,17 +340,12 @@ export class TradingViewAdapter {
         throw new DOMException('Operation aborted', 'AbortError');
       }
 
-      const snapshot =
-        await this.readReportPollSnapshot(
-          strategyId,
-          expectedDeepBacktesting,
-        );
+      const snapshot = await this.readReportPollSnapshot(strategyId, expectedDeepBacktesting);
 
       if (snapshot.error) {
         throw new OptimiserError(
           'TV_STRATEGY_RUNTIME',
-          'TradingView strategy runtime error: ' +
-            snapshot.error,
+          'TradingView strategy runtime error: ' + snapshot.error,
         );
       }
 
@@ -497,22 +357,14 @@ export class TradingViewAdapter {
         continue;
       }
 
-      const expectedSource =
-        expectedMetricSource(
-          expectedDeepBacktesting,
-        );
-      if (
-        snapshot.metricSource !==
-        expectedSource
-      ) {
+      const expectedSource = expectedMetricSource(expectedDeepBacktesting);
+      if (snapshot.metricSource !== expectedSource) {
         throw new OptimiserError(
           'TV_METRIC_SOURCE_CHANGED',
           'TradingView metric source changed or became ambiguous. Expected ' +
             expectedSource +
             ', got ' +
-            String(
-              snapshot.metricSource,
-            ),
+            String(snapshot.metricSource),
         );
       }
 
@@ -520,16 +372,12 @@ export class TradingViewAdapter {
 
       if (
         snapshot.token !== beforeToken ||
-        (snapshot.objectId !== null &&
-          snapshot.objectId !== beforeObjectId)
+        (snapshot.objectId !== null && snapshot.objectId !== beforeObjectId)
       ) {
         sawReportChange = true;
       }
 
-      const revision =
-        String(snapshot.objectId ?? 'no-object') +
-        ':' +
-        snapshot.token;
+      const revision = String(snapshot.objectId ?? 'no-object') + ':' + snapshot.token;
 
       if (revision === lastRevision) {
         stableReads += 1;
@@ -541,16 +389,8 @@ export class TradingViewAdapter {
       const elapsed = Date.now() - startedAt;
 
       // Accept a new report revision after several reads confirm it is stable.
-      if (
-        sawReportChange &&
-        stableReads >= 3 &&
-        elapsed >= 500
-      ) {
-        const metrics =
-          await this.readMetrics(
-            strategyId,
-            expectedDeepBacktesting,
-          );
+      if (sawReportChange && stableReads >= 3 && elapsed >= 500) {
+        const metrics = await this.readMetrics(strategyId, expectedDeepBacktesting);
 
         if (!metrics) {
           throw new OptimiserError(
@@ -562,18 +402,13 @@ export class TradingViewAdapter {
         return metrics;
       }
 
-      await sleep(
-        elapsed < 1_500 ? 125 : 250,
-        signal,
-      );
+      await sleep(elapsed < 1_500 ? 125 : 250, signal);
     }
 
     if (lastMetrics) {
       throw new OptimiserError(
         'TV_REPORT_AMBIGUOUS',
-        'TradingView report remained ambiguous after ' +
-          Math.round(timeoutMs / 1000) +
-          ' seconds',
+        'TradingView report remained ambiguous after ' + Math.round(timeoutMs / 1000) + ' seconds',
         true,
       );
     }
@@ -590,25 +425,16 @@ export class TradingViewAdapter {
     startDate: string,
     endDate: string,
   ): Promise<boolean> {
-    const snapshot =
-      await this.readReportSnapshot(
-        strategyId,
-      );
+    const snapshot = await this.readReportSnapshot(strategyId);
 
-    return this.#assertSnapshotDeepRange(
-      snapshot.backtestRange,
-      startDate,
-      endDate,
-    );
+    return this.#assertSnapshotDeepRange(snapshot.backtestRange, startDate, endDate);
   }
 
   #assertSnapshotDeepRange(
-    range:
-      | {
-          from: number;
-          to: number;
-        }
-      | null,
+    range: {
+      from: number;
+      to: number;
+    } | null,
     startDate: string,
     endDate: string,
   ): boolean {
@@ -616,22 +442,13 @@ export class TradingViewAdapter {
     // missing, rewrite the date range on each trial because we cannot verify it.
     if (!range) return false;
 
-    const expectedFrom = Date.parse(
-      startDate + 'T00:00:00Z',
-    );
-    const expectedTo = Date.parse(
-      endDate + 'T00:00:00Z',
-    );
-    const toleranceMs =
-      36 * 60 * 60 * 1000;
+    const expectedFrom = Date.parse(startDate + 'T00:00:00Z');
+    const expectedTo = Date.parse(endDate + 'T00:00:00Z');
+    const toleranceMs = 36 * 60 * 60 * 1000;
 
     if (
-      Math.abs(
-        range.from - expectedFrom,
-      ) > toleranceMs ||
-      Math.abs(
-        range.to - expectedTo,
-      ) > toleranceMs
+      Math.abs(range.from - expectedFrom) > toleranceMs ||
+      Math.abs(range.to - expectedTo) > toleranceMs
     ) {
       throw safetyError(
         'SAFETY: TradingView Deep Backtesting report date range does not match the optimisation configuration.',
@@ -641,62 +458,41 @@ export class TradingViewAdapter {
     return true;
   }
 
-  #rangeKey(
-    range: TradingViewBacktestRange,
-  ): string {
-    return (
-      range.startDate +
-      '|' +
-      range.endDate
-    );
+  #rangeKey(range: BacktestRange): string {
+    return range.start_date + '|' + range.end_date;
   }
 
   async #refreshDeepBacktest(): Promise<void> {
-    const result =
-      await this.bridge.request<DeepBacktestResult>(
-        'refreshDeepBacktestReport',
-        undefined,
-        5_000,
-      );
-
-    if (
-      !result.supported ||
-      !result.applied
-    ) {
-      throw new OptimiserError(
-        'TV_DEEP_BACKTEST_UNAVAILABLE',
-        result.reason ??
-          'TradingView Deep Backtesting report could not be refreshed',
-      );
-    }
-  }
-
-  async getStrategySettingsSignature(
-    strategyId: string,
-  ): Promise<string | null> {
-    return (await this.readReportSnapshot(strategyId)).settingsSignature;
-  }
-
-  async #applyDeepBacktestRange(
-    range: TradingViewBacktestRange,
-  ): Promise<void> {
-    const result = await this.configureDeepBacktestRange(
-      range.startDate,
-      range.endDate,
+    const result = await this.bridge.request<DeepBacktestResult>(
+      'refreshDeepBacktestReport',
+      undefined,
+      5_000,
     );
 
     if (!result.supported || !result.applied) {
       throw new OptimiserError(
         'TV_DEEP_BACKTEST_UNAVAILABLE',
-        result.reason ??
-          'TradingView Deep Backtesting could not be updated',
+        result.reason ?? 'TradingView Deep Backtesting report could not be refreshed',
+      );
+    }
+  }
+
+  async getStrategySettingsSignature(strategyId: string): Promise<string | null> {
+    return (await this.readReportSnapshot(strategyId)).settingsSignature;
+  }
+
+  async #applyDeepBacktestRange(range: BacktestRange): Promise<void> {
+    const result = await this.configureDeepBacktestRange(range.start_date, range.end_date);
+
+    if (!result.supported || !result.applied) {
+      throw new OptimiserError(
+        'TV_DEEP_BACKTEST_UNAVAILABLE',
+        result.reason ?? 'TradingView Deep Backtesting could not be updated',
       );
     }
   }
 
   getChartContext(): Promise<{ symbol: string; timeframe: string }> {
-    return this.bridge.request<{ symbol: string; timeframe: string }>(
-      'getChartContext',
-    );
+    return this.bridge.request<{ symbol: string; timeframe: string }>('getChartContext');
   }
 }

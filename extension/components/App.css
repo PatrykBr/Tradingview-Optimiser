@@ -12,12 +12,19 @@
   max-height: min(86vh, 900px);
   overflow: auto;
   pointer-events: auto;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   background: #111318;
   color: #f5f7fb;
   border: 1px solid #2a2e38;
   border-radius: 14px;
-  box-shadow: 0 18px 60px rgba(0,0,0,.42);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
   padding: 18px;
 }
 
@@ -63,7 +70,7 @@ p {
 .eyebrow {
   font-size: 10px;
   font-weight: 800;
-  letter-spacing: .14em;
+  letter-spacing: 0.14em;
   color: #8f98a8;
 }
 
@@ -111,9 +118,9 @@ input {
 }
 
 select,
-input[type="number"],
-input[type="date"],
-input[type="text"],
+input[type='number'],
+input[type='date'],
+input[type='text'],
 .inlineForm input {
   width: 100%;
   padding: 9px 10px;
@@ -141,7 +148,7 @@ button:disabled,
 select:disabled,
 input:disabled {
   cursor: not-allowed;
-  opacity: .45;
+  opacity: 0.45;
 }
 
 .primary,
@@ -231,11 +238,11 @@ input:disabled {
   cursor: pointer;
 }
 
-.parameterHeading input[type="checkbox"],
-.filterRow input[type="checkbox"],
-.toggleRow input[type="checkbox"],
-.advancedToggle input[type="checkbox"],
-.choiceChip input[type="checkbox"] {
+.parameterHeading input[type='checkbox'],
+.filterRow input[type='checkbox'],
+.toggleRow input[type='checkbox'],
+.advancedToggle input[type='checkbox'],
+.choiceChip input[type='checkbox'] {
   accent-color: #2962ff;
   flex: 0 0 auto;
 }
@@ -367,7 +374,7 @@ input:disabled {
   font-size: 12px;
 }
 
-.filterRow input[type="number"] {
+.filterRow input[type='number'] {
   padding: 7px 8px;
 }
 
@@ -431,7 +438,7 @@ input:disabled {
   height: 100%;
   border-radius: inherit;
   background: #2962ff;
-  transition: width .2s ease;
+  transition: width 0.2s ease;
 }
 
 .runTiming {
@@ -695,7 +702,6 @@ code {
   font-size: 12px;
 }
 
-
 .presetSaveRow {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -718,7 +724,6 @@ code {
 .presetDelete {
   color: #ffaaa4;
 }
-
 
 .researchSettings .toggleRow + .toggleRow,
 .researchSettings .researchGrid + .toggleRow,
@@ -944,7 +949,7 @@ code {
 .comparisonHeader,
 .comparisonRow {
   display: grid;
-  grid-template-columns: 1.15fr .9fr .9fr;
+  grid-template-columns: 1.15fr 0.9fr 0.9fr;
   gap: 6px;
   align-items: center;
   padding: 6px 8px;
@@ -978,7 +983,6 @@ code {
   color: #ffaaa4;
 }
 
-
 .comparisonDivider {
   padding: 7px 8px;
   border-top: 1px solid #2f3540;
@@ -987,7 +991,7 @@ code {
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: .06em;
+  letter-spacing: 0.06em;
 }
 
 .researchImportanceHint {
@@ -995,13 +999,11 @@ code {
   font-size: 9px;
 }
 
-
 .conditionValueLabel {
   margin-top: 7px;
   color: #8f98a8;
   font-size: 10px;
 }
-
 
 .searchAdvisor {
   margin-top: 10px;
@@ -1102,7 +1104,6 @@ code {
 .advisorItem.warning .advisorDot {
   background: #e4bf67;
 }
-
 
 .watchdogBanner {
   display: grid;
@@ -1209,7 +1210,6 @@ code {
   justify-self: start;
   margin-top: 0;
 }
-
 
 .experimentMeta {
   margin-top: 8px;

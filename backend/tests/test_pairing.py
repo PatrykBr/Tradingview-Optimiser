@@ -7,6 +7,21 @@ from app.main import app
 from app.pairing import PairingError, PairingManager
 
 
+def test_run_http_endpoint_requires_a_paired_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("TVOPT_DATA_DIR", str(tmp_path))
+    token = "0123456789abcdef0123456789abcdef"
+    monkeypatch.setenv("TVOPT_EXTENSION_TOKEN", token)
+    with TestClient(app) as client:
+        for headers in ({}, {"Authorization": "Bearer wrong"}):
+            response = client.get("/runs/unknown-run", headers=headers)
+            assert response.status_code == 401
+            assert response.headers["www-authenticate"] == "Bearer"
+        assert client.get(
+            "/runs/unknown-run", headers={"Authorization": f"Bearer {token}"}
+        ).status_code == 404
+        assert client.get("/health").status_code == 200
+
+
 def test_pairing_persists_token_and_rotates_code(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -39,6 +54,10 @@ def test_pairing_rejects_invalid_code(
 
     with pytest.raises(PairingError, match="invalid pairing code"):
         manager.pair("WRONG")
+
+    with pytest.raises(PairingError, match="invalid pairing code"):
+        manager.pair("\u00e9\u00e9\u00e9\u00e9")
+    assert not manager.verify_token("\u00e9" * 32)
 
 
 

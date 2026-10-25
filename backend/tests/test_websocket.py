@@ -5,6 +5,23 @@ from starlette.websockets import WebSocketDisconnect
 from app.main import app
 
 
+def test_websocket_recovers_after_malformed_json_and_invalid_request_id(monkeypatch, tmp_path):
+    token = "0123456789abcdef0123456789abcdef"
+    monkeypatch.setenv("TVOPT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("TVOPT_EXTENSION_TOKEN", token)
+    with TestClient(app) as client, client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "AUTH", "payload": {"token": token}})
+        assert websocket.receive_json()["type"] == "CONNECTED"
+        for raw in ('{', '{"type":"PING","request_id":{},"payload":{}}'):
+            websocket.send_text(raw)
+            error = websocket.receive_json()
+            assert error["type"] == "ERROR"
+            assert error["payload"]["code"] == "INVALID_REQUEST"
+            assert error["request_id"] is None
+        websocket.send_json({"type": "PING", "request_id": "recovered", "payload": {}})
+        assert websocket.receive_json()["type"] == "PONG"
+
+
 def test_websocket_rejects_invalid_token(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("TVOPT_DATA_DIR", str(tmp_path))
     monkeypatch.setenv(
@@ -322,6 +339,11 @@ def test_websocket_abort_stops_outstanding_trial(monkeypatch, tmp_path) -> None:
         assert update["request_id"] == "abort-1"
         assert update["payload"]["status"] == "stopped"
         assert update["payload"]["failed_trials"] == 1
+        assert len(update["payload"]["trial_updates"]) == 1
+        failed = update["payload"]["trial_updates"][0]
+        assert failed["trial_number"] == next_trial["payload"]["trial_number"]
+        assert failed["state"] == "failed"
+        assert failed["failure_reason"] == "tab delivery failed"
 
 
 def test_websocket_streams_incremental_trial_updates(monkeypatch, tmp_path) -> None:

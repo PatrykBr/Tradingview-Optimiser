@@ -1,7 +1,13 @@
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'wxt';
 
 export default defineConfig({
+  zip: {
+    sourcesRoot: fileURLToPath(new URL('..', import.meta.url)),
+    includeSources: ['package.json', 'bun.lock', 'bunfig.toml', 'extension/**'],
+    excludeSources: ['extension/tests/**', 'extension/coverage/**'],
+  },
   vite: () => ({
     plugins: [react()],
   }),
@@ -9,10 +15,7 @@ export default defineConfig({
     name: 'TradingView Optuna Optimiser',
     description: 'Optimise the Pine strategy on your current TradingView chart with Optuna v5.',
     permissions: ['storage', 'downloads'],
-    host_permissions: [
-      'https://*.tradingview.com/*',
-      'http://127.0.0.1:8765/*',
-    ],
+    host_permissions: ['https://*.tradingview.com/*', 'http://127.0.0.1:8765/*'],
     web_accessible_resources: [
       {
         resources: ['tradingview-main-world.js'],

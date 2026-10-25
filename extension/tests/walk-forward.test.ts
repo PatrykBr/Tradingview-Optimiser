@@ -1,12 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
-import {
-  buildWalkForwardPlan,
-  summariseWalkForward,
-} from '../lib/optimisation/walk-forward';
+import { buildWalkForwardPlan, summariseWalkForward } from '../lib/optimisation/walk-forward';
 import type { SearchParameter } from '../lib/protocol/types';
 
 describe('walk-forward research', () => {
+  it('rejects an initial training split that leaves single-day test folds', () => {
+    expect(() =>
+      buildWalkForwardPlan(
+        { mode: 'deep', start_date: '2024-01-01', end_date: '2024-01-30' },
+        8,
+        0.8,
+      ),
+    ).toThrow(/too little unseen data/);
+  });
+
   it('builds expanding training windows with chronological unseen tests', () => {
     const folds = buildWalkForwardPlan(
       {
@@ -26,9 +33,7 @@ describe('walk-forward research', () => {
         throw new Error('Missing walk-forward fold');
       }
 
-      expect(
-        Date.parse(fold.trainingRange.end_date),
-      ).toBeLessThan(
+      expect(Date.parse(fold.trainingRange.end_date)).toBeLessThan(
         Date.parse(fold.testRange.start_date),
       );
 
@@ -38,25 +43,17 @@ describe('walk-forward research', () => {
           throw new Error('Missing previous fold');
         }
 
-        expect(fold.trainingRange.start_date).toBe(
-          previous.trainingRange.start_date,
-        );
-        expect(
-          Date.parse(fold.trainingRange.end_date),
-        ).toBeGreaterThan(
+        expect(fold.trainingRange.start_date).toBe(previous.trainingRange.start_date);
+        expect(Date.parse(fold.trainingRange.end_date)).toBeGreaterThan(
           Date.parse(previous.trainingRange.end_date),
         );
-        expect(
-          Date.parse(fold.testRange.start_date),
-        ).toBeGreaterThan(
+        expect(Date.parse(fold.testRange.start_date)).toBeGreaterThan(
           Date.parse(previous.testRange.end_date),
         );
       }
     }
 
-    expect(folds.at(-1)?.testRange.end_date).toBe(
-      '2025-12-31',
-    );
+    expect(folds.at(-1)?.testRange.end_date).toBe('2025-12-31');
   });
 
   it('summarises fold performance and parameter consistency', () => {

@@ -1,8 +1,5 @@
 import type { BacktestRange } from '../protocol/types';
-import type {
-  ClosedTrade,
-  ClosedTradeSnapshot,
-} from '../tradingview/trades';
+import type { ClosedTrade, ClosedTradeSnapshot } from '../tradingview/trades';
 
 export interface MonteCarloInterval {
   low: number;
@@ -25,9 +22,7 @@ export interface MonteCarloResult {
     median: number;
     p95: number;
   } | null;
-  profitFactor:
-    | MonteCarloInterval
-    | null;
+  profitFactor: MonteCarloInterval | null;
 }
 
 interface MonteCarloContext {
@@ -35,27 +30,15 @@ interface MonteCarloContext {
   range: BacktestRange | null;
 }
 
-const hashTrades = (
-  trades: ClosedTrade[],
-): number => {
+const hashTrades = (trades: ClosedTrade[]): number => {
   let hash = 2166136261;
 
   for (const trade of trades) {
-    for (const value of [
-      trade.pnl,
-      trade.pnlPercent ?? 0,
-    ]) {
+    for (const value of [trade.pnl, trade.pnlPercent ?? 0]) {
       const text = value.toPrecision(12);
-      for (
-        let index = 0;
-        index < text.length;
-        index += 1
-      ) {
+      for (let index = 0; index < text.length; index += 1) {
         hash ^= text.charCodeAt(index);
-        hash = Math.imul(
-          hash,
-          16777619,
-        );
+        hash = Math.imul(hash, 16777619);
       }
     }
   }
@@ -63,57 +46,31 @@ const hashTrades = (
   return hash >>> 0;
 };
 
-const mulberry32 = (
-  seed: number,
-): (() => number) => {
+const mulberry32 = (seed: number): (() => number) => {
   let state = seed >>> 0;
 
   return () => {
     state += 0x6d2b79f5;
     let value = state;
-    value = Math.imul(
-      value ^ (value >>> 15),
-      value | 1,
-    );
-    value ^=
-      value +
-      Math.imul(
-        value ^ (value >>> 7),
-        value | 61,
-      );
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
 
-    return (
-      ((value ^ (value >>> 14)) >>> 0) /
-      4294967296
-    );
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
 };
 
-const quantile = (
-  sorted: number[],
-  probability: number,
-): number | null => {
+const quantile = (sorted: number[], probability: number): number | null => {
   if (sorted.length === 0) {
     return null;
   }
 
-  const position =
-    (sorted.length - 1) *
-    Math.min(
-      1,
-      Math.max(0, probability),
-    );
-  const lowerIndex =
-    Math.floor(position);
-  const upperIndex =
-    Math.ceil(position);
+  const position = (sorted.length - 1) * Math.min(1, Math.max(0, probability));
+  const lowerIndex = Math.floor(position);
+  const upperIndex = Math.ceil(position);
   const lower = sorted[lowerIndex];
   const upper = sorted[upperIndex];
 
-  if (
-    lower === undefined ||
-    upper === undefined
-  ) {
+  if (lower === undefined || upper === undefined) {
     return null;
   }
 
@@ -121,42 +78,19 @@ const quantile = (
     return lower;
   }
 
-  return (
-    lower +
-    (upper - lower) *
-      (position - lowerIndex)
-  );
+  return lower + (upper - lower) * (position - lowerIndex);
 };
 
-const interval = (
-  values: number[],
-  confidence: number,
-): MonteCarloInterval | null => {
+const interval = (values: number[], confidence: number): MonteCarloInterval | null => {
   if (values.length === 0) return null;
 
-  const sorted = [...values].sort(
-    (left, right) => left - right,
-  );
-  const tail =
-    (1 - confidence) / 2;
-  const low = quantile(
-    sorted,
-    tail,
-  );
-  const median = quantile(
-    sorted,
-    0.5,
-  );
-  const high = quantile(
-    sorted,
-    1 - tail,
-  );
+  const sorted = [...values].sort((left, right) => left - right);
+  const tail = (1 - confidence) / 2;
+  const low = quantile(sorted, tail);
+  const median = quantile(sorted, 0.5);
+  const high = quantile(sorted, 1 - tail);
 
-  if (
-    low === null ||
-    median === null ||
-    high === null
-  ) {
+  if (low === null || median === null || high === null) {
     return null;
   }
 
@@ -177,10 +111,7 @@ const unavailable = (
   available: false,
   source: context.source,
   range: context.range,
-  reason:
-    reason ??
-    snapshot.reason ??
-    'Trade-level data is unavailable.',
+  reason: reason ?? snapshot.reason ?? 'Trade-level data is unavailable.',
   sampleSize: 0,
   simulations,
   confidence,
@@ -191,13 +122,8 @@ const unavailable = (
   profitFactor: null,
 });
 
-const finiteTrades = (
-  snapshot: ClosedTradeSnapshot,
-): ClosedTrade[] =>
-  snapshot.trades.filter(
-    (trade) =>
-      Number.isFinite(trade.pnl),
-  );
+const finiteTrades = (snapshot: ClosedTradeSnapshot): ClosedTrade[] =>
+  snapshot.trades.filter((trade) => Number.isFinite(trade.pnl));
 
 const yieldToBrowser = (): Promise<void> =>
   new Promise((resolve) => {
@@ -213,29 +139,15 @@ export const runTradeMonteCarlo = async (
 ): Promise<MonteCarloResult> => {
   const simulations = Math.max(
     1,
-    Math.floor(
-      Number.isFinite(requestedSimulations)
-        ? requestedSimulations
-        : 1,
-    ),
+    Math.floor(Number.isFinite(requestedSimulations) ? requestedSimulations : 1),
   );
   const confidence = Math.min(
     0.99,
-    Math.max(
-      0.5,
-      Number.isFinite(requestedConfidence)
-        ? requestedConfidence
-        : 0.9,
-    ),
+    Math.max(0.5, Number.isFinite(requestedConfidence) ? requestedConfidence : 0.9),
   );
 
   if (!snapshot.available) {
-    return unavailable(
-      snapshot,
-      simulations,
-      confidence,
-      context,
-    );
+    return unavailable(snapshot, simulations, confidence, context);
   }
 
   const trades = finiteTrades(snapshot);
@@ -250,12 +162,7 @@ export const runTradeMonteCarlo = async (
   }
 
   const seed =
-    hashTrades(trades) ^
-    Math.imul(
-      simulations,
-      0x9e3779b1,
-    ) ^
-    Math.round(confidence * 1_000_000);
+    hashTrades(trades) ^ Math.imul(simulations, 0x9e3779b1) ^ Math.round(confidence * 1_000_000);
   const random = mulberry32(seed);
 
   const totals: number[] = [];
@@ -263,16 +170,9 @@ export const runTradeMonteCarlo = async (
   const profitFactors: number[] = [];
   let losingSimulations = 0;
 
-  for (
-    let simulation = 0;
-    simulation < simulations;
-    simulation += 1
-  ) {
+  for (let simulation = 0; simulation < simulations; simulation += 1) {
     if (signal?.aborted) {
-      throw new DOMException(
-        'Operation aborted',
-        'AbortError',
-      );
+      throw new DOMException('Operation aborted', 'AbortError');
     }
 
     let cumulativePnl = 0;
@@ -281,19 +181,9 @@ export const runTradeMonteCarlo = async (
     let grossProfit = 0;
     let grossLoss = 0;
 
-    for (
-      let index = 0;
-      index < trades.length;
-      index += 1
-    ) {
-      const sampledIndex = Math.min(
-        trades.length - 1,
-        Math.floor(
-          random() * trades.length,
-        ),
-      );
-      const sampledTrade =
-        trades[sampledIndex];
+    for (let index = 0; index < trades.length; index += 1) {
+      const sampledIndex = Math.min(trades.length - 1, Math.floor(random() * trades.length));
+      const sampledTrade = trades[sampledIndex];
 
       if (!sampledTrade) continue;
 
@@ -304,10 +194,7 @@ export const runTradeMonteCarlo = async (
         peakPnl = cumulativePnl;
       }
 
-      maxDrawdown = Math.max(
-        maxDrawdown,
-        peakPnl - cumulativePnl,
-      );
+      maxDrawdown = Math.max(maxDrawdown, peakPnl - cumulativePnl);
 
       if (pnl > 0) {
         grossProfit += pnl;
@@ -324,32 +211,17 @@ export const runTradeMonteCarlo = async (
     }
 
     if (grossLoss > 0) {
-      profitFactors.push(
-        grossProfit / grossLoss,
-      );
+      profitFactors.push(grossProfit / grossLoss);
     }
 
-    if (
-      simulation > 0 &&
-      simulation % 250 === 0
-    ) {
+    if (simulation > 0 && simulation % 250 === 0) {
       await yieldToBrowser();
     }
   }
 
-  const sortedDrawdowns = [
-    ...drawdowns,
-  ].sort(
-    (left, right) => left - right,
-  );
-  const medianDrawdown = quantile(
-    sortedDrawdowns,
-    0.5,
-  );
-  const p95Drawdown = quantile(
-    sortedDrawdowns,
-    0.95,
-  );
+  const sortedDrawdowns = [...drawdowns].sort((left, right) => left - right);
+  const medianDrawdown = quantile(sortedDrawdowns, 0.5);
+  const p95Drawdown = quantile(sortedDrawdowns, 0.95);
 
   return {
     available: true,
@@ -360,24 +232,15 @@ export const runTradeMonteCarlo = async (
     simulations,
     confidence,
     unit: 'pnl',
-    probabilityOfLoss:
-      losingSimulations /
-      simulations,
-    total: interval(
-      totals,
-      confidence,
-    ),
+    probabilityOfLoss: losingSimulations / simulations,
+    total: interval(totals, confidence),
     maxDrawdown:
-      medianDrawdown === null ||
-      p95Drawdown === null
+      medianDrawdown === null || p95Drawdown === null
         ? null
         : {
             median: medianDrawdown,
             p95: p95Drawdown,
           },
-    profitFactor: interval(
-      profitFactors,
-      confidence,
-    ),
+    profitFactor: interval(profitFactors, confidence),
   };
 };

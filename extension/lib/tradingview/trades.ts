@@ -1,7 +1,4 @@
-import {
-  asRecord,
-  type UnknownRecord,
-} from './parsers';
+import { asRecord, type UnknownRecord } from './parsers';
 
 export interface ClosedTrade {
   pnl: number;
@@ -14,15 +11,7 @@ export interface ClosedTradeSnapshot {
   reason: string | null;
 }
 
-const PNL_KEYS = [
-  'profit',
-  'profitLoss',
-  'profit_loss',
-  'pnl',
-  'netProfit',
-  'net_profit',
-  'pl',
-];
+const PNL_KEYS = ['profit', 'profitLoss', 'profit_loss', 'pnl', 'netProfit', 'net_profit', 'pl'];
 
 const PERCENT_KEYS = [
   'profitPercent',
@@ -44,18 +33,10 @@ const TRADE_CONTAINER_KEYS = [
   'trades_list',
 ];
 
-const finiteNumber = (
-  value: unknown,
-): number | undefined =>
-  typeof value === 'number' &&
-  Number.isFinite(value)
-    ? value
-    : undefined;
+const finiteNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
-const firstNumeric = (
-  record: UnknownRecord,
-  keys: string[],
-): number | undefined => {
+const firstNumeric = (record: UnknownRecord, keys: string[]): number | undefined => {
   for (const key of keys) {
     const value = finiteNumber(record[key]);
     if (value !== undefined) {
@@ -66,32 +47,20 @@ const firstNumeric = (
   return undefined;
 };
 
-const parseTrade = (
-  value: unknown,
-): ClosedTrade | null => {
+const parseTrade = (value: unknown): ClosedTrade | null => {
   const record = asRecord(value);
-  const pnl = firstNumeric(
-    record,
-    PNL_KEYS,
-  );
+  const pnl = firstNumeric(record, PNL_KEYS);
 
   if (pnl === undefined) {
     return null;
   }
 
-  const pnlPercent = firstNumeric(
-    record,
-    PERCENT_KEYS,
-  );
+  const pnlPercent = firstNumeric(record, PERCENT_KEYS);
 
-  return pnlPercent === undefined
-    ? { pnl }
-    : { pnl, pnlPercent };
+  return pnlPercent === undefined ? { pnl } : { pnl, pnlPercent };
 };
 
-const candidateArrays = (
-  value: unknown,
-): unknown[][] => {
+const candidateArrays = (value: unknown): unknown[][] => {
   const root = asRecord(value);
   const arrays: unknown[][] = [];
   const queue: Array<{
@@ -104,30 +73,18 @@ const candidateArrays = (
     const current = queue.shift();
     if (!current) break;
 
-    if (
-      seen.has(current.record) ||
-      current.depth > 4
-    ) {
+    if (seen.has(current.record) || current.depth > 4) {
       continue;
     }
     seen.add(current.record);
 
-    for (const [key, child] of Object.entries(
-      current.record,
-    )) {
-      if (
-        TRADE_CONTAINER_KEYS.includes(key) &&
-        Array.isArray(child)
-      ) {
+    for (const [key, child] of Object.entries(current.record)) {
+      if (TRADE_CONTAINER_KEYS.includes(key) && Array.isArray(child)) {
         arrays.push(child);
         continue;
       }
 
-      if (
-        /trade/i.test(key) &&
-        child &&
-        typeof child === 'object'
-      ) {
+      if (/trade/i.test(key) && child && typeof child === 'object') {
         if (Array.isArray(child)) {
           arrays.push(child);
         } else {
@@ -139,12 +96,7 @@ const candidateArrays = (
         continue;
       }
 
-      if (
-        child &&
-        typeof child === 'object' &&
-        !Array.isArray(child) &&
-        current.depth < 2
-      ) {
+      if (child && typeof child === 'object' && !Array.isArray(child) && current.depth < 2) {
         queue.push({
           record: asRecord(child),
           depth: current.depth + 1,
@@ -156,20 +108,13 @@ const candidateArrays = (
   return arrays;
 };
 
-export const extractClosedTrades = (
-  report: unknown,
-): ClosedTradeSnapshot => {
+export const extractClosedTrades = (report: unknown): ClosedTradeSnapshot => {
   let best: ClosedTrade[] = [];
 
-  for (const candidate of candidateArrays(
-    report,
-  )) {
+  for (const candidate of candidateArrays(report)) {
     const trades = candidate
       .map(parseTrade)
-      .filter(
-        (trade): trade is ClosedTrade =>
-          trade !== null,
-      );
+      .filter((trade): trade is ClosedTrade => trade !== null);
 
     if (trades.length > best.length) {
       best = trades;
@@ -180,8 +125,7 @@ export const extractClosedTrades = (
     return {
       available: false,
       trades: [],
-      reason:
-        'TradingView did not expose a recognised closed-trade list in this report build.',
+      reason: 'TradingView did not expose a recognised closed-trade list in this report build.',
     };
   }
 

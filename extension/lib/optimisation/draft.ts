@@ -68,9 +68,7 @@ export const DEFAULT_OPTIMISATION_DRAFT: OptimisationDraft = {
   monteCarloConfidencePercent: '90',
 };
 
-export const cloneOptimisationDraft = (
-  draft: OptimisationDraft,
-): OptimisationDraft => ({
+export const cloneOptimisationDraft = (draft: OptimisationDraft): OptimisationDraft => ({
   ...draft,
   maxDrawdownFilter: {
     ...draft.maxDrawdownFilter,
@@ -83,17 +81,10 @@ export const cloneOptimisationDraft = (
   },
 });
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const isRecord = (
-  value: unknown,
-): value is Record<string, unknown> =>
-  typeof value === 'object' &&
-  value !== null &&
-  !Array.isArray(value);
-
-const isFilterConfig = (
-  value: unknown,
-): value is FilterConfig => {
+const isFilterConfig = (value: unknown): value is FilterConfig => {
   if (!isRecord(value)) {
     return false;
   }
@@ -148,67 +139,28 @@ const DRAFT_FIELDS = new Set<string>([
   ...FILTER_DRAFT_FIELDS,
 ]);
 
-export const isOptimisationDraft = (
-  value: unknown,
-): value is OptimisationDraft => {
+export const isOptimisationDraft = (value: unknown): value is OptimisationDraft => {
   if (!isRecord(value)) {
     return false;
   }
 
   if (
-    Object.keys(value).some(
-      (key) => !DRAFT_FIELDS.has(key),
-    ) ||
-    Object.keys(value).length !==
-      DRAFT_FIELDS.size
+    Object.keys(value).some((key) => !DRAFT_FIELDS.has(key)) ||
+    Object.keys(value).length !== DRAFT_FIELDS.size
   ) {
     return false;
   }
 
   return (
-    STRING_DRAFT_FIELDS.every(
-      (key) =>
-        typeof value[key] === 'string',
-    ) &&
-    BOOLEAN_DRAFT_FIELDS.every(
-      (key) =>
-        typeof value[key] === 'boolean',
-    ) &&
-    FILTER_DRAFT_FIELDS.every(
-      (key) =>
-        isFilterConfig(value[key]),
-    )
+    STRING_DRAFT_FIELDS.every((key) => typeof value[key] === 'string') &&
+    BOOLEAN_DRAFT_FIELDS.every((key) => typeof value[key] === 'boolean') &&
+    FILTER_DRAFT_FIELDS.every((key) => isFilterConfig(value[key]))
   );
-};
-
-const stringField = (
-  record: Record<string, unknown>,
-  key: keyof OptimisationDraft,
-  fallback: string,
-): string => {
-  const value = record[key];
-  return typeof value === 'string'
-    ? value
-    : fallback;
-};
-
-const booleanField = (
-  record: Record<string, unknown>,
-  key: keyof OptimisationDraft,
-  fallback: boolean,
-): boolean => {
-  const value = record[key];
-  return typeof value === 'boolean'
-    ? value
-    : fallback;
 };
 
 const filterField = (
   record: Record<string, unknown>,
-  key:
-    | 'maxDrawdownFilter'
-    | 'minProfitFactorFilter'
-    | 'minTradesFilter',
+  key: 'maxDrawdownFilter' | 'minProfitFactorFilter' | 'minTradesFilter',
   fallback: FilterConfig,
 ): FilterConfig => {
   const value = record[key];
@@ -217,159 +169,28 @@ const filterField = (
   }
 
   return {
-    enabled:
-      typeof value.enabled === 'boolean'
-        ? value.enabled
-        : fallback.enabled,
-    value:
-      typeof value.value === 'string'
-        ? value.value
-        : fallback.value,
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : fallback.enabled,
+    value: typeof value.value === 'string' ? value.value : fallback.value,
   };
 };
 
-export const normaliseOptimisationDraft = (
-  value: unknown,
-): OptimisationDraft => {
-  const defaults = cloneOptimisationDraft(
-    DEFAULT_OPTIMISATION_DRAFT,
-  );
+export const normaliseOptimisationDraft = (value: unknown): OptimisationDraft => {
+  const defaults = cloneOptimisationDraft(DEFAULT_OPTIMISATION_DRAFT);
 
   if (!isRecord(value)) {
     return defaults;
   }
 
-  return {
-    objectiveMetric: stringField(
-      value,
-      'objectiveMetric',
-      defaults.objectiveMetric,
-    ),
-    targetTrials: stringField(
-      value,
-      'targetTrials',
-      defaults.targetTrials,
-    ),
-    maxDrawdownFilter: filterField(
-      value,
-      'maxDrawdownFilter',
-      defaults.maxDrawdownFilter,
-    ),
-    minProfitFactorFilter: filterField(
-      value,
-      'minProfitFactorFilter',
-      defaults.minProfitFactorFilter,
-    ),
-    minTradesFilter: filterField(
-      value,
-      'minTradesFilter',
-      defaults.minTradesFilter,
-    ),
-    dateRangeEnabled: booleanField(
-      value,
-      'dateRangeEnabled',
-      defaults.dateRangeEnabled,
-    ),
-    startDate: stringField(
-      value,
-      'startDate',
-      defaults.startDate,
-    ),
-    endDate: stringField(
-      value,
-      'endDate',
-      defaults.endDate,
-    ),
-    convergenceEnabled: booleanField(
-      value,
-      'convergenceEnabled',
-      defaults.convergenceEnabled,
-    ),
-    convergenceMinTrials: stringField(
-      value,
-      'convergenceMinTrials',
-      defaults.convergenceMinTrials,
-    ),
-    convergencePatience: stringField(
-      value,
-      'convergencePatience',
-      defaults.convergencePatience,
-    ),
-    convergenceMinImprovementPercent:
-      stringField(
-        value,
-        'convergenceMinImprovementPercent',
-        defaults.convergenceMinImprovementPercent,
-      ),
-    robustnessEnabled: booleanField(
-      value,
-      'robustnessEnabled',
-      defaults.robustnessEnabled,
-    ),
-    robustnessValidationPercent:
-      stringField(
-        value,
-        'robustnessValidationPercent',
-        defaults.robustnessValidationPercent,
-      ),
-    robustnessFolds: stringField(
-      value,
-      'robustnessFolds',
-      defaults.robustnessFolds,
-    ),
-    robustnessTopCandidates: stringField(
-      value,
-      'robustnessTopCandidates',
-      defaults.robustnessTopCandidates,
-    ),
-    stabilityEnabled: booleanField(
-      value,
-      'stabilityEnabled',
-      defaults.stabilityEnabled,
-    ),
-    stabilityPerturbationPercent:
-      stringField(
-        value,
-        'stabilityPerturbationPercent',
-        defaults.stabilityPerturbationPercent,
-      ),
-    walkForwardEnabled: booleanField(
-      value,
-      'walkForwardEnabled',
-      defaults.walkForwardEnabled,
-    ),
-    walkForwardFolds: stringField(
-      value,
-      'walkForwardFolds',
-      defaults.walkForwardFolds,
-    ),
-    walkForwardTrialsPerFold:
-      stringField(
-        value,
-        'walkForwardTrialsPerFold',
-        defaults.walkForwardTrialsPerFold,
-      ),
-    walkForwardInitialTrainingPercent:
-      stringField(
-        value,
-        'walkForwardInitialTrainingPercent',
-        defaults.walkForwardInitialTrainingPercent,
-      ),
-    monteCarloEnabled: booleanField(
-      value,
-      'monteCarloEnabled',
-      defaults.monteCarloEnabled,
-    ),
-    monteCarloSimulations: stringField(
-      value,
-      'monteCarloSimulations',
-      defaults.monteCarloSimulations,
-    ),
-    monteCarloConfidencePercent:
-      stringField(
-        value,
-        'monteCarloConfidencePercent',
-        defaults.monteCarloConfidencePercent,
-      ),
-  };
+  for (const key of STRING_DRAFT_FIELDS) {
+    const field = value[key];
+    if (typeof field === 'string') defaults[key] = field;
+  }
+  for (const key of BOOLEAN_DRAFT_FIELDS) {
+    const field = value[key];
+    if (typeof field === 'boolean') defaults[key] = field;
+  }
+  for (const key of FILTER_DRAFT_FIELDS) {
+    defaults[key] = filterField(value, key, defaults[key]);
+  }
+  return defaults;
 };

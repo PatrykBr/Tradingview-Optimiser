@@ -47,8 +47,17 @@ async def pair_backend(
 @router.get("/runs/{run_id}", response_model=RunProgress)
 async def get_run(
     run_id: str,
+    request: Request,
     manager: Annotated[OptimisationManager, Depends(get_manager)],
+    pairing: Annotated[PairingManager, Depends(get_pairing_manager)],
 ) -> RunProgress:
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not pairing.verify_token(token):
+        raise HTTPException(
+            status_code=401,
+            detail="a paired backend token is required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     try:
         return await manager.progress(run_id)
     except KeyError as exc:

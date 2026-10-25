@@ -1,15 +1,7 @@
 import { combineFailures } from '../errors';
-import type {
-  BacktestRange,
-  CreateRun,
-  RunProgress,
-} from '../protocol/types';
-import type {
-  TradingViewMetrics,
-} from '../tradingview/types';
-import type {
-  TradingViewBacktestRange,
-} from '../tradingview/adapter';
+import type { BacktestRange, CreateRun, RunProgress } from '../protocol/types';
+import type { TradingViewAdapter } from '../tradingview/adapter';
+import { runTradeMonteCarlo } from './monte-carlo';
 import {
   buildStabilityVariants,
   degradationPercent,
@@ -20,585 +12,310 @@ import {
   stabilityRating,
   topFeasibleCandidates,
   type ResearchEvaluation,
-  type RobustnessCandidateResult,
   type RobustnessFoldResult,
   type StabilityNeighbourResult,
-  type StabilityParameterResult,
 } from './research';
+import {
+  buildWalkForwardPlan,
+  summariseWalkForward,
+  type WalkForwardFoldResult,
+} from './walk-forward';
+import type { TrialExecutionUpdate } from './study-trial-runner';
 
-export interface ResearchBacktestAdapter {
-  assertRunContext(
-    strategyId: string,
-    config: CreateRun,
-    originalParameters:
-      Record<string, unknown> | null,
-  ): Promise<void>;
-
-  evaluateParameters(
-    strategyId: string,
-    parameters: Record<string, unknown>,
-    range: TradingViewBacktestRange | null,
-    signal?: AbortSignal,
-  ): Promise<TradingViewMetrics>;
-
-  prepareBacktest(
-    strategyId: string,
-    range: TradingViewBacktestRange | null,
-  ): Promise<void>;
-
-  applyParameters(
-    strategyId: string,
-    parameters: Record<string, unknown>,
-  ): Promise<Record<string, unknown>>;
-}
+export type ResearchBacktestAdapter = Pick<
+  TradingViewAdapter,
+  | 'assertRunContext'
+  | 'evaluateParameters'
+  | 'prepareBacktest'
+  | 'applyParameters'
+  | 'readClosedTrades'
+>;
 
 interface ResearchValidationRequest {
   adapter: ResearchBacktestAdapter;
   strategyId: string;
   config: CreateRun;
   progress: RunProgress;
-  originalParameters:
-    Record<string, unknown> | null;
+  originalParameters: Record<string, unknown> | null;
+  runStudy?: (
+    config: CreateRun,
+    strategyId: string,
+    originalParameters: Record<string, unknown> | null,
+    signal?: AbortSignal,
+    onPhase?: (update: TrialExecutionUpdate) => void,
+  ) => Promise<RunProgress>;
   signal?: AbortSignal;
   onPhase?: (phase: string) => void;
 }
 
-const deepRange = (
-  startDate: string,
-  endDate: string,
-): BacktestRange => ({
-  mode: 'deep',
-  start_date: startDate,
-  end_date: endDate,
-});
-
-const adapterRange = (
-  range: BacktestRange | null,
-): TradingViewBacktestRange | null =>
-  range
-    ? {
-        startDate: range.start_date,
-        endDate: range.end_date,
-      }
-    : null;
-
-const objectiveValue = (
-  metrics: Record<string, number>,
-  metric: string,
-): number | null => {
-  const value = metrics[metric];
-
-  return typeof value === 'number' &&
-    Number.isFinite(value)
-    ? value
+const validationRange = (evaluation: ResearchEvaluation): BacktestRange | null => {
+  const first = evaluation.robustness?.validationWindows[0];
+  const last = evaluation.robustness?.validationWindows.at(-1);
+  return first && last
+    ? { mode: 'deep', start_date: first.startDate, end_date: last.endDate }
     : null;
 };
 
-const assertValidationContext = async (
+export async function runResearchValidation(
   request: ResearchValidationRequest,
-  range: BacktestRange | null,
-): Promise<void> => {
-  await request.adapter.assertRunContext(
-    request.strategyId,
-    {
-      ...request.config,
-      backtest_range: range,
-    },
-    request.originalParameters,
-  );
-};
-
-const evaluate = async (
-  request: ResearchValidationRequest,
-  parameters: Record<string, unknown>,
-  range: BacktestRange | null,
-): Promise<TradingViewMetrics> => {
-  const metrics =
-    await request.adapter.evaluateParameters(
-      request.strategyId,
-      parameters,
-      adapterRange(range),
-      request.signal,
-    );
-
-  await assertValidationContext(
-    request,
-    range,
-  );
-
-  return metrics;
-};
-
-const runRobustnessValidation = async (
-  request: ResearchValidationRequest,
-): Promise<
-  NonNullable<ResearchEvaluation['robustness']>
-> => {
-  const settings =
-    request.config.research?.robustness;
-
-  if (!settings?.enabled) {
-    throw new Error(
-      'Robustness validation is not enabled for this run',
-    );
-  }
-
-  const fullRange = settings.full_range;
-  if (!fullRange) {
-    throw new Error(
-      'This experiment has no full range for robustness validation',
-    );
-  }
-
-  const plan = splitResearchRange(
-    fullRange,
-    settings.validation_fraction,
-    settings.folds,
-  );
-  const candidates = topFeasibleCandidates(
-    request.progress.trials,
-    request.config.direction,
-    settings.top_candidates,
-  );
-
-  if (candidates.length === 0) {
-    throw new Error(
-      'No feasible completed trials are available for robustness validation',
-    );
-  }
-
-  const foldsByTrial = new Map<
-    number,
-    RobustnessFoldResult[]
-  >(
-    candidates.map(
-      (candidate) => [
-        candidate.trial_number,
-        [],
-      ],
-    ),
-  );
-
-  // Test all candidates in one window before moving to the next. They can
-  // reuse the verified Deep Backtesting range without changing dates each time.
-  for (
-    const [
-      foldIndex,
-      window,
-    ] of plan.validationWindows.entries()
-  ) {
-    const range = deepRange(
-      window.startDate,
-      window.endDate,
-    );
-
-    for (
-      const [
-        candidateIndex,
-        candidate,
-      ] of candidates.entries()
-    ) {
-      request.onPhase?.(
-        'OOS fold ' +
-          (foldIndex + 1) +
-          '/' +
-          plan.validationWindows.length +
-          ' · candidate ' +
-          (candidateIndex + 1) +
-          '/' +
-          candidates.length,
-      );
-
-      const metrics = await evaluate(
-        request,
-        candidate.parameters,
-        range,
-      );
-      const objective = objectiveValue(
-        metrics,
-        request.config.objective_metric,
-      );
-
-      foldsByTrial
-        .get(candidate.trial_number)
-        ?.push({
-          window,
-          metrics,
-          objectiveValue: objective,
-          passedFilters:
-            objective !== null &&
-            passesMetricFilters(
-              metrics,
-              request.config.filters,
-            ),
-        });
-    }
-  }
-
-  const candidateResults:
-    RobustnessCandidateResult[] = [];
-
-  for (const candidate of candidates) {
-    if (
-      candidate.objective_value === null
-    ) {
-      continue;
-    }
-
-    const folds =
-      foldsByTrial.get(
-        candidate.trial_number,
-      ) ?? [];
-
-    const validationObjective = median(
-      folds
-        .map(
-          (fold) =>
-            fold.objectiveValue,
-        )
-        .filter(
-          (value): value is number =>
-            value !== null,
-        ),
-    );
-
-    candidateResults.push({
-      trialNumber:
-        candidate.trial_number,
-      parameters:
-        candidate.parameters,
-      optimisationObjective:
-        candidate.objective_value,
-      validationObjective,
-      passedWindows: folds.filter(
-        (fold) => fold.passedFilters,
-      ).length,
-      totalWindows: folds.length,
-      degradationPercent:
-        validationObjective === null
-          ? null
-          : degradationPercent(
-              candidate.objective_value,
-              validationObjective,
-              request.config.direction,
-            ),
-      folds,
-    });
-  }
-
-  const ranked =
-    rankRobustnessCandidates(
-      candidateResults,
-      request.config.direction,
-    );
-  const winner = ranked[0] ?? null;
-
-  return {
-    trainingRange: plan.trainingRange,
-    validationWindows:
-      plan.validationWindows,
-    candidates: ranked,
-    winnerTrialNumber:
-      winner?.trialNumber ?? null,
-    winnerParameters:
-      winner?.parameters ?? null,
-  };
-};
-
-const stabilityRange = (
-  config: CreateRun,
-  evaluation: ResearchEvaluation,
-): BacktestRange | null => {
-  const windows =
-    evaluation.robustness
-      ?.validationWindows;
-
-  if (
-    !windows ||
-    windows.length === 0
-  ) {
-    return config.backtest_range ?? null;
-  }
-
-  const first = windows[0];
-  const last =
-    windows[windows.length - 1];
-
-  if (!first || !last) {
-    return config.backtest_range ?? null;
-  }
-
-  return deepRange(
-    first.startDate,
-    last.endDate,
-  );
-};
-
-const runStabilityValidation = async (
-  request: ResearchValidationRequest,
-  evaluation: ResearchEvaluation,
-  winnerParameters:
-    Record<string, unknown>,
-): Promise<
-  NonNullable<ResearchEvaluation['stability']> | null
-> => {
-  const settings =
-    request.config.research?.stability;
-
-  if (!settings?.enabled) {
-    return null;
-  }
-
-  const range = stabilityRange(
-    request.config,
-    evaluation,
-  );
-  const variants =
-    buildStabilityVariants(
-      request.config.parameters,
-      winnerParameters,
-      settings.perturbation_percent,
-    );
-
-  if (variants.length === 0) {
-    return null;
-  }
-
-  request.onPhase?.(
-    'Testing winner stability',
-  );
-
-  const baselineMetrics = await evaluate(
-    request,
-    winnerParameters,
-    range,
-  );
-  const baselineObjective =
-    objectiveValue(
-      baselineMetrics,
-      request.config.objective_metric,
-    );
-
-  if (baselineObjective === null) {
-    throw new Error(
-      'TradingView did not expose the objective metric for the stability baseline',
-    );
-  }
-
-  const grouped = new Map<
-    string,
-    {
-      baselineValue: number;
-      neighbours:
-        StabilityNeighbourResult[];
-    }
-  >();
-
-  for (
-    const [
-      index,
-      variant,
-    ] of variants.entries()
-  ) {
-    request.onPhase?.(
-      'Stability test ' +
-        (index + 1) +
-        '/' +
-        variants.length,
-    );
-
-    const metrics = await evaluate(
-      request,
-      variant.parameters,
-      range,
-    );
-    const objective = objectiveValue(
-      metrics,
-      request.config.objective_metric,
-    );
-    const passed =
-      objective !== null &&
-      passesMetricFilters(
-        metrics,
-        request.config.filters,
-      );
-    const degradation =
-      objective === null
-        ? null
-        : degradationPercent(
-            baselineObjective,
-            objective,
-            request.config.direction,
-          );
-
-    const current =
-      grouped.get(
-        variant.parameter,
-      ) ?? {
-        baselineValue:
-          variant.baselineValue,
-        neighbours: [],
-      };
-
-    current.neighbours.push({
-      value: variant.value,
-      objectiveValue: objective,
-      degradationPercent:
-        degradation,
-      passedFilters: passed,
-    });
-    grouped.set(
-      variant.parameter,
-      current,
-    );
-  }
-
-  const parameters:
-    StabilityParameterResult[] =
-    [...grouped.entries()].map(
-      ([parameter, result]) => {
-        const degradations =
-          result.neighbours.map(
-            (neighbour) =>
-              neighbour.passedFilters &&
-              neighbour
-                .degradationPercent !==
-                null
-                ? Math.max(
-                    0,
-                    neighbour
-                      .degradationPercent,
-                  )
-                : 100,
-          );
-        const average =
-          degradations.reduce(
-            (sum, value) =>
-              sum + value,
-            0,
-          ) / degradations.length;
-
-        return {
-          parameter,
-          baselineValue:
-            result.baselineValue,
-          rating:
-            stabilityRating(average),
-          averageDegradationPercent:
-            average,
-          neighbours:
-            result.neighbours,
-        };
-      },
-    );
-
-  const worst = Math.max(
-    ...parameters.map(
-      (parameter) =>
-        parameter
-          .averageDegradationPercent,
-    ),
-  );
-
-  return {
-    baselineObjective,
-    range,
-    overallRating:
-      stabilityRating(worst),
-    parameters,
-  };
-};
-
-export const runResearchValidation = async (
-  request: ResearchValidationRequest,
-): Promise<ResearchEvaluation> => {
-  const settings =
-    request.config.research;
-  const best =
-    request.progress.best;
-
-  if (!best) {
-    throw new Error(
-      'Research validation requires a feasible best trial',
-    );
-  }
-
+): Promise<ResearchEvaluation> {
+  const { adapter, config, progress, strategyId, originalParameters, signal, onPhase } = request;
+  const settings = config.research;
+  const best = progress.best;
+  if (!best) throw new Error('Research validation requires a feasible best trial');
   if (
     !settings ||
-    (!settings.robustness.enabled &&
-      !settings.stability.enabled)
-  ) {
+    ![settings.robustness, settings.stability, settings.walk_forward, settings.monte_carlo].some(
+      (stage) => stage?.enabled,
+    )
+  )
     return {};
-  }
 
-  request.onPhase?.(
-    'Preparing validation',
-  );
-
+  const evaluation: ResearchEvaluation = {};
+  let restoreParameters = best.parameters;
   let primaryFailure: unknown;
-  let winnerParameters =
-    best.parameters;
+  const objective = (metrics: Record<string, number>): number | null => {
+    const value = metrics[config.objective_metric];
+    return value !== undefined && Number.isFinite(value) ? value : null;
+  };
+  const assertContext = (range: BacktestRange | null | undefined) =>
+    adapter.assertRunContext(
+      strategyId,
+      { ...config, backtest_range: range ?? null },
+      originalParameters,
+    );
+  const evaluate = async (parameters: Record<string, unknown>, range: BacktestRange | null) => {
+    signal?.throwIfAborted();
+    const metrics = await adapter.evaluateParameters(strategyId, parameters, range, signal);
+    signal?.throwIfAborted();
+    await assertContext(range);
+    signal?.throwIfAborted();
+    return metrics;
+  };
 
   try {
-    await request.adapter.assertRunContext(
-      request.strategyId,
-      request.config,
-      request.originalParameters,
-    );
-
-    const evaluation:
-      ResearchEvaluation = {};
+    signal?.throwIfAborted();
+    onPhase?.('Preparing validation');
+    await assertContext(config.backtest_range);
 
     if (settings.robustness.enabled) {
-      evaluation.robustness =
-        await runRobustnessValidation(
-          request,
-        );
+      const fullRange = settings.robustness.full_range;
+      if (!fullRange)
+        throw new Error('This experiment has no full range for robustness validation');
+      const plan = splitResearchRange(
+        fullRange,
+        settings.robustness.validation_fraction,
+        settings.robustness.folds,
+      );
+      const candidates = topFeasibleCandidates(
+        progress.trials,
+        config.direction,
+        settings.robustness.top_candidates,
+      ).map((trial) => ({ trial, folds: [] as RobustnessFoldResult[] }));
+      if (!candidates.length)
+        throw new Error('No feasible completed trials are available for robustness validation');
 
-      if (
-        evaluation.robustness
-          .winnerParameters
-      ) {
-        winnerParameters =
-          evaluation.robustness
-            .winnerParameters;
+      // Keep dates fixed while evaluating every candidate in a window.
+      for (const window of plan.validationWindows) {
+        const range: BacktestRange = {
+          mode: 'deep',
+          start_date: window.startDate,
+          end_date: window.endDate,
+        };
+        for (const [index, candidate] of candidates.entries()) {
+          onPhase?.(
+            `OOS fold ${window.index + 1}/${plan.validationWindows.length} · candidate ${index + 1}/${candidates.length}`,
+          );
+          const metrics = await evaluate(candidate.trial.parameters, range);
+          const value = objective(metrics);
+          candidate.folds.push({
+            window,
+            metrics,
+            objectiveValue: value,
+            passedFilters: value !== null && passesMetricFilters(metrics, config.filters),
+          });
+        }
+      }
+      const ranked = rankRobustnessCandidates(
+        candidates.map(({ trial, folds }) => {
+          const validationObjective = median(
+            folds.flatMap((fold) => (fold.objectiveValue === null ? [] : [fold.objectiveValue])),
+          );
+          return {
+            trialNumber: trial.trial_number,
+            parameters: trial.parameters,
+            optimisationObjective: trial.objective_value!,
+            validationObjective,
+            passedWindows: folds.filter((fold) => fold.passedFilters).length,
+            totalWindows: folds.length,
+            degradationPercent:
+              validationObjective === null
+                ? null
+                : degradationPercent(trial.objective_value!, validationObjective, config.direction),
+            folds,
+          };
+        }),
+        config.direction,
+      );
+      const winner = ranked[0];
+      evaluation.robustness = {
+        ...plan,
+        candidates: ranked,
+        winnerTrialNumber: winner?.trialNumber ?? null,
+        winnerParameters: winner?.parameters ?? null,
+      };
+      restoreParameters = winner?.parameters ?? best.parameters;
+    }
+
+    if (settings.stability.enabled) {
+      const range = validationRange(evaluation) ?? config.backtest_range ?? null;
+      const variants = buildStabilityVariants(
+        config.parameters,
+        restoreParameters,
+        settings.stability.perturbation_percent,
+      );
+      if (variants.length) {
+        onPhase?.('Testing winner stability');
+        const baselineObjective = objective(await evaluate(restoreParameters, range));
+        if (baselineObjective === null)
+          throw new Error(
+            'TradingView did not expose the objective metric for the stability baseline',
+          );
+        const grouped = new Map<
+          string,
+          { baselineValue: number; neighbours: StabilityNeighbourResult[] }
+        >();
+        for (const [index, variant] of variants.entries()) {
+          onPhase?.(`Stability test ${index + 1}/${variants.length}`);
+          const metrics = await evaluate(variant.parameters, range);
+          const value = objective(metrics);
+          const result = grouped.get(variant.parameter) ?? {
+            baselineValue: variant.baselineValue,
+            neighbours: [],
+          };
+          result.neighbours.push({
+            value: variant.value,
+            objectiveValue: value,
+            passedFilters: value !== null && passesMetricFilters(metrics, config.filters),
+            degradationPercent:
+              value === null
+                ? null
+                : degradationPercent(baselineObjective, value, config.direction),
+          });
+          grouped.set(variant.parameter, result);
+        }
+        const parameters = [...grouped].map(([parameter, result]) => {
+          const average =
+            result.neighbours.reduce(
+              (sum, neighbour) =>
+                sum +
+                (neighbour.passedFilters && neighbour.degradationPercent !== null
+                  ? Math.max(0, neighbour.degradationPercent)
+                  : 100),
+              0,
+            ) / result.neighbours.length;
+          return {
+            parameter,
+            ...result,
+            rating: stabilityRating(average),
+            averageDegradationPercent: average,
+          };
+        });
+        evaluation.stability = {
+          baselineObjective,
+          range,
+          parameters,
+          overallRating: stabilityRating(
+            Math.max(...parameters.map((parameter) => parameter.averageDegradationPercent)),
+          ),
+        };
       }
     }
 
-    const stability =
-      await runStabilityValidation(
-        request,
-        evaluation,
-        winnerParameters,
+    if (settings.walk_forward?.enabled) {
+      const walkForward = settings.walk_forward;
+      if (!walkForward.full_range || !request.runStudy)
+        throw new Error('Walk-forward validation requires a full range and a study runner');
+      restoreParameters = best.parameters;
+      const plan = buildWalkForwardPlan(
+        walkForward.full_range,
+        walkForward.folds,
+        walkForward.initial_training_fraction,
       );
-
-    if (stability) {
-      evaluation.stability =
-        stability;
+      const folds: WalkForwardFoldResult[] = [];
+      for (const fold of plan) {
+        signal?.throwIfAborted();
+        const phase = `Walk-forward fold ${fold.index + 1}/${plan.length}`;
+        onPhase?.(`${phase} · optimising`);
+        const child = {
+          ...config,
+          run_id: `wf-${crypto.randomUUID()}`,
+          target_trials: walkForward.trials_per_fold,
+          backtest_range: fold.trainingRange,
+        };
+        // Omit parent research settings; the backend supplies disabled defaults.
+        delete child.research;
+        await adapter.prepareBacktest(strategyId, fold.trainingRange);
+        const childProgress = await request.runStudy(
+          child,
+          strategyId,
+          originalParameters,
+          signal,
+          (update) => onPhase?.(`${phase} · trial ${update.number} · ${update.phase}`),
+        );
+        signal?.throwIfAborted();
+        const winner = childProgress.best;
+        let testObjective: number | null = null;
+        let passedFilters = false;
+        if (winner) {
+          onPhase?.(`${phase} · unseen test`);
+          const metrics = await evaluate(winner.parameters, fold.testRange);
+          testObjective = objective(metrics);
+          passedFilters = testObjective !== null && passesMetricFilters(metrics, config.filters);
+        }
+        folds.push({
+          fold,
+          runId: child.run_id,
+          completedTrials: childProgress.completed_trials,
+          bestParameters: winner?.parameters ?? null,
+          inSampleObjective: winner?.objective_value ?? null,
+          testObjective,
+          passedFilters,
+        });
+      }
+      evaluation.walkForward = summariseWalkForward(folds, config.parameters, config.direction);
     }
 
+    if (settings.monte_carlo?.enabled) {
+      const lastFold = evaluation.walkForward?.folds.at(-1);
+      const unseenRange = validationRange(evaluation) ?? lastFold?.fold.testRange;
+      const range = unseenRange ?? config.backtest_range ?? null;
+      restoreParameters =
+        evaluation.robustness?.winnerParameters ?? lastFold?.bestParameters ?? best.parameters;
+      onPhase?.('Preparing Monte Carlo trade sample');
+      await evaluate(restoreParameters, range);
+      const snapshot = await adapter.readClosedTrades(strategyId);
+      onPhase?.(
+        snapshot.available ? 'Running Monte Carlo simulations' : 'Trade-level data unavailable',
+      );
+      evaluation.monteCarlo = await runTradeMonteCarlo(
+        snapshot,
+        settings.monte_carlo.simulations,
+        settings.monte_carlo.confidence,
+        { source: unseenRange ? 'oos' : 'optimisation', range },
+        signal,
+      );
+    }
     return evaluation;
   } catch (cause) {
     primaryFailure = cause;
     throw cause;
   } finally {
     try {
-      await request.adapter.prepareBacktest(
-        request.strategyId,
-        adapterRange(
-          request.config
-            .backtest_range ?? null,
-        ),
-      );
-      await request.adapter.applyParameters(
-        request.strategyId,
-        winnerParameters,
-      );
+      await adapter.prepareBacktest(strategyId, config.backtest_range ?? null);
+      await adapter.applyParameters(strategyId, restoreParameters);
     } catch (restoreFailure) {
-      if (primaryFailure === undefined) {
-        throw restoreFailure;
-      }
-
+      if (primaryFailure === undefined) throw restoreFailure;
       throw combineFailures(
         primaryFailure,
         restoreFailure,
@@ -606,4 +323,4 @@ export const runResearchValidation = async (
       );
     }
   }
-};
+}

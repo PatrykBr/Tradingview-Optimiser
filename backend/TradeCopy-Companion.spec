@@ -31,11 +31,16 @@ datas = [
 ]
 
 hiddenimports = (
-    collect_submodules("optuna")
+    collect_submodules(
+        "optuna",
+        filter=lambda name: not name.startswith(
+            ("optuna.testing", "optuna.visualization", "optuna.cli")
+        ),
+    )
     + collect_submodules("uvicorn.protocols")
     + collect_submodules("uvicorn.loops")
     + collect_submodules("uvicorn.lifespan")
-    + collect_submodules("sqlalchemy.dialects.sqlite")
+    + ["sqlalchemy.dialects.sqlite.pysqlite"]
 )
 
 a = Analysis(

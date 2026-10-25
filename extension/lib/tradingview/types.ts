@@ -30,9 +30,7 @@ export interface TradingViewMetrics {
   [metric: string]: number;
 }
 
-export type TradingViewMetricSource =
-  | 'internal'
-  | 'deep-visible';
+export type TradingViewMetricSource = 'internal' | 'deep-visible';
 
 export interface TradingViewReportPollSnapshot {
   metrics: TradingViewMetrics | null;
@@ -42,8 +40,7 @@ export interface TradingViewReportPollSnapshot {
   error: string | null;
 }
 
-export interface TradingViewReportSnapshot
-  extends TradingViewReportPollSnapshot {
+export interface TradingViewReportSnapshot extends TradingViewReportPollSnapshot {
   backtestRange: {
     from: number;
     to: number;

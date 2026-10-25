@@ -1,7 +1,4 @@
-import {
-  OptimiserError,
-  type SerializedOptimiserError,
-} from '../errors';
+import { OptimiserError, type SerializedOptimiserError } from '../errors';
 
 const REQUEST_EVENT = 'tvopt:request';
 const RESPONSE_EVENT = 'tvopt:response';
@@ -70,13 +67,7 @@ export class TradingViewBridge {
     this.#script.removeEventListener(RESPONSE_EVENT, this.#onResponse as EventListener);
     for (const pending of this.#pending.values()) {
       clearTimeout(pending.timeout);
-      pending.reject(
-        new OptimiserError(
-          'TV_BRIDGE_DISPOSED',
-          'TradingView bridge disposed',
-          true,
-        ),
-      );
+      pending.reject(new OptimiserError('TV_BRIDGE_DISPOSED', 'TradingView bridge disposed', true));
     }
     this.#pending.clear();
   }
@@ -96,16 +87,9 @@ export class TradingViewBridge {
       return;
     }
 
-    if (
-      response.error &&
-      typeof response.error === 'object'
-    ) {
+    if (response.error && typeof response.error === 'object') {
       pending.reject(
-        new OptimiserError(
-          response.error.code,
-          response.error.message,
-          response.error.retryable,
-        ),
+        new OptimiserError(response.error.code, response.error.message, response.error.retryable),
       );
       return;
     }
@@ -113,8 +97,7 @@ export class TradingViewBridge {
     pending.reject(
       new OptimiserError(
         'TV_BRIDGE_REQUEST_FAILED',
-        response.error ??
-          'TradingView page API request failed',
+        response.error ?? 'TradingView page API request failed',
       ),
     );
   };

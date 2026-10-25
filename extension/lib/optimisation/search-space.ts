@@ -1,43 +1,19 @@
-import type {
-  ParameterCondition,
-  Primitive,
-  SearchParameter,
-} from '../protocol/types';
+import type { ParameterCondition, Primitive, SearchParameter } from '../protocol/types';
 import type { StrategyInput } from '../tradingview/types';
-import {
-  isOptimisableInput,
-  isPrimitive,
-  type ParameterConfig,
-} from './parameter-config';
+import { isOptimisableInput, isPrimitive, type ParameterConfig } from './parameter-config';
 
-type FloatSearchParameter = Extract<
-  SearchParameter,
-  { type: 'float' }
->;
-type IntSearchParameter = Extract<
-  SearchParameter,
-  { type: 'int' }
->;
-type CategoricalSearchParameter = Extract<
-  SearchParameter,
-  { type: 'categorical' }
->;
+type FloatSearchParameter = Extract<SearchParameter, { type: 'float' }>;
+type IntSearchParameter = Extract<SearchParameter, { type: 'int' }>;
+type CategoricalSearchParameter = Extract<SearchParameter, { type: 'categorical' }>;
 
-const numberOrThrow = (
-  value: string,
-  label: string,
-): number => {
+const numberOrThrow = (value: string, label: string): number => {
   if (!value.trim()) {
-    throw new Error(
-      'Enter ' + label.toLowerCase(),
-    );
+    throw new Error('Enter ' + label.toLowerCase());
   }
 
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
-    throw new Error(
-      label + ' must be a valid number',
-    );
+    throw new Error(label + ' must be a valid number');
   }
 
   return parsed;
@@ -54,36 +30,20 @@ const conditionFor = (
   }
 
   if (config.conditionParameter === input.id) {
-    throw new Error(
-      input.label + ' cannot depend on itself',
-    );
+    throw new Error(input.label + ' cannot depend on itself');
   }
 
   if (!enabledIds.has(config.conditionParameter)) {
-    throw new Error(
-      'Condition controller must also be enabled for optimisation',
-    );
+    throw new Error('Condition controller must also be enabled for optimisation');
   }
 
-  const parent = inputById.get(
-    config.conditionParameter,
-  );
-  if (
-    !parent ||
-    (parent.type !== 'boolean' &&
-      parent.type !== 'categorical')
-  ) {
-    throw new Error(
-      input.label +
-        ' must depend on a boolean or dropdown parameter',
-    );
+  const parent = inputById.get(config.conditionParameter);
+  if (!parent || (parent.type !== 'boolean' && parent.type !== 'categorical')) {
+    throw new Error(input.label + ' must depend on a boolean or dropdown parameter');
   }
 
   if (config.conditionValues.length === 0) {
-    throw new Error(
-      'Select at least one active value for ' +
-        input.label,
-    );
+    throw new Error('Select at least one active value for ' + input.label);
   }
 
   return {
@@ -92,15 +52,8 @@ const conditionFor = (
   };
 };
 
-const sortByDependencies = (
-  parameters: SearchParameter[],
-): SearchParameter[] => {
-  const byName = new Map(
-    parameters.map((parameter) => [
-      parameter.name,
-      parameter,
-    ]),
-  );
+const sortByDependencies = (parameters: SearchParameter[]): SearchParameter[] => {
+  const byName = new Map(parameters.map((parameter) => [parameter.name, parameter]));
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const ordered: SearchParameter[] = [];
@@ -109,16 +62,12 @@ const sortByDependencies = (
     if (visited.has(name)) return;
 
     if (visiting.has(name)) {
-      throw new Error(
-        'Conditional parameter dependencies contain a cycle',
-      );
+      throw new Error('Conditional parameter dependencies contain a cycle');
     }
 
     const parameter = byName.get(name);
     if (!parameter) {
-      throw new Error(
-        'Unknown condition controller: ' + name,
-      );
+      throw new Error('Unknown condition controller: ' + name);
     }
 
     visiting.add(name);
@@ -139,9 +88,7 @@ const sortByDependencies = (
   return ordered;
 };
 
-const attachCondition = <
-  T extends SearchParameter,
->(
+const attachCondition = <T extends SearchParameter>(
   parameter: T,
   condition: ParameterCondition | undefined,
 ): T => {
@@ -157,19 +104,10 @@ export const buildSearchSpace = (
   configs: Record<string, ParameterConfig>,
 ): SearchParameter[] => {
   const parameters: SearchParameter[] = [];
-  const inputById = new Map(
-    inputs.map((input) => [
-      input.id,
-      input,
-    ]),
-  );
+  const inputById = new Map(inputs.map((input) => [input.id, input]));
   const enabledIds = new Set(
     inputs
-      .filter(
-        (input) =>
-          configs[input.id]?.enabled &&
-          isOptimisableInput(input),
-      )
+      .filter((input) => configs[input.id]?.enabled && isOptimisableInput(input))
       .map((input) => input.id),
   );
 
@@ -177,25 +115,13 @@ export const buildSearchSpace = (
     const config = configs[input.id];
     if (!config?.enabled) continue;
 
-    const condition = conditionFor(
-      input,
-      config,
-      enabledIds,
-      inputById,
-    );
+    const condition = conditionFor(input, config, enabledIds, inputById);
 
-    if (
-      input.type === 'boolean' ||
-      input.type === 'categorical'
-    ) {
-      const choices =
-        config.choices.filter(isPrimitive);
+    if (input.type === 'boolean' || input.type === 'categorical') {
+      const choices = config.choices.filter(isPrimitive);
 
       if (choices.length < 2) {
-        throw new Error(
-          input.label +
-            ' must have at least two selected choices',
-        );
+        throw new Error(input.label + ' must have at least two selected choices');
       }
 
       const parameter: CategoricalSearchParameter = {
@@ -204,79 +130,42 @@ export const buildSearchSpace = (
         choices,
       };
 
-      parameters.push(
-        attachCondition(
-          parameter,
-          condition,
-        ),
-      );
+      parameters.push(attachCondition(parameter, condition));
       continue;
     }
 
-    if (
-      input.type !== 'integer' &&
-      input.type !== 'float'
-    ) {
+    if (input.type !== 'integer' && input.type !== 'float') {
       continue;
     }
 
-    const low = numberOrThrow(
-      config.low,
-      input.label + ' minimum',
-    );
-    const high = numberOrThrow(
-      config.high,
-      input.label + ' maximum',
-    );
+    const low = numberOrThrow(config.low, input.label + ' minimum');
+    const high = numberOrThrow(config.high, input.label + ' maximum');
 
     if (low >= high) {
-      throw new Error(
-        input.label +
-          ' minimum must be below its maximum',
-      );
+      throw new Error(input.label + ' minimum must be below its maximum');
     }
 
     if (config.log && low <= 0) {
-      throw new Error(
-        input.label +
-          ' logarithmic range requires a positive minimum',
-      );
+      throw new Error(input.label + ' logarithmic range requires a positive minimum');
     }
 
     if (input.type === 'integer') {
-      if (
-        !Number.isInteger(low) ||
-        !Number.isInteger(high)
-      ) {
-        throw new Error(
-          input.label +
-            ' requires integer bounds',
-        );
+      if (!Number.isInteger(low) || !Number.isInteger(high)) {
+        throw new Error(input.label + ' requires integer bounds');
       }
 
       const automaticStep =
-        typeof input.step === 'number' &&
-        Number.isInteger(input.step) &&
-        input.step > 0
+        typeof input.step === 'number' && Number.isInteger(input.step) && input.step > 0
           ? input.step
           : 1;
       const step = config.log
         ? 1
         : config.step
-          ? numberOrThrow(
-              config.step,
-              input.label + ' step',
-            )
+          ? numberOrThrow(config.step, input.label + ' step')
           : automaticStep;
 
-      if (
-        !Number.isInteger(step) ||
-        step <= 0
-      ) {
-        throw new Error(
-          input.label +
-            ' step must be a positive integer',
-        );
+      if (!Number.isInteger(step) || step <= 0) {
+        throw new Error(input.label + ' step must be a positive integer');
       }
 
       const parameter: IntSearchParameter = {
@@ -288,37 +177,19 @@ export const buildSearchSpace = (
         log: config.log,
       };
 
-      parameters.push(
-        attachCondition(
-          parameter,
-          condition,
-        ),
-      );
+      parameters.push(attachCondition(parameter, condition));
       continue;
     }
 
-    const automaticStep =
-      typeof input.step === 'number' &&
-      input.step > 0
-        ? input.step
-        : undefined;
+    const automaticStep = typeof input.step === 'number' && input.step > 0 ? input.step : undefined;
     const step = config.log
       ? undefined
       : config.step
-        ? numberOrThrow(
-            config.step,
-            input.label + ' step',
-          )
+        ? numberOrThrow(config.step, input.label + ' step')
         : automaticStep;
 
-    if (
-      step !== undefined &&
-      step <= 0
-    ) {
-      throw new Error(
-        input.label +
-          ' step must be positive',
-      );
+    if (step !== undefined && step <= 0) {
+      throw new Error(input.label + ' step must be positive');
     }
 
     const parameter: FloatSearchParameter = {
@@ -333,18 +204,11 @@ export const buildSearchSpace = (
       parameter.step = step;
     }
 
-    parameters.push(
-      attachCondition(
-        parameter,
-        condition,
-      ),
-    );
+    parameters.push(attachCondition(parameter, condition));
   }
 
   if (parameters.length === 0) {
-    throw new Error(
-      'Select at least one parameter to optimise',
-    );
+    throw new Error('Select at least one parameter to optimise');
   }
 
   return sortByDependencies(parameters);
@@ -354,46 +218,26 @@ export const buildBaselineParameters = (
   inputs: StrategyInput[],
   searchSpace: SearchParameter[],
 ): Record<string, Primitive> => {
-  const inputById = new Map(
-    inputs.map((input) => [
-      input.id,
-      input,
-    ]),
-  );
+  const inputById = new Map(inputs.map((input) => [input.id, input]));
   const baseline: Record<string, Primitive> = {};
 
   for (const parameter of searchSpace) {
     if (parameter.condition) {
-      const parent =
-        baseline[parameter.condition.parameter];
+      const parent = baseline[parameter.condition.parameter];
 
-      if (
-        parent === undefined ||
-        !parameter.condition.values.some(
-          (value) => value === parent,
-        )
-      ) {
+      if (parent === undefined || !parameter.condition.values.some((value) => value === parent)) {
         continue;
       }
     }
 
-    const current =
-      inputById.get(
-        parameter.name,
-      )?.currentValue;
+    const current = inputById.get(parameter.name)?.currentValue;
 
     if (!isPrimitive(current)) {
       return {};
     }
 
-    if (
-      parameter.type === 'categorical'
-    ) {
-      if (
-        !parameter.choices.some(
-          (choice) => choice === current,
-        )
-      ) {
+    if (parameter.type === 'categorical') {
+      if (!parameter.choices.some((choice) => choice === current)) {
         return {};
       }
 
@@ -405,18 +249,18 @@ export const buildBaselineParameters = (
       return {};
     }
 
-    if (
-      current < parameter.low ||
-      current > parameter.high
-    ) {
+    if (current < parameter.low || current > parameter.high) {
       return {};
     }
 
-    if (
-      parameter.type === 'int' &&
-      !Number.isInteger(current)
-    ) {
+    if (parameter.type === 'int' && !Number.isInteger(current)) {
       return {};
+    }
+
+    const step = parameter.step ?? (parameter.type === 'int' ? 1 : undefined);
+    if (step !== undefined) {
+      const index = (current - parameter.low) / step;
+      if (Math.abs(index - Math.round(index)) > 1e-8) return {};
     }
 
     baseline[parameter.name] = current;

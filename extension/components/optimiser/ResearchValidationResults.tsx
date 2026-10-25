@@ -1,13 +1,7 @@
 import { formatMetric } from '../../lib/optimisation/metrics';
-import {
-  buildResearchVerdict,
-} from '../../lib/optimisation/research-verdict';
-import type {
-  ResearchEvaluation,
-} from '../../lib/optimisation/research';
-import type {
-  RunProgress,
-} from '../../lib/protocol/types';
+import { buildResearchVerdict } from '../../lib/optimisation/research-verdict';
+import type { ResearchEvaluation } from '../../lib/optimisation/research';
+import type { RunProgress } from '../../lib/protocol/types';
 
 interface ResearchValidationResultsProps {
   objectiveMetric: string;
@@ -15,21 +9,15 @@ interface ResearchValidationResultsProps {
   evaluation: ResearchEvaluation | null;
   phase?: string;
   busy: boolean;
-  inputLabel: (
-    id: string,
-  ) => string;
+  disabled: boolean;
+  inputLabel: (id: string) => string;
   onRun(): void;
   onCancel(): void;
   onApplyRobustWinner(): void;
 }
 
-const formatMonteCarloValue = (
-  value: number,
-  unit: 'percent' | 'pnl',
-): string =>
-  unit === 'percent'
-    ? value.toFixed(2) + '%'
-    : value.toFixed(2);
+const formatMonteCarloValue = (value: number, unit: 'percent' | 'pnl'): string =>
+  unit === 'percent' ? value.toFixed(2) + '%' : value.toFixed(2);
 
 export default function ResearchValidationResults({
   objectiveMetric,
@@ -37,74 +25,44 @@ export default function ResearchValidationResults({
   evaluation,
   phase,
   busy,
+  disabled,
   inputLabel,
   onRun,
   onCancel,
   onApplyRobustWinner,
 }: ResearchValidationResultsProps) {
-  const verdict = evaluation
-    ? buildResearchVerdict(
-        progress,
-        evaluation,
-      )
-    : null;
-  const robustWinner =
-    evaluation?.robustness
-      ?.candidates[0];
-  const stability =
-    evaluation?.stability;
-  const walkForward =
-    evaluation?.walkForward;
-  const monteCarlo =
-    evaluation?.monteCarlo;
+  const verdict = evaluation ? buildResearchVerdict(progress, evaluation) : null;
+  const robustWinner = evaluation?.robustness?.candidates[0];
+  const stability = evaluation?.stability;
+  const walkForward = evaluation?.walkForward;
+  const monteCarlo = evaluation?.monteCarlo;
 
   return (
     <div className="researchBlock">
       <div className="rowLabel">
         <div>
-          <div className="researchBlockTitle">
-            Validation
-          </div>
-          {phase && (
-            <div className="muted">
-              {phase}
-            </div>
-          )}
+          <div className="researchBlockTitle">Validation</div>
+          {phase && <div className="muted">{phase}</div>}
         </div>
         <button
-          className={
-            busy
-              ? 'danger researchAction'
-              : 'secondary researchAction'
-          }
-          onClick={
-            busy
-              ? onCancel
-              : onRun
-          }
+          disabled={disabled}
+          className={busy ? 'danger researchAction' : 'secondary researchAction'}
+          onClick={busy ? onCancel : onRun}
         >
-          {busy
-            ? 'Cancel'
-            : evaluation
-              ? 'Re-run'
-              : 'Run validation'}
+          {busy ? 'Cancel' : evaluation ? 'Re-run' : 'Run validation'}
         </button>
       </div>
 
       {verdict && (
         <div className="researchCard evidenceCard">
           <div className="rowLabel">
-            <strong>
-              Research evidence
-            </strong>
+            <strong>Research evidence</strong>
             <span
               className={
                 'researchBadge ' +
-                (verdict.overall ===
-                'strong'
+                (verdict.overall === 'strong'
                   ? 'good'
-                  : verdict.overall ===
-                      'weak'
+                  : verdict.overall === 'weak'
                     ? 'bad'
                     : 'warn')
               }
@@ -114,41 +72,29 @@ export default function ResearchValidationResults({
           </div>
 
           <div className="evidenceList">
-            {verdict.areas.map(
-              (area) => (
-                <div
-                  className="evidenceRow"
-                  key={area.id}
-                  title={area.detail}
+            {verdict.areas.map((area) => (
+              <div className="evidenceRow" key={area.id} title={area.detail}>
+                <span>{area.label}</span>
+                <span
+                  className={
+                    'researchBadge ' +
+                    (area.rating === 'strong'
+                      ? 'good'
+                      : area.rating === 'weak'
+                        ? 'bad'
+                        : area.rating === 'moderate'
+                          ? 'warn'
+                          : '')
+                  }
                 >
-                  <span>{area.label}</span>
-                  <span
-                    className={
-                      'researchBadge ' +
-                      (area.rating ===
-                      'strong'
-                        ? 'good'
-                        : area.rating ===
-                            'weak'
-                          ? 'bad'
-                          : area.rating ===
-                              'moderate'
-                            ? 'warn'
-                            : '')
-                    }
-                  >
-                    {area.rating}
-                  </span>
-                </div>
-              ),
-            )}
+                  {area.rating}
+                </span>
+              </div>
+            ))}
           </div>
 
           {verdict.concerns.length > 0 && (
-            <div className="evidenceConcern">
-              Main concern:{' '}
-              {verdict.concerns[0]}
-            </div>
+            <div className="evidenceConcern">Main concern: {verdict.concerns[0]}</div>
           )}
         </div>
       )}
@@ -158,59 +104,40 @@ export default function ResearchValidationResults({
           <div className="rowLabel">
             <strong>Robust winner</strong>
             <span className="researchBadge good">
-              {robustWinner.passedWindows}/
-              {robustWinner.totalWindows}{' '}
-              folds
+              {robustWinner.passedWindows}/{robustWinner.totalWindows} folds
             </span>
           </div>
 
           <div className="researchSummaryGrid">
             <div>
               <span>Optimisation</span>
-              <strong>
-                {formatMetric(
-                  objectiveMetric,
-                  robustWinner
-                    .optimisationObjective,
-                )}
-              </strong>
+              <strong>{formatMetric(objectiveMetric, robustWinner.optimisationObjective)}</strong>
             </div>
             <div>
               <span>OOS median</span>
               <strong>
-                {robustWinner
-                  .validationObjective ===
-                null
+                {robustWinner.validationObjective === null
                   ? 'Unavailable'
-                  : formatMetric(
-                      objectiveMetric,
-                      robustWinner
-                        .validationObjective,
-                    )}
+                  : formatMetric(objectiveMetric, robustWinner.validationObjective)}
               </strong>
             </div>
             <div>
               <span>Degradation</span>
               <strong>
-                {robustWinner
-                  .degradationPercent ===
-                null
+                {robustWinner.degradationPercent === null
                   ? 'Unavailable'
-                  : robustWinner
-                      .degradationPercent
-                      .toFixed(1) + '%'}
+                  : robustWinner.degradationPercent.toFixed(1) + '%'}
               </strong>
             </div>
             <div>
               <span>Trial</span>
-              <strong>
-                #{robustWinner.trialNumber}
-              </strong>
+              <strong>#{robustWinner.trialNumber}</strong>
             </div>
           </div>
 
           <button
             className="secondary researchApply"
+            disabled={busy || disabled}
             onClick={onApplyRobustWinner}
           >
             Apply robust winner
@@ -221,17 +148,13 @@ export default function ResearchValidationResults({
       {stability && (
         <div className="researchCard">
           <div className="rowLabel">
-            <strong>
-              Parameter stability
-            </strong>
+            <strong>Parameter stability</strong>
             <span
               className={
                 'researchBadge ' +
-                (stability.overallRating ===
-                'strong'
+                (stability.overallRating === 'strong'
                   ? 'good'
-                  : stability.overallRating ===
-                      'moderate'
+                  : stability.overallRating === 'moderate'
                     ? 'warn'
                     : 'bad')
               }
@@ -241,36 +164,23 @@ export default function ResearchValidationResults({
           </div>
 
           <div className="stabilityList">
-            {stability.parameters.map(
-              (parameter) => (
-                <div
-                  className="stabilityRow"
-                  key={
-                    parameter.parameter
+            {stability.parameters.map((parameter) => (
+              <div className="stabilityRow" key={parameter.parameter}>
+                <span>{inputLabel(parameter.parameter)}</span>
+                <span
+                  className={
+                    'researchBadge ' +
+                    (parameter.rating === 'strong'
+                      ? 'good'
+                      : parameter.rating === 'moderate'
+                        ? 'warn'
+                        : 'bad')
                   }
                 >
-                  <span>
-                    {inputLabel(
-                      parameter.parameter,
-                    )}
-                  </span>
-                  <span
-                    className={
-                      'researchBadge ' +
-                      (parameter.rating ===
-                      'strong'
-                        ? 'good'
-                        : parameter.rating ===
-                            'moderate'
-                          ? 'warn'
-                          : 'bad')
-                    }
-                  >
-                    {parameter.rating}
-                  </span>
-                </div>
-              ),
-            )}
+                  {parameter.rating}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -278,32 +188,18 @@ export default function ResearchValidationResults({
       {walkForward && (
         <div className="researchCard">
           <div className="rowLabel">
-            <strong>
-              Walk-forward
-            </strong>
+            <strong>Walk-forward</strong>
             <span
               className={
                 'researchBadge ' +
-                (walkForward.passedFolds /
-                    Math.max(
-                      1,
-                      walkForward.totalFolds,
-                    ) >=
-                  0.75
+                (walkForward.passedFolds / Math.max(1, walkForward.totalFolds) >= 0.75
                   ? 'good'
-                  : walkForward.passedFolds /
-                        Math.max(
-                          1,
-                          walkForward.totalFolds,
-                        ) >=
-                      0.5
+                  : walkForward.passedFolds / Math.max(1, walkForward.totalFolds) >= 0.5
                     ? 'warn'
                     : 'bad')
               }
             >
-              {walkForward.passedFolds}/
-              {walkForward.totalFolds}{' '}
-              folds
+              {walkForward.passedFolds}/{walkForward.totalFolds} folds
             </span>
           </div>
 
@@ -311,68 +207,33 @@ export default function ResearchValidationResults({
             <div>
               <span>Median OOS</span>
               <strong>
-                {walkForward
-                  .medianTestObjective ===
-                null
+                {walkForward.medianTestObjective === null
                   ? 'Unavailable'
-                  : formatMetric(
-                      objectiveMetric,
-                      walkForward
-                        .medianTestObjective,
-                    )}
+                  : formatMetric(objectiveMetric, walkForward.medianTestObjective)}
               </strong>
             </div>
             <div>
               <span>Worst OOS</span>
               <strong>
-                {walkForward
-                  .worstTestObjective ===
-                null
+                {walkForward.worstTestObjective === null
                   ? 'Unavailable'
-                  : formatMetric(
-                      objectiveMetric,
-                      walkForward
-                        .worstTestObjective,
-                    )}
+                  : formatMetric(objectiveMetric, walkForward.worstTestObjective)}
               </strong>
             </div>
           </div>
 
           <div className="stabilityList">
-            {Object.entries(
-              walkForward
-                .parameterConsistency,
-            )
-              .filter(
-                ([, rating]) =>
-                  rating !==
-                  'insufficient',
-              )
+            {Object.entries(walkForward.parameterConsistency)
+              .filter(([, rating]) => rating !== 'insufficient')
               .slice(0, 8)
-              .map(
-                ([parameter, rating]) => (
-                  <div
-                    className="stabilityRow"
-                    key={parameter}
-                  >
-                    <span>
-                      {inputLabel(
-                        parameter,
-                      )}
-                    </span>
-                    <span
-                      className={
-                        'researchBadge ' +
-                        (rating === 'stable'
-                          ? 'good'
-                          : 'warn')
-                      }
-                    >
-                      {rating}
-                    </span>
-                  </div>
-                ),
-              )}
+              .map(([parameter, rating]) => (
+                <div className="stabilityRow" key={parameter}>
+                  <span>{inputLabel(parameter)}</span>
+                  <span className={'researchBadge ' + (rating === 'stable' ? 'good' : 'warn')}>
+                    {rating}
+                  </span>
+                </div>
+              ))}
           </div>
         </div>
       )}
@@ -380,92 +241,46 @@ export default function ResearchValidationResults({
       {monteCarlo && (
         <div className="researchCard">
           <div className="rowLabel">
-            <strong>
-              Monte Carlo
-            </strong>
-            <span
-              className={
-                'researchBadge ' +
-                (monteCarlo.available
-                  ? 'good'
-                  : 'warn')
-              }
-            >
-              {monteCarlo.available
-                ? monteCarlo.sampleSize +
-                  ' trades'
-                : 'unavailable'}
+            <strong>Monte Carlo</strong>
+            <span className={'researchBadge ' + (monteCarlo.available ? 'good' : 'warn')}>
+              {monteCarlo.available ? monteCarlo.sampleSize + ' trades' : 'unavailable'}
             </span>
           </div>
 
           {!monteCarlo.available ? (
-            <p className="helpText">
-              {monteCarlo.reason}
-            </p>
+            <p className="helpText">{monteCarlo.reason}</p>
           ) : (
             <>
               <div className="researchSummaryGrid">
                 <div>
-                  <span>
-                    Loss probability
-                  </span>
+                  <span>Loss probability</span>
                   <strong>
-                    {monteCarlo
-                      .probabilityOfLoss ===
-                    null
+                    {monteCarlo.probabilityOfLoss === null
                       ? 'Unavailable'
-                      : (
-                          monteCarlo
-                            .probabilityOfLoss *
-                          100
-                        ).toFixed(1) +
-                        '%'}
+                      : (monteCarlo.probabilityOfLoss * 100).toFixed(1) + '%'}
                   </strong>
                 </div>
                 <div>
-                  <span>
-                    Median max drawdown
-                  </span>
+                  <span>Median max drawdown</span>
                   <strong>
-                    {monteCarlo
-                      .maxDrawdown
-                      ? formatMonteCarloValue(
-                          monteCarlo
-                            .maxDrawdown
-                            .median,
-                          monteCarlo.unit,
-                        )
+                    {monteCarlo.maxDrawdown
+                      ? formatMonteCarloValue(monteCarlo.maxDrawdown.median, monteCarlo.unit)
                       : 'Unavailable'}
                   </strong>
                 </div>
                 <div>
-                  <span>
-                    95th percentile drawdown
-                  </span>
+                  <span>95th percentile drawdown</span>
                   <strong>
-                    {monteCarlo
-                      .maxDrawdown
-                      ? formatMonteCarloValue(
-                          monteCarlo
-                            .maxDrawdown
-                            .p95,
-                          monteCarlo.unit,
-                        )
+                    {monteCarlo.maxDrawdown
+                      ? formatMonteCarloValue(monteCarlo.maxDrawdown.p95, monteCarlo.unit)
                       : 'Unavailable'}
                   </strong>
                 </div>
                 <div>
-                  <span>
-                    Median profit factor
-                  </span>
+                  <span>Median profit factor</span>
                   <strong>
-                    {monteCarlo
-                      .profitFactor
-                      ? monteCarlo
-                          .profitFactor
-                          .median.toFixed(
-                            2,
-                          )
+                    {monteCarlo.profitFactor
+                      ? monteCarlo.profitFactor.median.toFixed(2)
                       : 'Unavailable'}
                   </strong>
                 </div>
@@ -473,27 +288,14 @@ export default function ResearchValidationResults({
 
               {monteCarlo.total && (
                 <div className="confidenceLine">
-                  {Math.round(
-                    monteCarlo.confidence *
-                      100,
-                  )}
-                  % cumulative PnL interval:{' '}
+                  {Math.round(monteCarlo.confidence * 100)}% cumulative PnL interval:{' '}
                   <strong>
-                    {formatMonteCarloValue(
-                      monteCarlo.total.low,
-                      monteCarlo.unit,
-                    )}
+                    {formatMonteCarloValue(monteCarlo.total.low, monteCarlo.unit)}
                     {' to '}
-                    {formatMonteCarloValue(
-                      monteCarlo.total.high,
-                      monteCarlo.unit,
-                    )}
+                    {formatMonteCarloValue(monteCarlo.total.high, monteCarlo.unit)}
                   </strong>
                   {' · '}
-                  {monteCarlo.source ===
-                  'oos'
-                    ? 'unseen OOS sample'
-                    : 'optimisation sample'}
+                  {monteCarlo.source === 'oos' ? 'unseen OOS sample' : 'optimisation sample'}
                 </div>
               )}
             </>
