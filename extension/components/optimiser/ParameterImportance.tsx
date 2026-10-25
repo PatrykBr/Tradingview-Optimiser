@@ -38,7 +38,8 @@ export default function ParameterImportance({
     <div className="researchBlock">
       <div className="researchBlockTitle">Parameter importance</div>
       <div className="muted researchImportanceHint">
-        Conditional parameters appear only if every feasible trial included them.
+        Includes conditional parameters. Scores use feasible trials; rarely tested branches may be
+        less reliable.
       </div>
       <div className="importanceList">
         {entries.map(([parameter, importance]) => (

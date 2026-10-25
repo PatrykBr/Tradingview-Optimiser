@@ -92,6 +92,8 @@ When OOS validation has run, Monte Carlo uses the reserved unseen period. If onl
 
 Optuna PED-ANOVA calculates parameter importance when enough feasible trials are available. A larger percentage means the parameter had more influence on reaching the study's better-performing region. Low-importance parameters may be candidates to fix or remove in a later study. Importance does not prove causality.
 
+Optuna 5 includes conditional parameters even when they appear in only some feasible trials. Scores for rarely tested branches may be less reliable; collect more trials before using them to narrow the search.
+
 The **Research evidence** card rates the trade sample, OOS results, stability, walk-forward and Monte Carlo evidence. Each area has an explanation and a rating of strong, moderate, weak or insufficient. Missing checks do not count as positive evidence. Monte Carlo on an in-sample trade list contributes at most moderate evidence.
 
 ## Experiment history

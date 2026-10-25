@@ -28,7 +28,9 @@ bun run extension:dev
 
 Use `bun run extension:dev:firefox` for Firefox. Enter the pairing code from the backend terminal in the extension on first use.
 
-Commit changes to `bun.lock` and `backend/uv.lock` when dependencies change. The backend permits prerelease dependencies because it pins Optuna `5.0.0rc1`.
+Commit changes to `bun.lock` and `backend/uv.lock` when dependencies change. The backend uses stable Optuna `5.0.0`; dependency resolution no longer opts into prereleases.
+
+The extension uses React 19.3 and `@vitejs/plugin-react` 6 with Vite 8. JSX and React Refresh transforms use Vite's Oxc tooling without adding a Babel pipeline. Vite is an explicit, pinned development dependency to satisfy the React plugin's Vite 8 peer requirement.
 
 The backend's `.python-version` selects Python 3.12 for reproducible development and packaging. Extension installation runs `wxt prepare` under Bun to generate its TypeScript configuration before type checking. For reproducible installs, use `bun install --frozen-lockfile` and `uv sync --locked`.
 

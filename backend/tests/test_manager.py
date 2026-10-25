@@ -514,6 +514,57 @@ async def test_run_analysis_returns_normalised_parameter_importance(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("direction", [ObjectiveDirection.MAXIMIZE, ObjectiveDirection.MINIMIZE])
+async def test_run_analysis_includes_conditional_parameters(
+    tmp_path: Path, direction: ObjectiveDirection,
+) -> None:
+    manager = OptimisationManager(f"sqlite:///{tmp_path / 'conditional-importance.db'}")
+    config = make_config("conditional-importance", target_trials=40)
+    config.direction = direction
+    try:
+        await manager.create_run(config)
+        study = manager._runs[config.run_id].study
+        # A deterministic history avoids depending on which branches TPE samples.
+        trials = []
+        for mode, parameter in [("fast", "fast_length"), ("slow", "slow_length")]:
+            for value in range(20):
+                trials.append(optuna.trial.create_trial(
+                    value=float(value),
+                    params={"mode": mode, parameter: value},
+                    distributions={
+                        "mode": optuna.distributions.CategoricalDistribution(["fast", "slow"]),
+                        parameter: optuna.distributions.IntDistribution(0, 19),
+                    },
+                ))
+        # This parameter only appears in a filtered trial and must stay excluded.
+        trials.append(optuna.trial.create_trial(
+            value=100.0,
+            params={"filtered_only": 1},
+            distributions={"filtered_only": optuna.distributions.IntDistribution(0, 2)},
+            constraints={"drawdown": 1.0},
+        ))
+        study.add_trials(trials)
+
+        analysis = await manager.analysis(config.run_id)
+
+        assert analysis.parameter_importance_status == "available"
+        assert analysis.parameter_importance_error is None
+        assert set(analysis.parameter_importance) == {"mode", "fast_length", "slow_length"}
+        assert analysis.parameter_importance["fast_length"] > 0
+        assert analysis.parameter_importance["slow_length"] > 0
+        assert sum(analysis.parameter_importance.values()) == pytest.approx(1.0)
+    finally:
+        manager.close()
+
+
+def test_parameter_importance_without_parameters_is_not_applicable() -> None:
+    trials = [optuna.trial.create_trial(value=float(value)) for value in range(5)]
+    assert OptimisationManager._parameter_importance(trials, "maximize") == (
+        {}, "not_applicable", None,
+    )
+
+
+@pytest.mark.asyncio
 async def test_completed_temporary_run_can_be_deleted(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'test.db'}"
     manager = OptimisationManager(database_url)

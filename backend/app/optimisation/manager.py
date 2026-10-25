@@ -443,11 +443,7 @@ class OptimisationManager:
         feasible: list[FrozenTrial],
         direction: str,
     ) -> tuple[dict[str, float], str, str | None]:
-        common_parameters = set(feasible[0].params)
-        for trial in feasible[1:]:
-            common_parameters.intersection_update(trial.params)
-
-        if not common_parameters:
+        if not any(trial.params for trial in feasible):
             return {}, "not_applicable", None
 
         try:
@@ -455,12 +451,12 @@ class OptimisationManager:
                 direction=direction,
             )
             analysis_study.add_trials(feasible)
+            # Leaving params unset includes conditional parameters in Optuna 5.
             importance = get_param_importances(
                 analysis_study,
                 evaluator=PedAnovaImportanceEvaluator(
                     target_quantile=0.2,
                 ),
-                params=sorted(common_parameters),
             )
         except (ValueError, RuntimeError) as exc:
             return {}, "failed", str(exc)
