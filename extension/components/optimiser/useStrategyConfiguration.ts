@@ -80,7 +80,7 @@ const prepareTradingViewRun = async (
   if ((initialMetrics.totalTrades ?? 0) > 0) {
     for (const requiredMetric of requiredMetrics) {
       if (!Number.isFinite(initialMetrics[requiredMetric])) {
-        throw new Error(
+        throw new TypeError(
           'TradingView did not expose the required metric: ' +
             metricDefinition(requiredMetric).label,
         );

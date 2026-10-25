@@ -43,5 +43,5 @@ export const formatMetric = (key: string, value: number): string => {
 
   return Math.abs(value) >= 1000
     ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
-    : value.toFixed(3).replace(/\.?0+$/, '');
+    : Number(value.toFixed(3)).toString();
 };

@@ -6,7 +6,7 @@ interface BestSoFarChartProps {
   metricKey: string;
 }
 
-export default function BestSoFarChart({ points, metricKey }: BestSoFarChartProps) {
+export default function BestSoFarChart({ points, metricKey }: Readonly<BestSoFarChartProps>) {
   if (points.length < 2) return null;
 
   const width = 330;

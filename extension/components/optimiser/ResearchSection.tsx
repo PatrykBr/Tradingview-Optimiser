@@ -22,7 +22,7 @@ export default function ResearchSection({
   inputLabel,
   onLoadExperiment,
   onRerunExperiment,
-}: ResearchSectionProps) {
+}: Readonly<ResearchSectionProps>) {
   const currentResearch = run.runConfig?.research;
   const canValidate =
     isTerminalStatus(run.progress?.status) &&

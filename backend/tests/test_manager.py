@@ -175,17 +175,13 @@ async def test_missing_constraint_metric_with_trades_is_an_error(
     _, active = await manager.start(config.run_id)
     assert active is not None
 
+    result = TrialResult(
+        run_id=config.run_id,
+        trial_number=active.trial_number,
+        metrics={"profitFactor": 1.7, "totalTrades": 150},
+    )
     with pytest.raises(ValueError, match="constraint metric 'maxDrawdownPercent' missing"):
-        await manager.submit_result(
-            TrialResult(
-                run_id=config.run_id,
-                trial_number=active.trial_number,
-                metrics={
-                    "profitFactor": 1.7,
-                    "totalTrades": 150,
-                },
-            )
-        )
+        await manager.submit_result(result)
 
 
 @pytest.mark.asyncio
@@ -388,8 +384,9 @@ async def test_restart_rejects_different_persisted_configuration(tmp_path: Path)
     await first_manager.create_run(make_config("config-test", target_trials=2))
 
     restarted_manager = OptimisationManager(database_url)
+    changed_config = make_config("config-test", target_trials=3)
     with pytest.raises(ValueError, match="different configuration"):
-        await restarted_manager.create_run(make_config("config-test", target_trials=3))
+        await restarted_manager.create_run(changed_config)
 
 
 @pytest.mark.asyncio

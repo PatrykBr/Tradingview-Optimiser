@@ -96,7 +96,7 @@ export function useOptimisationRun({
     async (patch: Partial<Pick<PersistedOptimisationRun, 'intent' | 'phase'>>) => {
       const current = runRef.current;
 
-      if (!current || current.config.run_id !== activeRunIdRef.current) {
+      if (current?.config.run_id !== activeRunIdRef.current) {
         throw new Error('Active optimisation lifecycle state is missing');
       }
 
@@ -243,6 +243,50 @@ export function useOptimisationRun({
     [adapter, sendRequest, setError],
   );
 
+  const rollbackBackendRun = useCallback(
+    async (persisted: PersistedOptimisationRun, error: OptimiserError) => {
+      try {
+        await sendRequest({
+          type: 'ABORT_RUN',
+          payload: {
+            run_id: persisted.config.run_id,
+            reason: 'Rolling back a failed optimisation start',
+          },
+        });
+        await sendRequest({
+          type: 'DELETE_RUN',
+          payload: {
+            run_id: persisted.config.run_id,
+          },
+        });
+      } catch (error_) {
+        if (!isOptimiserErrorCode(error_, 'UNKNOWN_RUN')) {
+          const rollbackError = combineFailures(
+            error,
+            error_,
+            'Optimisation start failed and backend rollback also failed',
+          );
+
+          try {
+            await persistLifecycle({
+              intent: 'stopped',
+              phase: 'stopping',
+            });
+          } catch (error_) {
+            throw combineFailures(
+              rollbackError,
+              error_,
+              'Optimisation rollback failed and its recovery state could not be persisted',
+            );
+          }
+
+          throw rollbackError;
+        }
+      }
+    },
+    [persistLifecycle, sendRequest],
+  );
+
   const startBackendRun = useCallback(
     async (persisted: PersistedOptimisationRun) => {
       let created = false;
@@ -276,53 +320,14 @@ export function useOptimisationRun({
           );
         }
 
-        if (created) {
-          try {
-            await sendRequest({
-              type: 'ABORT_RUN',
-              payload: {
-                run_id: persisted.config.run_id,
-                reason: 'Rolling back a failed optimisation start',
-              },
-            });
-            await sendRequest({
-              type: 'DELETE_RUN',
-              payload: {
-                run_id: persisted.config.run_id,
-              },
-            });
-          } catch (rollbackFailure) {
-            if (!isOptimiserErrorCode(rollbackFailure, 'UNKNOWN_RUN')) {
-              const rollbackError = combineFailures(
-                error,
-                rollbackFailure,
-                'Optimisation start failed and backend rollback also failed',
-              );
-
-              try {
-                await persistLifecycle({
-                  intent: 'stopped',
-                  phase: 'stopping',
-                });
-              } catch (persistenceFailure) {
-                throw combineFailures(
-                  rollbackError,
-                  persistenceFailure,
-                  'Optimisation rollback failed and its recovery state could not be persisted',
-                );
-              }
-
-              throw rollbackError;
-            }
-          }
-        }
+        if (created) await rollbackBackendRun(persisted, error);
 
         try {
           await clearActiveState();
-        } catch (cleanupFailure) {
+        } catch (error_) {
           throw combineFailures(
             error,
-            cleanupFailure,
+            error_,
             'Optimisation start failed and local cleanup also failed',
           );
         }
@@ -330,7 +335,7 @@ export function useOptimisationRun({
         throw error;
       }
     },
-    [clearActiveState, persistLifecycle, sendRequest],
+    [clearActiveState, persistLifecycle, rollbackBackendRun, sendRequest],
   );
 
   const activateRun = useCallback(
@@ -472,7 +477,7 @@ export function useOptimisationRun({
 
     setError(undefined);
 
-    let persistenceFailure: unknown | undefined;
+    let persistenceFailure: unknown;
 
     try {
       await persistLifecycle({
@@ -798,8 +803,8 @@ export function useOptimisationRun({
     return () => clearInterval(timer);
   }, [activeRunId]);
 
-  const elapsedMs =
-    startedAt === null ? null : (activeRunId !== null ? clock : (finishedAt ?? clock)) - startedAt;
+  const elapsedUntil = activeRunId !== null ? clock : (finishedAt ?? clock);
+  const elapsedMs = startedAt === null ? null : elapsedUntil - startedAt;
 
   return {
     connected,

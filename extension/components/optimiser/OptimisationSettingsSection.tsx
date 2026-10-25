@@ -201,11 +201,11 @@ function SettingField({
   field,
   model,
   locked,
-}: {
+}: Readonly<{
   field: FieldSpec;
   model: StrategyConfigurationModel;
   locked: boolean;
-}) {
+}>) {
   const { key, label, title, type = 'number', ...attributes } = field;
   return (
     <label title={title}>
@@ -229,7 +229,7 @@ export default function OptimisationSettingsSection({
   busy,
   onStart,
   onStop,
-}: OptimisationSettingsSectionProps) {
+}: Readonly<OptimisationSettingsSectionProps>) {
   const locked = activeRunId !== null || busy;
   const { form } = model;
   return (

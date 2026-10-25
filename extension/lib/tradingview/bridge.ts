@@ -72,7 +72,7 @@ export class TradingViewBridge {
     this.#pending.clear();
   }
 
-  #onResponse = (event: CustomEvent<BridgeResponse>): void => {
+  readonly #onResponse = (event: CustomEvent<BridgeResponse>): void => {
     const response = event.detail;
     if (!response || typeof response.id !== 'string') return;
 

@@ -32,7 +32,7 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.post("/pair", response_model=PairResponse)
+@router.post("/pair", responses={403: {"description": "Pairing code rejected"}})
 async def pair_backend(
     body: PairRequest,
     pairing: Annotated[PairingManager, Depends(get_pairing_manager)],
@@ -44,7 +44,13 @@ async def pair_backend(
     return PairResponse(token=token)
 
 
-@router.get("/runs/{run_id}", response_model=RunProgress)
+@router.get(
+    "/runs/{run_id}",
+    responses={
+        401: {"description": "A paired backend token is required"},
+        404: {"description": "Run not found"},
+    },
+)
 async def get_run(
     run_id: str,
     request: Request,

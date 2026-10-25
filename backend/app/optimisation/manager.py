@@ -93,25 +93,7 @@ class OptimisationManager:
                 load_if_exists=True,
             )
 
-            config_json = config.model_dump(mode="json")
-            persisted_config = study.user_attrs.get("config")
-            if persisted_config is None:
-                study.set_user_attr("config", config_json)
-            else:
-                try:
-                    persisted_model = CreateRun.model_validate(persisted_config)
-                except Exception as exc:
-                    raise ValueError(
-                        "persisted run configuration is incompatible with this version"
-                    ) from exc
-
-                if persisted_model != config:
-                    raise ValueError(
-                        "run_id already exists in persistent storage with a different configuration"
-                    )
-
-                if persisted_config != config_json:
-                    study.set_user_attr("config", config_json)
+            self._reconcile_study_config(study, config)
 
             # Load the persisted study once. Mark interrupted browser trials as
             # failed after a restart, then refresh the snapshot if any changed.
@@ -129,42 +111,12 @@ class OptimisationManager:
                     skip_if_exists=True,
                 )
 
-            persisted_status = study.user_attrs.get("run_status")
-            persisted_reason = study.user_attrs.get("termination_reason")
-            completed_trials = sum(trial.state == TrialState.COMPLETE for trial in study_trials)
-            unique_evaluated = {
-                self._parameter_signature(trial.params)
-                for trial in study_trials
-                if trial.state == TrialState.COMPLETE
-                and isinstance(trial.user_attrs.get("metrics"), dict)
-            }
             search_space_cardinality = self._finite_search_space_cardinality(
-                config.parameters,
-                config.target_trials,
+                config.parameters, config.target_trials
             )
-
-            if completed_trials >= config.target_trials:
-                status = RunStatus.COMPLETED
-                termination_reason = "target_trials"
-            elif persisted_status == RunStatus.COMPLETED.value and persisted_reason in {
-                "converged",
-                "search_space_exhausted",
-            }:
-                status = RunStatus.COMPLETED
-                termination_reason = str(persisted_reason)
-            elif (
-                search_space_cardinality is not None
-                and len(unique_evaluated) >= search_space_cardinality
-            ):
-                status = RunStatus.COMPLETED
-                termination_reason = "search_space_exhausted"
-            elif persisted_status == RunStatus.STOPPED.value:
-                status = RunStatus.STOPPED
-                termination_reason = "user"
-            else:
-                # Return interrupted studies as CREATED until the browser resumes them.
-                status = RunStatus.CREATED
-                termination_reason = None
+            status, termination_reason = self._restored_status(
+                study, study_trials, config, search_space_cardinality
+            )
 
             run = ActiveRun(
                 config=config,
@@ -177,6 +129,70 @@ class OptimisationManager:
             self._runs[config.run_id] = run
             self._persist_status(run)
             return self._progress(run)
+
+    @staticmethod
+    def _reconcile_study_config(study: optuna.Study, config: CreateRun) -> None:
+        config_json = config.model_dump(mode="json")
+        persisted_config = study.user_attrs.get("config")
+        if persisted_config is None:
+            study.set_user_attr("config", config_json)
+        else:
+            try:
+                persisted_model = CreateRun.model_validate(persisted_config)
+            except Exception as exc:
+                raise ValueError(
+                    "persisted run configuration is incompatible with this version"
+                ) from exc
+
+            if persisted_model != config:
+                raise ValueError(
+                    "run_id already exists in persistent storage with a different configuration"
+                )
+
+            if persisted_config != config_json:
+                study.set_user_attr("config", config_json)
+
+    def _restored_status(
+        self,
+        study: optuna.Study,
+        study_trials: list[FrozenTrial],
+        config: CreateRun,
+        search_space_cardinality: int | None,
+    ) -> tuple[RunStatus, str | None]:
+        persisted_status = study.user_attrs.get("run_status")
+        persisted_reason = study.user_attrs.get("termination_reason")
+        completed_trials = sum(trial.state == TrialState.COMPLETE for trial in study_trials)
+        unique_evaluated = {
+            self._parameter_signature(trial.params)
+            for trial in study_trials
+            if trial.state == TrialState.COMPLETE
+            and isinstance(trial.user_attrs.get("metrics"), dict)
+        }
+
+        if completed_trials >= config.target_trials:
+            status = RunStatus.COMPLETED
+            termination_reason = "target_trials"
+        elif persisted_status == RunStatus.COMPLETED.value and persisted_reason in {
+            "converged",
+            "search_space_exhausted",
+        }:
+            status = RunStatus.COMPLETED
+            termination_reason = str(persisted_reason)
+        elif (
+            search_space_cardinality is not None
+            and len(unique_evaluated) >= search_space_cardinality
+        ):
+            status = RunStatus.COMPLETED
+            termination_reason = "search_space_exhausted"
+        elif persisted_status == RunStatus.STOPPED.value:
+            status = RunStatus.STOPPED
+            termination_reason = "user"
+        else:
+            # Return interrupted studies as CREATED until the browser resumes them.
+            status = RunStatus.CREATED
+            termination_reason = None
+
+        return status, termination_reason
 
     async def start(self, run_id: str) -> tuple[RunProgress, NextTrial | None]:
         async with self._require(run_id).lock:
@@ -196,52 +212,8 @@ class OptimisationManager:
             trial = self._require_outstanding(run, result.trial_number)
             update_start = len(run.summaries)
 
-            total_trades = result.metrics.get("totalTrades")
-            objective_value = result.metrics.get(run.config.objective_metric)
-            objective_fallback: str | None = None
-
-            if objective_value is None:
-                if total_trades == 0:
-                    # Assign no-trade results a poor finite objective so TPE
-                    # avoids them. Keep them as completed strategy outcomes.
-                    objective = (
-                        -1.0e12 if run.config.direction == ObjectiveDirection.MAXIMIZE else 1.0e12
-                    )
-                    objective_fallback = "no_trades"
-                    trial.set_user_attr("objective_fallback", objective_fallback)
-                else:
-                    raise ValueError(
-                        f"objective metric {run.config.objective_metric!r} "
-                        "missing from trial metrics"
-                    )
-            else:
-                objective = float(objective_value)
-
-            constraints: dict[str, float] = {}
-            for metric_filter in run.config.filters:
-                actual = result.metrics.get(metric_filter.metric)
-
-                if actual is None:
-                    if total_trades == 0:
-                        # Ratios can be undefined when the strategy makes no trades.
-                        violation = 1.0e12
-                    else:
-                        raise ValueError(
-                            f"constraint metric {metric_filter.metric!r} missing from trial metrics"
-                        )
-                elif metric_filter.operator == "lte":
-                    violation = actual - metric_filter.value
-                else:
-                    violation = metric_filter.value - actual
-
-                constraint_name = (
-                    f"{metric_filter.metric}:{metric_filter.operator}:{metric_filter.value}"
-                )
-                constraints[constraint_name] = violation
-                trial.set_constraint(
-                    constraint_name,
-                    violation,
-                )
+            objective, objective_fallback = self._trial_objective(run, trial, result)
+            constraints = self._trial_constraints(run, trial, result)
 
             trial.set_user_attr("metrics", result.metrics)
             if result.duration_ms is not None:
@@ -285,6 +257,63 @@ class OptimisationManager:
 
             next_trial = self._next_trial_locked(run)
             return self._update(run, update_start), next_trial
+
+    @staticmethod
+    def _trial_objective(
+        run: ActiveRun, trial: Trial, result: TrialResult
+    ) -> tuple[float, str | None]:
+        total_trades = result.metrics.get("totalTrades")
+        objective_value = result.metrics.get(run.config.objective_metric)
+        objective_fallback: str | None = None
+
+        if objective_value is None:
+            if total_trades == 0:
+                # Assign no-trade results a poor finite objective so TPE
+                # avoids them. Keep them as completed strategy outcomes.
+                objective = (
+                    -1.0e12 if run.config.direction == ObjectiveDirection.MAXIMIZE else 1.0e12
+                )
+                objective_fallback = "no_trades"
+                trial.set_user_attr("objective_fallback", objective_fallback)
+            else:
+                raise ValueError(
+                    f"objective metric {run.config.objective_metric!r} missing from trial metrics"
+                )
+        else:
+            objective = float(objective_value)
+
+        return objective, objective_fallback
+
+    @staticmethod
+    def _trial_constraints(run: ActiveRun, trial: Trial, result: TrialResult) -> dict[str, float]:
+        total_trades = result.metrics.get("totalTrades")
+        constraints: dict[str, float] = {}
+        for metric_filter in run.config.filters:
+            actual = result.metrics.get(metric_filter.metric)
+
+            if actual is None:
+                if total_trades == 0:
+                    # Ratios can be undefined when the strategy makes no trades.
+                    violation = 1.0e12
+                else:
+                    raise ValueError(
+                        f"constraint metric {metric_filter.metric!r} missing from trial metrics"
+                    )
+            elif metric_filter.operator == "lte":
+                violation = actual - metric_filter.value
+            else:
+                violation = metric_filter.value - actual
+
+            constraint_name = (
+                f"{metric_filter.metric}:{metric_filter.operator}:{metric_filter.value}"
+            )
+            constraints[constraint_name] = violation
+            trial.set_constraint(
+                constraint_name,
+                violation,
+            )
+
+        return constraints
 
     async def submit_failure(
         self,
@@ -467,35 +496,7 @@ class OptimisationManager:
 
         while run.status == RunStatus.RUNNING:
             trial = run.study.ask()
-            parameters: dict[str, Any] = {}
-
-            for parameter in run.config.parameters:
-                if not self._condition_matches(parameter, parameters):
-                    continue
-
-                if isinstance(parameter, FloatParameter):
-                    parameters[parameter.name] = trial.suggest_float(
-                        parameter.name,
-                        parameter.low,
-                        parameter.high,
-                        step=parameter.step,
-                        log=parameter.log,
-                    )
-                elif isinstance(parameter, IntParameter):
-                    parameters[parameter.name] = trial.suggest_int(
-                        parameter.name,
-                        parameter.low,
-                        parameter.high,
-                        step=parameter.step,
-                        log=parameter.log,
-                    )
-                elif isinstance(parameter, CategoricalParameter):
-                    parameters[parameter.name] = trial.suggest_categorical(
-                        parameter.name,
-                        parameter.choices,
-                    )
-                else:  # pragma: no cover
-                    raise TypeError(f"unsupported parameter type: {type(parameter)!r}")
+            parameters = self._suggest_parameters(run, trial)
 
             if not self._reuse_completed_trial(run, trial):
                 run.outstanding_trial = trial
@@ -531,6 +532,38 @@ class OptimisationManager:
 
         return None
 
+    def _suggest_parameters(self, run: ActiveRun, trial: Trial) -> dict[str, Any]:
+        parameters: dict[str, Any] = {}
+
+        for parameter in run.config.parameters:
+            if not self._condition_matches(parameter, parameters):
+                continue
+
+            if isinstance(parameter, FloatParameter):
+                parameters[parameter.name] = trial.suggest_float(
+                    parameter.name,
+                    parameter.low,
+                    parameter.high,
+                    step=parameter.step,
+                    log=parameter.log,
+                )
+            elif isinstance(parameter, IntParameter):
+                parameters[parameter.name] = trial.suggest_int(
+                    parameter.name,
+                    parameter.low,
+                    parameter.high,
+                    step=parameter.step,
+                    log=parameter.log,
+                )
+            elif isinstance(parameter, CategoricalParameter):
+                parameters[parameter.name] = trial.suggest_categorical(
+                    parameter.name,
+                    parameter.choices,
+                )
+            else:  # pragma: no cover
+                raise TypeError(f"unsupported parameter type: {type(parameter)!r}")
+        return parameters
+
     @classmethod
     def _finite_search_space_cardinality(
         cls,
@@ -564,17 +597,8 @@ class OptimisationManager:
 
                 return total
 
-            if isinstance(parameter, IntParameter):
-                choices = ((parameter.high - parameter.low) // parameter.step) + 1
-            elif isinstance(parameter, FloatParameter):
-                if parameter.step is None or parameter.log:
-                    return None
-
-                low = Decimal(str(parameter.low))
-                high = Decimal(str(parameter.high))
-                step = Decimal(str(parameter.step))
-                choices = int((high - low) // step) + 1
-            else:  # pragma: no cover
+            choices = cls._numeric_cardinality(parameter)
+            if choices is None:
                 return None
 
             branch = count_from(index + 1, sampled_parameters)
@@ -585,6 +609,22 @@ class OptimisationManager:
             return total if total <= limit else None
 
         return count_from(0, {})
+
+    @staticmethod
+    def _numeric_cardinality(parameter: SearchParameter) -> int | None:
+        if isinstance(parameter, IntParameter):
+            choices = ((parameter.high - parameter.low) // parameter.step) + 1
+        elif isinstance(parameter, FloatParameter):
+            if parameter.step is None or parameter.log:
+                return None
+
+            low = Decimal(str(parameter.low))
+            high = Decimal(str(parameter.high))
+            step = Decimal(str(parameter.step))
+            choices = int((high - low) // step) + 1
+        else:  # pragma: no cover
+            return None
+        return choices
 
     @staticmethod
     def _parameter_signature(

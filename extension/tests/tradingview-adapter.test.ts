@@ -279,7 +279,7 @@ describe('TradingView adapter run context', () => {
       });
       expect(actions).not.toContain('readReportSnapshot');
       expect(add.mock.calls.length).toBeGreaterThan(1);
-      expect(remove.mock.calls.length).toBe(add.mock.calls.length);
+      expect(remove.mock.calls).toHaveLength(add.mock.calls.length);
       expect(actions.filter((action) => action === 'readMetrics')).toHaveLength(1);
       expect(
         actions.filter((action) => action === 'readReportPollSnapshot').length,

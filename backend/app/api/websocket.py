@@ -49,12 +49,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 request_id = raw.get("request_id") if isinstance(raw, dict) else None
                 if not isinstance(request_id, str):
                     request_id = None
-                if isinstance(exc, UnknownRunError):
-                    code = "UNKNOWN_RUN"
-                elif isinstance(exc, StaleTrialError):
-                    code = "STALE_TRIAL"
-                else:
-                    code = "INVALID_REQUEST"
+                code = _request_error_code(exc)
 
                 await websocket.send_json(
                     encode(
@@ -69,6 +64,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 )
     except WebSocketDisconnect:
         return
+
+
+def _request_error_code(exc: Exception) -> str:
+    if isinstance(exc, UnknownRunError):
+        return "UNKNOWN_RUN"
+    if isinstance(exc, StaleTrialError):
+        return "STALE_TRIAL"
+    return "INVALID_REQUEST"
 
 
 async def _authenticate(
@@ -89,11 +92,7 @@ async def _authenticate(
         return False
 
     token = envelope.payload.get("token")
-    if (
-        envelope.type != "AUTH"
-        or not isinstance(token, str)
-        or not pairing.verify_token(token)
-    ):
+    if envelope.type != "AUTH" or not isinstance(token, str) or not pairing.verify_token(token):
         await websocket.close(
             code=status.WS_1008_POLICY_VIOLATION,
             reason="invalid token",
@@ -145,25 +144,19 @@ async def _dispatch(
         case "START_RUN":
             run_id = str(envelope.payload["run_id"])
             progress, next_trial = await manager.start(run_id)
-            await websocket.send_json(
-                encode("RUN_PROGRESS", progress, envelope.request_id)
-            )
+            await websocket.send_json(encode("RUN_PROGRESS", progress, envelope.request_id))
             if next_trial is not None:
                 await websocket.send_json(encode("NEXT_TRIAL", next_trial))
         case "TRIAL_RESULT":
             result = TrialResult.model_validate(envelope.payload)
             update, next_trial = await manager.submit_result(result)
-            await websocket.send_json(
-                encode("RUN_UPDATE", update, envelope.request_id)
-            )
+            await websocket.send_json(encode("RUN_UPDATE", update, envelope.request_id))
             if next_trial is not None:
                 await websocket.send_json(encode("NEXT_TRIAL", next_trial))
         case "TRIAL_FAILED":
             failure = TrialFailure.model_validate(envelope.payload)
             update, next_trial = await manager.submit_failure(failure)
-            await websocket.send_json(
-                encode("RUN_UPDATE", update, envelope.request_id)
-            )
+            await websocket.send_json(encode("RUN_UPDATE", update, envelope.request_id))
             if next_trial is not None:
                 await websocket.send_json(encode("NEXT_TRIAL", next_trial))
         case "STOP_RUN":
@@ -177,10 +170,7 @@ async def _dispatch(
             )
         case "ABORT_RUN":
             run_id = str(envelope.payload["run_id"])
-            reason = str(
-                envelope.payload.get("reason")
-                or "Optimisation aborted by the browser"
-            )
+            reason = str(envelope.payload.get("reason") or "Optimisation aborted by the browser")
             progress = await manager.abort(run_id, reason)
             await websocket.send_json(
                 encode(
@@ -204,8 +194,6 @@ async def _dispatch(
                 config = CreateRun.model_validate(envelope.payload["config"])
                 await manager.create_run(config)
             analysis = await manager.analysis(str(envelope.payload["run_id"]))
-            await websocket.send_json(
-                encode("RUN_ANALYSIS", analysis, envelope.request_id)
-            )
+            await websocket.send_json(encode("RUN_ANALYSIS", analysis, envelope.request_id))
         case _:
             raise ValueError(f"unsupported message type: {envelope.type}")

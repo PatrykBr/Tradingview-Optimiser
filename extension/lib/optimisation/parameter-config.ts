@@ -94,6 +94,12 @@ export const isOptimisableInput = (input: StrategyInput): boolean =>
   input.type === 'boolean' ||
   (input.type === 'categorical' && (input.options?.filter(isPrimitive).length ?? 0) >= 2);
 
+const defaultChoices = (input: StrategyInput): Primitive[] => {
+  if (input.type === 'boolean') return [false, true];
+  if (input.type === 'categorical') return (input.options ?? []).filter(isPrimitive);
+  return [];
+};
+
 export const defaultParameterConfig = (input: StrategyInput): ParameterConfig => ({
   enabled: false,
   low: input.type === 'integer' || input.type === 'float' ? (input.min?.toString() ?? '') : '',
@@ -102,12 +108,7 @@ export const defaultParameterConfig = (input: StrategyInput): ParameterConfig =>
   // Otherwise, use step 1 for integers and continuous sampling for floats.
   step: '',
   log: false,
-  choices:
-    input.type === 'boolean'
-      ? [false, true]
-      : input.type === 'categorical'
-        ? (input.options ?? []).filter(isPrimitive)
-        : [],
+  choices: defaultChoices(input),
   conditionParameter: '',
   conditionValues: [],
 });
@@ -187,7 +188,7 @@ const removeConditionValueFromDependants = (
   for (const [id, config] of Object.entries(configs)) {
     if (
       config.conditionParameter !== controllerId ||
-      !config.conditionValues.some((value) => value === removedValue)
+      !config.conditionValues.includes(removedValue)
     ) {
       continue;
     }
@@ -203,6 +204,47 @@ const removeConditionValueFromDependants = (
   }
 
   return next;
+};
+
+const applyConditionEdit = (
+  configs: Record<string, ParameterConfig>,
+  inputs: StrategyInput[],
+  edit: Extract<ParameterConfigEdit, { type: 'condition' }>,
+  config: ParameterConfig,
+): Record<string, ParameterConfig> => {
+  if (!edit.parameterId) {
+    return {
+      ...configs,
+      [edit.id]: {
+        ...config,
+        conditionParameter: '',
+        conditionValues: [],
+      },
+    };
+  }
+
+  const parent = configs[edit.parameterId];
+  if (!parent) return configs;
+
+  const parentInput = inputs.find((input) => input.id === edit.parameterId);
+  const currentValue = parentInput?.currentValue;
+  const preferredValue =
+    isPrimitive(currentValue) && parent.choices.includes(currentValue)
+      ? currentValue
+      : parent.choices[0];
+
+  return {
+    ...configs,
+    [edit.parameterId]: {
+      ...parent,
+      enabled: true,
+    },
+    [edit.id]: {
+      ...config,
+      conditionParameter: edit.parameterId,
+      conditionValues: preferredValue === undefined ? [] : [preferredValue],
+    },
+  };
 };
 
 export const applyParameterConfigEdit = (
@@ -247,7 +289,7 @@ export const applyParameterConfigEdit = (
   }
 
   if (edit.type === 'choice') {
-    const exists = config.choices.some((value) => value === edit.choice);
+    const exists = config.choices.includes(edit.choice);
     const choices = exists
       ? config.choices.filter((value) => value !== edit.choice)
       : [...config.choices, edit.choice];
@@ -263,43 +305,9 @@ export const applyParameterConfigEdit = (
     return exists ? removeConditionValueFromDependants(next, edit.id, edit.choice) : next;
   }
 
-  if (edit.type === 'condition') {
-    if (!edit.parameterId) {
-      return {
-        ...configs,
-        [edit.id]: {
-          ...config,
-          conditionParameter: '',
-          conditionValues: [],
-        },
-      };
-    }
+  if (edit.type === 'condition') return applyConditionEdit(configs, inputs, edit, config);
 
-    const parent = configs[edit.parameterId];
-    if (!parent) return configs;
-
-    const parentInput = inputs.find((input) => input.id === edit.parameterId);
-    const currentValue = parentInput?.currentValue;
-    const preferredValue =
-      isPrimitive(currentValue) && parent.choices.some((choice) => choice === currentValue)
-        ? currentValue
-        : parent.choices[0];
-
-    return {
-      ...configs,
-      [edit.parameterId]: {
-        ...parent,
-        enabled: true,
-      },
-      [edit.id]: {
-        ...config,
-        conditionParameter: edit.parameterId,
-        conditionValues: preferredValue === undefined ? [] : [preferredValue],
-      },
-    };
-  }
-
-  const exists = config.conditionValues.some((value) => value === edit.value);
+  const exists = config.conditionValues.includes(edit.value);
 
   return {
     ...configs,

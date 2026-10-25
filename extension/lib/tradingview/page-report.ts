@@ -1,7 +1,7 @@
-import { OptimiserError } from '../errors';
+import { errorMessage, OptimiserError } from '../errors';
 import type { DeepBacktestResult, TradingViewMetrics } from './types';
 
-const normaliseText = (value: string): string => value.replace(/\s+/g, ' ').trim();
+const normaliseText = (value: string): string => value.replaceAll(/\s+/g, ' ').trim();
 
 const parseUiNumber = (value: string, preferPercent = false): number | undefined => {
   const matches = value.match(/[−-]?\d[\d\s,.]*(?:\.\d+)?%?/g);
@@ -10,15 +10,15 @@ const parseUiNumber = (value: string, preferPercent = false): number | undefined
   const candidates = matches
     .map((raw) => {
       const percent = raw.includes('%');
-      const cleaned = raw.replace(/−/g, '-').replace(/%/g, '').replace(/\s/g, '');
+      const cleaned = raw.replaceAll('−', '-').replaceAll('%', '').replaceAll(/\s/g, '');
 
       let normalised = cleaned;
       if (cleaned.includes(',') && cleaned.includes('.')) {
-        normalised = cleaned.replace(/,/g, '');
+        normalised = cleaned.replaceAll(',', '');
       } else if (cleaned.includes(',') && !cleaned.includes('.')) {
         const parts = cleaned.split(',');
         normalised =
-          parts.at(-1)?.length === 3 ? cleaned.replace(/,/g, '') : cleaned.replace(',', '.');
+          parts.at(-1)?.length === 3 ? cleaned.replaceAll(',', '') : cleaned.replace(',', '.');
       }
 
       const numeric = Number(normalised);
@@ -118,6 +118,45 @@ const readMetricFromLabel = (element: HTMLElement, spec: VisibleMetricSpec): num
   return undefined;
 };
 
+const matchVisibleMetric = (
+  element: HTMLElement,
+  ownText: string,
+  unresolved: Map<string, VisibleMetricSpec>,
+) => {
+  for (const spec of unresolved.values()) {
+    if (!spec.labels.some((pattern) => pattern.test(ownText))) {
+      continue;
+    }
+
+    const value = readMetricFromLabel(element, spec);
+    if (value === undefined) continue;
+
+    return { spec, value };
+  }
+  return null;
+};
+
+const collectUncachedMetrics = (
+  metrics: TradingViewMetrics,
+  unresolved: Map<string, VisibleMetricSpec>,
+): void => {
+  const elements = document.querySelectorAll<HTMLElement>('span, div, td, th');
+
+  for (const element of elements) {
+    if (unresolved.size === 0) break;
+    if (element.offsetParent === null) continue;
+
+    const ownText = normaliseText(element.textContent ?? '');
+    if (ownText.length > 80) continue;
+
+    const match = matchVisibleMetric(element, ownText, unresolved);
+    if (!match) continue;
+    cachedMetricLabels.set(match.spec.key, element);
+    metrics[match.spec.key] = match.value;
+    unresolved.delete(match.spec.key);
+  }
+};
+
 export const readVisibleStrategyReportMetrics = (): TradingViewMetrics | null => {
   const metrics: TradingViewMetrics = {};
   const unresolved = new Map(VISIBLE_METRIC_SPECS.map((spec) => [spec.key, spec] as const));
@@ -135,31 +174,7 @@ export const readVisibleStrategyReportMetrics = (): TradingViewMetrics | null =>
     unresolved.delete(spec.key);
   }
 
-  if (unresolved.size > 0) {
-    const elements = document.querySelectorAll<HTMLElement>('span, div, td, th');
-
-    for (const element of elements) {
-      if (unresolved.size === 0) break;
-      if (element.offsetParent === null) continue;
-
-      const ownText = normaliseText(element.textContent ?? '');
-      if (ownText.length > 80) continue;
-
-      for (const spec of unresolved.values()) {
-        if (!spec.labels.some((pattern) => pattern.test(ownText))) {
-          continue;
-        }
-
-        const value = readMetricFromLabel(element, spec);
-        if (value === undefined) continue;
-
-        cachedMetricLabels.set(spec.key, element);
-        metrics[spec.key] = value;
-        unresolved.delete(spec.key);
-        break;
-      }
-    }
-  }
+  if (unresolved.size > 0) collectUncachedMetrics(metrics, unresolved);
 
   return Object.keys(metrics).length > 0 ? metrics : null;
 };
@@ -191,7 +206,7 @@ export const ensureStrategyTester = (): boolean => {
     }
   ).TradingView;
 
-  let apiFailure: unknown | undefined;
+  let apiFailure: unknown;
 
   if (typeof tradingView?.bottomWidgetBar?.showWidget === 'function') {
     try {
@@ -210,8 +225,7 @@ export const ensureStrategyTester = (): boolean => {
     } catch (cause) {
       throw new OptimiserError(
         'TV_STRATEGY_TESTER_UNAVAILABLE',
-        'TradingView Strategy Tester button could not be activated: ' +
-          (cause instanceof Error ? cause.message : String(cause)),
+        'TradingView Strategy Tester button could not be activated: ' + errorMessage(cause),
       );
     }
   }
@@ -220,7 +234,7 @@ export const ensureStrategyTester = (): boolean => {
     throw new OptimiserError(
       'TV_STRATEGY_TESTER_UNAVAILABLE',
       'TradingView Strategy Tester API failed and no safe UI fallback was available: ' +
-        (apiFailure instanceof Error ? apiFailure.message : String(apiFailure)),
+        errorMessage(apiFailure),
     );
   }
 
@@ -238,13 +252,13 @@ const waitForValue = async <T>(
   if (immediate !== null) return immediate;
 
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  const poll = async (): Promise<T | null> => {
+    if (Date.now() >= deadline) return null;
     await sleep(pollMs);
     const value = read();
-    if (value !== null) return value;
-  }
-
-  return null;
+    return value ?? poll();
+  };
+  return poll();
 };
 
 const waitForClickable = (pattern: RegExp, timeoutMs: number): Promise<HTMLElement | null> =>

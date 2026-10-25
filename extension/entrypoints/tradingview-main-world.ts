@@ -1,4 +1,4 @@
-import { OptimiserError, serialiseOptimiserError } from '../lib/errors';
+import { errorMessage, OptimiserError, serialiseOptimiserError } from '../lib/errors';
 import {
   asRecord,
   buildStrategySignature,
@@ -107,6 +107,30 @@ const getChart = (): ChartLike => {
   return chart;
 };
 
+type DetectedStrategyInfo = { id: string; name: string; shortTitle?: string };
+
+const collectPublicStrategies = (
+  chart: ChartLike,
+  found: Map<string, DetectedStrategyInfo>,
+): void => {
+  // Fallback for TradingView builds where the internal data-source path changes.
+  for (const study of chart.getAllStudies?.() ?? []) {
+    const meta = readMeta(study);
+    const name =
+      metaName(meta) ??
+      (typeof study.name === 'string' ? study.name : undefined) ??
+      (typeof study.title === 'string' ? study.title : undefined);
+
+    if (!study.id || !name || !isStrategyMeta(meta)) continue;
+
+    found.set(study.id, {
+      id: study.id,
+      name,
+      ...(typeof meta.shortDescription === 'string' ? { shortTitle: meta.shortDescription } : {}),
+    });
+  }
+};
+
 const detectStrategies = () => {
   const chart = getChart();
   const found = new Map<string, { id: string; name: string; shortTitle?: string }>();
@@ -148,22 +172,7 @@ const detectStrategies = () => {
     // Fall through to the public study wrapper below.
   }
 
-  // Fallback for TradingView builds where the internal data-source path changes.
-  for (const study of chart.getAllStudies?.() ?? []) {
-    const meta = readMeta(study);
-    const name =
-      metaName(meta) ??
-      (typeof study.name === 'string' ? study.name : undefined) ??
-      (typeof study.title === 'string' ? study.title : undefined);
-
-    if (!study.id || !name || !isStrategyMeta(meta)) continue;
-
-    found.set(study.id, {
-      id: study.id,
-      name,
-      ...(typeof meta.shortDescription === 'string' ? { shortTitle: meta.shortDescription } : {}),
-    });
-  }
+  collectPublicStrategies(chart, found);
 
   return [...found.values()];
 };
@@ -199,7 +208,7 @@ const readStrategyInputs = (strategyId: string) => {
   const study = chart.getStudyById?.(strategyId);
   if (!study) throw new Error('TradingView strategy is no longer on the chart');
   if (typeof study.getInputValues !== 'function') {
-    throw new Error('TradingView does not expose inputs for this strategy');
+    throw new TypeError('TradingView does not expose inputs for this strategy');
   }
 
   const current = study.getInputValues();
@@ -218,7 +227,7 @@ const applyParameters = (strategyId: string, parameters: Record<string, unknown>
   const study = chart.getStudyById?.(strategyId);
   if (!study) throw new Error('TradingView strategy is no longer on the chart');
   if (typeof study.getInputValues !== 'function' || typeof study.setInputValues !== 'function') {
-    throw new Error('TradingView does not expose writable inputs for this strategy');
+    throw new TypeError('TradingView does not expose writable inputs for this strategy');
   }
 
   const current = study.getInputValues();
@@ -229,9 +238,7 @@ const applyParameters = (strategyId: string, parameters: Record<string, unknown>
   }
 
   const updated = current.map((input) =>
-    Object.prototype.hasOwnProperty.call(parameters, input.id)
-      ? { ...input, value: parameters[input.id] }
-      : input,
+    Object.hasOwn(parameters, input.id) ? { ...input, value: parameters[input.id] } : input,
   );
 
   study.setInputValues(updated);
@@ -239,7 +246,7 @@ const applyParameters = (strategyId: string, parameters: Record<string, unknown>
   const after = study.getInputValues();
   const confirmed: Record<string, unknown> = {};
   for (const input of after) {
-    if (Object.prototype.hasOwnProperty.call(parameters, input.id)) {
+    if (Object.hasOwn(parameters, input.id)) {
       confirmed[input.id] = input.value;
     }
   }
@@ -261,6 +268,35 @@ const applyParameters = (strategyId: string, parameters: Record<string, unknown>
   return { confirmed };
 };
 
+type StrategySource = {
+  id?: string | (() => string);
+  metaInfo?: () => UnknownRecord;
+  reportData?: () => unknown;
+};
+
+const activeStrategySource = (
+  model: { activeStrategySource?: () => unknown },
+  strategyId: string,
+): StrategySource | null | undefined => {
+  if (typeof model.activeStrategySource !== 'function') return undefined;
+  const watched = model.activeStrategySource();
+  const active = unwrapValue(watched) as {
+    id?: string | (() => string);
+    metaInfo?: () => UnknownRecord;
+    reportData?: () => unknown;
+  } | null;
+
+  if (active) {
+    const activeId = typeof active.id === 'function' ? active.id() : active.id;
+
+    if (activeId === strategyId) return active;
+
+    // A different active strategy invalidates the old cached data source.
+    if (typeof activeId === 'string' && activeId) return null;
+  }
+  return undefined;
+};
+
 const getStrategySource = (
   chart: ChartLike,
   strategyId: string,
@@ -275,23 +311,8 @@ const getStrategySource = (
 
     // Prefer activeStrategySource. dataSources() can retain a stale strategy
     // or report after the user removes or replaces it.
-    if (typeof model.activeStrategySource === 'function') {
-      const watched = model.activeStrategySource();
-      const active = unwrapValue(watched) as {
-        id?: string | (() => string);
-        metaInfo?: () => UnknownRecord;
-        reportData?: () => unknown;
-      } | null;
-
-      if (active) {
-        const activeId = typeof active.id === 'function' ? active.id() : active.id;
-
-        if (activeId === strategyId) return active;
-
-        // A different active strategy invalidates the old cached data source.
-        if (typeof activeId === 'string' && activeId) return null;
-      }
-    }
+    const active = activeStrategySource(model, strategyId);
+    if (active !== undefined) return active;
 
     const sources = model.dataSources?.() ?? [];
     for (const source of sources) {
@@ -306,8 +327,7 @@ const getStrategySource = (
   } catch (cause) {
     throw new OptimiserError(
       'TV_REPORT_SOURCE_UNAVAILABLE',
-      'TradingView strategy source lookup failed: ' +
-        (cause instanceof Error ? cause.message : String(cause)),
+      'TradingView strategy source lookup failed: ' + errorMessage(cause),
       true,
     );
   }
@@ -335,7 +355,7 @@ const readMetricsFromRawReport = (rawReport: unknown, deepBacktesting: boolean):
   try {
     internalMetrics = extractTradingViewMetrics(rawReport);
   } catch (cause) {
-    internalFailure = cause instanceof Error ? cause.message : String(cause);
+    internalFailure = errorMessage(cause);
   }
 
   if (!deepBacktesting) {
@@ -420,8 +440,7 @@ const readStrategyMetrics = (strategyId: string, expectedDeepBacktesting?: boole
   } catch (cause) {
     throw new OptimiserError(
       'TV_REPORT_SOURCE_UNAVAILABLE',
-      'TradingView strategy report source could not be read: ' +
-        (cause instanceof Error ? cause.message : String(cause)),
+      'TradingView strategy report source could not be read: ' + errorMessage(cause),
       true,
     );
   }
@@ -448,7 +467,7 @@ const readStrategyClosedTrades = (strategyId: string) => {
     return {
       available: false,
       trades: [],
-      reason: error instanceof Error ? error.message : String(error),
+      reason: errorMessage(error),
     };
   }
 };
@@ -520,8 +539,7 @@ const readStrategyReportCore = (
   } catch (cause) {
     throw new OptimiserError(
       'TV_REPORT_SOURCE_UNAVAILABLE',
-      'TradingView strategy report source could not be read: ' +
-        (cause instanceof Error ? cause.message : String(cause)),
+      'TradingView strategy report source could not be read: ' + errorMessage(cause),
       true,
     );
   }
@@ -675,6 +693,91 @@ const getRunContextSnapshot = (strategyId: string) => {
   };
 };
 
+type DiagnosticCheck = { id: string; label: string; ok: boolean; detail?: string };
+
+const collectStrategyDiagnostics = (
+  chart: ChartLike,
+  strategyId: string,
+  checks: DiagnosticCheck[],
+): void => {
+  try {
+    const inputs = readStrategyInputs(strategyId);
+    checks.push({
+      id: 'inputs-readable',
+      label: 'Readable Pine inputs',
+      ok: inputs.length > 0,
+      detail: inputs.length + ' user inputs',
+    });
+  } catch (error) {
+    checks.push({
+      id: 'inputs-readable',
+      label: 'Readable Pine inputs',
+      ok: false,
+      detail: errorMessage(error),
+    });
+  }
+
+  const study = chart.getStudyById?.(strategyId);
+  checks.push({
+    id: 'inputs-writable',
+    label: 'Writable Pine inputs',
+    ok: typeof study?.setInputValues === 'function',
+  });
+
+  const source = getStrategySource(chart, strategyId);
+  checks.push({
+    id: 'report-source',
+    label: 'Strategy report source',
+    ok: Boolean(source?.reportData),
+  });
+
+  try {
+    const snapshot = readStrategyReportSnapshot(strategyId);
+    checks.push({
+      id: 'metrics-readable',
+      label: 'Strategy Tester metrics',
+      ok: Boolean(snapshot.metrics) && snapshot.metricSource !== null,
+      detail:
+        snapshot.error ??
+        (snapshot.metricSource ? 'source: ' + snapshot.metricSource : 'Metric source unavailable'),
+    });
+  } catch (error) {
+    checks.push({
+      id: 'metrics-readable',
+      label: 'Strategy Tester metrics',
+      ok: false,
+      detail: errorMessage(error),
+    });
+  }
+
+  const tradeSnapshot = readStrategyClosedTrades(strategyId);
+  checks.push({
+    id: 'trade-level-data',
+    label: 'Closed-trade data',
+    ok: tradeSnapshot.available,
+    detail: tradeSnapshot.available
+      ? tradeSnapshot.trades.length + ' closed trades exposed'
+      : (tradeSnapshot.reason ?? 'Unavailable'),
+  });
+
+  try {
+    const signature = getStrategySignature(strategyId);
+    checks.push({
+      id: 'strategy-signature',
+      label: 'Strategy signature',
+      ok: Boolean(signature),
+      detail: signature,
+    });
+  } catch (error) {
+    checks.push({
+      id: 'strategy-signature',
+      label: 'Strategy signature',
+      ok: false,
+      detail: errorMessage(error),
+    });
+  }
+};
+
 const runDiagnostics = (strategyId: string | null) => {
   const checks: Array<{
     id: string;
@@ -692,7 +795,7 @@ const runDiagnostics = (strategyId: string | null) => {
       id: 'chart-api',
       label: 'TradingView chart API',
       ok: false,
-      detail: error instanceof Error ? error.message : String(error),
+      detail: errorMessage(error),
     });
   }
 
@@ -709,86 +812,7 @@ const runDiagnostics = (strategyId: string | null) => {
         : 'No Pine strategy sources found',
   });
 
-  if (strategyId) {
-    try {
-      const inputs = readStrategyInputs(strategyId);
-      checks.push({
-        id: 'inputs-readable',
-        label: 'Readable Pine inputs',
-        ok: inputs.length > 0,
-        detail: inputs.length + ' user inputs',
-      });
-    } catch (error) {
-      checks.push({
-        id: 'inputs-readable',
-        label: 'Readable Pine inputs',
-        ok: false,
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    const study = chart.getStudyById?.(strategyId);
-    checks.push({
-      id: 'inputs-writable',
-      label: 'Writable Pine inputs',
-      ok: typeof study?.setInputValues === 'function',
-    });
-
-    const source = getStrategySource(chart, strategyId);
-    checks.push({
-      id: 'report-source',
-      label: 'Strategy report source',
-      ok: Boolean(source?.reportData),
-    });
-
-    try {
-      const snapshot = readStrategyReportSnapshot(strategyId);
-      checks.push({
-        id: 'metrics-readable',
-        label: 'Strategy Tester metrics',
-        ok: Boolean(snapshot.metrics) && snapshot.metricSource !== null,
-        detail:
-          snapshot.error ??
-          (snapshot.metricSource
-            ? 'source: ' + snapshot.metricSource
-            : 'Metric source unavailable'),
-      });
-    } catch (error) {
-      checks.push({
-        id: 'metrics-readable',
-        label: 'Strategy Tester metrics',
-        ok: false,
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    const tradeSnapshot = readStrategyClosedTrades(strategyId);
-    checks.push({
-      id: 'trade-level-data',
-      label: 'Closed-trade data',
-      ok: tradeSnapshot.available,
-      detail: tradeSnapshot.available
-        ? tradeSnapshot.trades.length + ' closed trades exposed'
-        : (tradeSnapshot.reason ?? 'Unavailable'),
-    });
-
-    try {
-      const signature = getStrategySignature(strategyId);
-      checks.push({
-        id: 'strategy-signature',
-        label: 'Strategy signature',
-        ok: Boolean(signature),
-        detail: signature,
-      });
-    } catch (error) {
-      checks.push({
-        id: 'strategy-signature',
-        label: 'Strategy signature',
-        ok: false,
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+  if (strategyId) collectStrategyDiagnostics(chart, strategyId, checks);
 
   return {
     checks,
@@ -804,11 +828,81 @@ const getChartContext = () => {
   };
 };
 
+const requireStrategyId = (payload: UnknownRecord): string => {
+  if (typeof payload.strategyId !== 'string') throw new TypeError('strategyId is required');
+  return payload.strategyId;
+};
+
+const expectedDeepMode = (payload: UnknownRecord): boolean | undefined =>
+  typeof payload.expectedDeepBacktesting === 'boolean'
+    ? payload.expectedDeepBacktesting
+    : undefined;
+
+const dispatchBridgeRequest = async (request: BridgeRequest): Promise<unknown> => {
+  switch (request.action) {
+    case 'detectStrategies':
+      return detectStrategies();
+    case 'readStrategyInputs': {
+      const payload = asRecord(request.payload);
+      return readStrategyInputs(requireStrategyId(payload));
+    }
+    case 'applyParameters': {
+      const payload = asRecord(request.payload);
+      return applyParameters(requireStrategyId(payload), asRecord(payload.parameters));
+    }
+    case 'readMetrics': {
+      const payload = asRecord(request.payload);
+      return readStrategyMetrics(requireStrategyId(payload), expectedDeepMode(payload));
+    }
+    case 'readReportPollSnapshot': {
+      const payload = asRecord(request.payload);
+      return readStrategyReportPollSnapshot(requireStrategyId(payload), expectedDeepMode(payload));
+    }
+    case 'readReportSnapshot': {
+      const payload = asRecord(request.payload);
+      return readStrategyReportSnapshot(requireStrategyId(payload));
+    }
+    case 'readClosedTrades': {
+      const payload = asRecord(request.payload);
+      return readStrategyClosedTrades(requireStrategyId(payload));
+    }
+    case 'getStrategySignature': {
+      const payload = asRecord(request.payload);
+      return getStrategySignature(requireStrategyId(payload));
+    }
+    case 'getRunContextSnapshot': {
+      const payload = asRecord(request.payload);
+      return getRunContextSnapshot(requireStrategyId(payload));
+    }
+    case 'resetToChartSession':
+      return await resetToChartSession();
+    case 'configureDeepBacktestRange': {
+      const payload = asRecord(request.payload);
+      if (typeof payload.startDate !== 'string' || typeof payload.endDate !== 'string') {
+        throw new TypeError('startDate and endDate are required');
+      }
+      return await configureDeepBacktestRange(payload.startDate, payload.endDate);
+    }
+    case 'refreshDeepBacktestReport':
+      return await refreshDeepBacktestReport();
+    case 'diagnostics': {
+      const payload = asRecord(request.payload);
+      return runDiagnostics(typeof payload.strategyId === 'string' ? payload.strategyId : null);
+    }
+    case 'ensureStrategyTester':
+      return ensureStrategyTester();
+    case 'getChartContext':
+      return getChartContext();
+    default:
+      throw new Error('Unknown TradingView bridge action: ' + request.action);
+  }
+};
+
 export default defineUnlistedScript(() => {
   const script = document.currentScript;
   if (!(script instanceof HTMLScriptElement)) return;
 
-  script.addEventListener(REQUEST_EVENT, async (event) => {
+  const handleRequest = async (event: Event): Promise<void> => {
     if (!(event instanceof CustomEvent)) return;
 
     const request = event.detail as BridgeRequest;
@@ -817,116 +911,7 @@ export default defineUnlistedScript(() => {
     }
 
     try {
-      let result: unknown;
-
-      switch (request.action) {
-        case 'detectStrategies':
-          result = detectStrategies();
-          break;
-        case 'readStrategyInputs': {
-          const payload = asRecord(request.payload);
-          if (typeof payload.strategyId !== 'string') {
-            throw new Error('strategyId is required');
-          }
-          result = readStrategyInputs(payload.strategyId);
-          break;
-        }
-        case 'applyParameters': {
-          const payload = asRecord(request.payload);
-          if (typeof payload.strategyId !== 'string') {
-            throw new Error('strategyId is required');
-          }
-          result = applyParameters(payload.strategyId, asRecord(payload.parameters));
-          break;
-        }
-        case 'readMetrics': {
-          const payload = asRecord(request.payload);
-          if (typeof payload.strategyId !== 'string') {
-            throw new Error('strategyId is required');
-          }
-          result = readStrategyMetrics(
-            payload.strategyId,
-            typeof payload.expectedDeepBacktesting === 'boolean'
-              ? payload.expectedDeepBacktesting
-              : undefined,
-          );
-          break;
-        }
-        case 'readReportPollSnapshot': {
-          const payload = asRecord(request.payload);
-          if (typeof payload.strategyId !== 'string') {
-            throw new Error('strategyId is required');
-          }
-          result = readStrategyReportPollSnapshot(
-            payload.strategyId,
-            typeof payload.expectedDeepBacktesting === 'boolean'
-              ? payload.expectedDeepBacktesting
-              : undefined,
-          );
-          break;
-        }
-        case 'readReportSnapshot': {
-          const payload = asRecord(request.payload);
-          if (typeof payload.strategyId !== 'string') {
-            throw new Error('strategyId is required');
-          }
-          result = readStrategyReportSnapshot(payload.strategyId);
-          break;
-        }
-        case 'readClosedTrades': {
-          const payload = asRecord(request.payload);
-          if (typeof payload.strategyId !== 'string') {
-            throw new Error('strategyId is required');
-          }
-          result = readStrategyClosedTrades(payload.strategyId);
-          break;
-        }
-        case 'getStrategySignature': {
-          const payload = asRecord(request.payload);
-          if (typeof payload.strategyId !== 'string') {
-            throw new Error('strategyId is required');
-          }
-          result = getStrategySignature(payload.strategyId);
-          break;
-        }
-        case 'getRunContextSnapshot': {
-          const payload = asRecord(request.payload);
-          if (typeof payload.strategyId !== 'string') {
-            throw new Error('strategyId is required');
-          }
-          result = getRunContextSnapshot(payload.strategyId);
-          break;
-        }
-        case 'resetToChartSession':
-          result = await resetToChartSession();
-          break;
-        case 'configureDeepBacktestRange': {
-          const payload = asRecord(request.payload);
-          if (typeof payload.startDate !== 'string' || typeof payload.endDate !== 'string') {
-            throw new Error('startDate and endDate are required');
-          }
-          result = await configureDeepBacktestRange(payload.startDate, payload.endDate);
-          break;
-        }
-        case 'refreshDeepBacktestReport':
-          result = await refreshDeepBacktestReport();
-          break;
-        case 'diagnostics': {
-          const payload = asRecord(request.payload);
-          result = runDiagnostics(
-            typeof payload.strategyId === 'string' ? payload.strategyId : null,
-          );
-          break;
-        }
-        case 'ensureStrategyTester':
-          result = ensureStrategyTester();
-          break;
-        case 'getChartContext':
-          result = getChartContext();
-          break;
-        default:
-          throw new Error('Unknown TradingView bridge action: ' + request.action);
-      }
+      const result = await dispatchBridgeRequest(request);
 
       script.dispatchEvent(
         new CustomEvent(RESPONSE_EVENT, {
@@ -944,5 +929,10 @@ export default defineUnlistedScript(() => {
         }),
       );
     }
+  };
+  script.addEventListener(REQUEST_EVENT, (event) => {
+    void handleRequest(event).catch((cause) => {
+      console.error('Could not deliver TradingView bridge response', cause);
+    });
   });
 });

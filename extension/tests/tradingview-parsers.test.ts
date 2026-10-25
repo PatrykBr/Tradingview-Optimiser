@@ -3,11 +3,16 @@ import { describe, expect, it } from 'bun:test';
 import {
   buildStrategySignature,
   extractTradingViewMetrics,
+  hashString,
   normalisePineInputs,
   stableStringify,
 } from '../lib/tradingview/parsers';
 
 describe('TradingView parser fixtures', () => {
+  it('preserves saved strategy hashes containing supplementary Unicode characters', () => {
+    expect(hashString('Strategy 🚀')).toBe('f9cd57b9');
+  });
+
   it('serialises shared objects by value while handling actual object and array cycles', () => {
     const shared = { z: 1, a: 2 };
     expect(stableStringify({ b: shared, a: shared })).toBe('{"a":{"a":2,"z":1},"b":{"a":2,"z":1}}');

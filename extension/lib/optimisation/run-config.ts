@@ -19,7 +19,7 @@ const numberOrThrow = (value: string, label: string): number => {
   const parsed = Number(value);
 
   if (!Number.isFinite(parsed)) {
-    throw new Error(label + ' must be a valid number');
+    throw new TypeError(label + ' must be a valid number');
   }
 
   return parsed;
@@ -240,7 +240,7 @@ const parseBoundedInteger = (
   const parsed = parseBoundedNumber(value, label, minimum, maximum);
 
   if (!Number.isInteger(parsed)) {
-    throw new Error(label + ' must be an integer');
+    throw new TypeError(label + ' must be an integer');
   }
 
   return parsed;
@@ -250,6 +250,53 @@ export interface ResearchPlan {
   backtestRange: BacktestRange | null;
   research: ResearchConfig;
 }
+
+const walkForwardSettings = (
+  form: OptimisationDraft,
+): NonNullable<ResearchConfig['walk_forward']> => {
+  const walkForwardFolds = form.walkForwardEnabled
+    ? parseBoundedInteger(form.walkForwardFolds, 'Walk-forward folds', 2, 8)
+    : 3;
+  const walkForwardTrialsPerFold = form.walkForwardEnabled
+    ? parseBoundedInteger(form.walkForwardTrialsPerFold, 'Walk-forward trials per fold', 5, 10_000)
+    : 100;
+  const walkForwardInitialTrainingFraction = form.walkForwardEnabled
+    ? parseBoundedNumber(
+        form.walkForwardInitialTrainingPercent,
+        'Walk-forward initial training percentage',
+        30,
+        80,
+      ) / 100
+    : 0.5;
+  return {
+    enabled: form.walkForwardEnabled,
+    full_range: null,
+    folds: walkForwardFolds,
+    trials_per_fold: walkForwardTrialsPerFold,
+    initial_training_fraction: walkForwardInitialTrainingFraction,
+  };
+};
+
+const monteCarloSettings = (
+  form: OptimisationDraft,
+): NonNullable<ResearchConfig['monte_carlo']> => {
+  const monteCarloSimulations = form.monteCarloEnabled
+    ? parseBoundedInteger(form.monteCarloSimulations, 'Monte Carlo simulations', 500, 50_000)
+    : 5_000;
+  const monteCarloConfidence = form.monteCarloEnabled
+    ? parseBoundedNumber(
+        form.monteCarloConfidencePercent,
+        'Monte Carlo confidence percentage',
+        50,
+        99,
+      ) / 100
+    : 0.9;
+  return {
+    enabled: form.monteCarloEnabled,
+    simulations: monteCarloSimulations,
+    confidence: monteCarloConfidence,
+  };
+};
 
 export const buildResearchPlan = (form: OptimisationDraft, targetTrials: number): ResearchPlan => {
   const fullRange = buildBacktestRange(form);
@@ -299,31 +346,8 @@ export const buildResearchPlan = (form: OptimisationDraft, targetTrials: number)
     ? parseBoundedNumber(form.stabilityPerturbationPercent, 'Stability perturbation', 0.1, 25)
     : 5;
 
-  const walkForwardFolds = form.walkForwardEnabled
-    ? parseBoundedInteger(form.walkForwardFolds, 'Walk-forward folds', 2, 8)
-    : 3;
-  const walkForwardTrialsPerFold = form.walkForwardEnabled
-    ? parseBoundedInteger(form.walkForwardTrialsPerFold, 'Walk-forward trials per fold', 5, 10_000)
-    : 100;
-  const walkForwardInitialTrainingFraction = form.walkForwardEnabled
-    ? parseBoundedNumber(
-        form.walkForwardInitialTrainingPercent,
-        'Walk-forward initial training percentage',
-        30,
-        80,
-      ) / 100
-    : 0.5;
-  const monteCarloSimulations = form.monteCarloEnabled
-    ? parseBoundedInteger(form.monteCarloSimulations, 'Monte Carlo simulations', 500, 50_000)
-    : 5_000;
-  const monteCarloConfidence = form.monteCarloEnabled
-    ? parseBoundedNumber(
-        form.monteCarloConfidencePercent,
-        'Monte Carlo confidence percentage',
-        50,
-        99,
-      ) / 100
-    : 0.9;
+  const walkForward = walkForwardSettings(form);
+  const monteCarlo = monteCarloSettings(form);
 
   if ((form.walkForwardEnabled || form.monteCarloEnabled) && !fullRange) {
     throw new Error(
@@ -334,7 +358,7 @@ export const buildResearchPlan = (form: OptimisationDraft, targetTrials: number)
   let optimisationRange = fullRange;
 
   if (form.walkForwardEnabled && fullRange) {
-    buildWalkForwardPlan(fullRange, walkForwardFolds, walkForwardInitialTrainingFraction);
+    buildWalkForwardPlan(fullRange, walkForward.folds, walkForward.initial_training_fraction);
   }
 
   if (form.robustnessEnabled) {
@@ -360,18 +384,8 @@ export const buildResearchPlan = (form: OptimisationDraft, targetTrials: number)
         enabled: form.stabilityEnabled,
         perturbation_percent: perturbationPercent,
       },
-      walk_forward: {
-        enabled: form.walkForwardEnabled,
-        full_range: form.walkForwardEnabled ? fullRange : null,
-        folds: walkForwardFolds,
-        trials_per_fold: walkForwardTrialsPerFold,
-        initial_training_fraction: walkForwardInitialTrainingFraction,
-      },
-      monte_carlo: {
-        enabled: form.monteCarloEnabled,
-        simulations: monteCarloSimulations,
-        confidence: monteCarloConfidence,
-      },
+      walk_forward: { ...walkForward, full_range: form.walkForwardEnabled ? fullRange : null },
+      monte_carlo: monteCarlo,
     },
   };
 };

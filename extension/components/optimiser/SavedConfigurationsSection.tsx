@@ -10,7 +10,7 @@ export default function SavedConfigurationsSection({
   model,
   locked,
   busy,
-}: SavedConfigurationsSectionProps) {
+}: Readonly<SavedConfigurationsSectionProps>) {
   return (
     <section>
       <div className="rowLabel">

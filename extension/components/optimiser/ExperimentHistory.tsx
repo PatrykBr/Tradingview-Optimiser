@@ -1,3 +1,4 @@
+import { formatValue } from '../../lib/format-value';
 import { useState } from 'react';
 
 import { formatMetric } from '../../lib/optimisation/metrics';
@@ -50,7 +51,7 @@ const comparisonResearchValue = (
   if (key === 'oos') {
     const winner = experiment.research.robustness?.candidates[0];
 
-    if (!winner || winner.validationObjective === null) {
+    if (typeof winner?.validationObjective !== 'number') {
       return 'Unavailable';
     }
 
@@ -122,7 +123,7 @@ export default function ExperimentHistory({
   onLoadExperiment,
   onRerunExperiment,
   onRemoveExperiment,
-}: ExperimentHistoryProps) {
+}: Readonly<ExperimentHistoryProps>) {
   const [leftRunId, setLeftRunId] = useState('');
   const [rightRunId, setRightRunId] = useState('');
 
@@ -232,8 +233,8 @@ export default function ExperimentHistory({
           {comparisonParameters.map((parameter) => (
             <div className="comparisonRow" key={parameter}>
               <span>{inputLabel(parameter)}</span>
-              <code>{String(left.best?.parameters[parameter] ?? 'Unavailable')}</code>
-              <code>{String(right.best?.parameters[parameter] ?? 'Unavailable')}</code>
+              <code>{formatValue(left.best?.parameters[parameter] ?? 'Unavailable')}</code>
+              <code>{formatValue(right.best?.parameters[parameter] ?? 'Unavailable')}</code>
             </div>
           ))}
         </div>

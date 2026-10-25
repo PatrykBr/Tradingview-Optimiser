@@ -1,4 +1,5 @@
-import { combineFailures, isOptimiserErrorCode, toOptimiserError } from '../errors';
+import { withCleanup } from '../async';
+import { combineFailures, errorMessage, isOptimiserErrorCode, toOptimiserError } from '../errors';
 import type { BackgroundMessage, ExtensionRequest } from '../messages';
 import type { CreateRun, RunProgress } from '../protocol/types';
 import { isTerminalStatus, mergeRunUpdate } from './run-progress';
@@ -49,7 +50,7 @@ export const runAuxiliaryStudy = async (request: AuxiliaryStudyRequest): Promise
   const fail = (cause: unknown) => {
     if (settled) return;
     settled = true;
-    rejectProgress?.(cause instanceof Error ? cause : new Error(String(cause)));
+    rejectProgress?.(cause instanceof Error ? cause : new Error(errorMessage(cause)));
   };
 
   const runner = createStudyTrialRunner({
@@ -126,90 +127,83 @@ export const runAuxiliaryStudy = async (request: AuxiliaryStudyRequest): Promise
 
   request.signal?.addEventListener('abort', abortListener, { once: true });
 
-  let primaryFailure: unknown | undefined;
-
-  try {
-    await request.transport.request({
-      type: 'CREATE_RUN',
-      payload: request.config,
-    });
-
-    await request.transport.request({
-      type: 'START_RUN',
-      payload: {
-        run_id: request.config.run_id,
-      },
-    });
-
-    return await completion;
-  } catch (cause) {
-    primaryFailure = cause;
-    throw cause;
-  } finally {
-    runner.dispose();
-    unsubscribe();
-    request.signal?.removeEventListener('abort', abortListener);
-
-    let cleanupFailure: unknown | undefined;
-
-    try {
+  return withCleanup(
+    async () => {
       await request.transport.request({
-        type: 'ABORT_RUN',
+        type: 'CREATE_RUN',
+        payload: request.config,
+      });
+
+      await request.transport.request({
+        type: 'START_RUN',
         payload: {
           run_id: request.config.run_id,
-          reason: 'Cleaning up temporary optimisation study',
         },
       });
-    } catch (cause) {
-      if (!isOptimiserErrorCode(cause, 'UNKNOWN_RUN')) {
-        cleanupFailure = cause;
+
+      return await completion;
+    },
+    async () => {
+      runner.dispose();
+      unsubscribe();
+      request.signal?.removeEventListener('abort', abortListener);
+
+      let cleanupFailure: unknown;
+
+      try {
+        await request.transport.request({
+          type: 'ABORT_RUN',
+          payload: {
+            run_id: request.config.run_id,
+            reason: 'Cleaning up temporary optimisation study',
+          },
+        });
+      } catch (cause) {
+        if (!isOptimiserErrorCode(cause, 'UNKNOWN_RUN')) {
+          cleanupFailure = cause;
+        }
       }
-    }
 
-    try {
-      await request.transport.request({
-        type: 'DELETE_RUN',
-        payload: {
-          run_id: request.config.run_id,
-        },
-      });
-    } catch (cause) {
-      if (!isOptimiserErrorCode(cause, 'UNKNOWN_RUN')) {
+      try {
+        await request.transport.request({
+          type: 'DELETE_RUN',
+          payload: {
+            run_id: request.config.run_id,
+          },
+        });
+      } catch (cause) {
+        if (!isOptimiserErrorCode(cause, 'UNKNOWN_RUN')) {
+          cleanupFailure =
+            cleanupFailure === undefined
+              ? cause
+              : combineFailures(
+                  cleanupFailure,
+                  cause,
+                  'Temporary-study cleanup failed in multiple steps',
+                );
+        }
+      }
+
+      try {
+        await request.transport.request({
+          type: 'CLEAR_RUN_OWNER',
+          payload: {
+            runId: request.config.run_id,
+          },
+        });
+      } catch (cause) {
         cleanupFailure =
           cleanupFailure === undefined
             ? cause
             : combineFailures(
                 cleanupFailure,
                 cause,
-                'Temporary-study cleanup failed in multiple steps',
+                'Temporary-study ownership cleanup also failed',
               );
       }
-    }
 
-    try {
-      await request.transport.request({
-        type: 'CLEAR_RUN_OWNER',
-        payload: {
-          runId: request.config.run_id,
-        },
-      });
-    } catch (cause) {
-      cleanupFailure =
-        cleanupFailure === undefined
-          ? cause
-          : combineFailures(cleanupFailure, cause, 'Temporary-study ownership cleanup also failed');
-    }
-
-    if (cleanupFailure !== undefined) {
-      if (primaryFailure !== undefined) {
-        throw combineFailures(
-          primaryFailure,
-          cleanupFailure,
-          'Auxiliary optimisation failed and cleanup also failed',
-        );
-      }
-
-      throw toOptimiserError(cleanupFailure);
-    }
-  }
+      if (cleanupFailure !== undefined) throw toOptimiserError(cleanupFailure);
+    },
+    'Auxiliary optimisation failed and cleanup also failed',
+  );
 };
