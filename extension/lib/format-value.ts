@@ -1,6 +1,19 @@
 /** Display unknown values without losing object contents to default string coercion. */
 export const formatValue = (value: unknown): string => {
-  if (value === null || typeof value !== 'object') return String(value);
+  switch (typeof value) {
+    case 'string':
+      return value;
+    case 'number':
+    case 'boolean':
+    case 'bigint':
+    case 'symbol':
+    case 'function':
+      return value.toString();
+    case 'undefined':
+      return 'undefined';
+    default:
+      break;
+  }
 
   try {
     return (

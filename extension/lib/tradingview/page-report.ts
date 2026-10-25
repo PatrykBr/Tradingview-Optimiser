@@ -256,7 +256,7 @@ const waitForValue = async <T>(
     if (Date.now() >= deadline) return null;
     await sleep(pollMs);
     const value = read();
-    return value === null ? poll() : value;
+    return value ?? poll();
   };
   return poll();
 };
